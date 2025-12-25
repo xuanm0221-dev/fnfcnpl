@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ApiResponse, PlLine } from '@/lib/plforecast/types';
 import { brandTabs } from '@/lib/plforecast/brand';
@@ -78,12 +78,12 @@ export default function PlForecastPage() {
   };
 
   // 행 렌더링 (재귀)
-  const renderRow = (line: PlLine, depth: number = 0): JSX.Element[] => {
+  const renderRow = (line: PlLine, depth: number = 0): React.ReactNode[] => {
     const isExpanded = expandedRows.has(line.id);
     const hasChildren = line.children && line.children.length > 0;
     const indent = depth * 24;
 
-    const rows: JSX.Element[] = [];
+    const rows: React.ReactNode[] = [];
 
     rows.push(
       <tr
