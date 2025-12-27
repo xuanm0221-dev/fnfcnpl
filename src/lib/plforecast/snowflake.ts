@@ -218,3 +218,138 @@ export function getPrevYearMonth(ym: string): string {
   return `${year - 1}-${String(month).padStart(2, '0')}`;
 }
 
+// 주차별 누적 매출 조회 (일요일 기준)
+interface WeeklyResult {
+  WEEK_END: string;
+  CUR_ACCUM: number;
+  PREV_ACCUM: number;
+}
+
+export async function getWeeklySalesAccum(
+  ym: string,
+  lastDt: string,
+  brandCodes: BrandCode[]
+): Promise<{ weekEnd: string; curAccum: number; prevAccum: number }[]> {
+  const connection = await getConnection();
+  try {
+    const prevYm = getPrevYearMonth(ym);
+    
+    // 일요일 기준 주차별 누적 (당월)
+    const sql = `
+      WITH sundays AS (
+        SELECT DISTINCT 
+          NEXT_DAY(pst_dt, 'SU') as week_end
+        FROM sap_fnf.dw_cn_copa_d
+        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+          AND pst_dt <= ?
+          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
+      ),
+      cur_data AS (
+        SELECT 
+          NEXT_DAY(pst_dt, 'SU') as week_end,
+          SUM(VAT_INC_ACT_SALE_AMT) as sale_amt
+        FROM sap_fnf.dw_cn_copa_d
+        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+          AND pst_dt <= ?
+          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY NEXT_DAY(pst_dt, 'SU')
+      ),
+      prev_data AS (
+        SELECT 
+          NEXT_DAY(DATEADD(year, 1, pst_dt), 'SU') as week_end,
+          SUM(VAT_INC_ACT_SALE_AMT) as sale_amt
+        FROM sap_fnf.dw_cn_copa_d
+        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY NEXT_DAY(DATEADD(year, 1, pst_dt), 'SU')
+      )
+      SELECT 
+        s.week_end::VARCHAR as WEEK_END,
+        COALESCE(SUM(c.sale_amt) OVER (ORDER BY s.week_end), 0) as CUR_ACCUM,
+        COALESCE(SUM(p.sale_amt) OVER (ORDER BY s.week_end), 0) as PREV_ACCUM
+      FROM sundays s
+      LEFT JOIN cur_data c ON s.week_end = c.week_end
+      LEFT JOIN prev_data p ON s.week_end = p.week_end
+      ORDER BY s.week_end
+    `;
+    
+    const binds = [
+      ym, lastDt, ...brandCodes,
+      ym, lastDt, ...brandCodes,
+      prevYm, ...brandCodes
+    ];
+    
+    const rows = await executeQuery<WeeklyResult>(connection, sql, binds);
+    
+    return rows.map((row) => ({
+      weekEnd: row.WEEK_END,
+      curAccum: Number(row.CUR_ACCUM) || 0,
+      prevAccum: Number(row.PREV_ACCUM) || 0,
+    }));
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// 일별 누적 매출 조회 (누적 탭용)
+interface DailyAccumResult {
+  PST_DT: string;
+  CUR_ACCUM: number;
+  PREV_ACCUM: number;
+}
+
+export async function getDailySalesAccum(
+  ym: string,
+  lastDt: string,
+  brandCodes: BrandCode[]
+): Promise<{ date: string; curAccum: number; prevAccum: number }[]> {
+  const connection = await getConnection();
+  try {
+    const prevYm = getPrevYearMonth(ym);
+    
+    const sql = `
+      WITH cur_daily AS (
+        SELECT 
+          pst_dt,
+          SUM(SUM(VAT_INC_ACT_SALE_AMT)) OVER (ORDER BY pst_dt) as accum
+        FROM sap_fnf.dw_cn_copa_d
+        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+          AND pst_dt <= ?
+          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY pst_dt
+      ),
+      prev_daily AS (
+        SELECT 
+          DATEADD(year, 1, pst_dt) as pst_dt,
+          SUM(SUM(VAT_INC_ACT_SALE_AMT)) OVER (ORDER BY pst_dt) as accum
+        FROM sap_fnf.dw_cn_copa_d
+        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY pst_dt
+      )
+      SELECT 
+        c.pst_dt::VARCHAR as PST_DT,
+        c.accum as CUR_ACCUM,
+        COALESCE(p.accum, 0) as PREV_ACCUM
+      FROM cur_daily c
+      LEFT JOIN prev_daily p ON c.pst_dt = p.pst_dt
+      ORDER BY c.pst_dt
+    `;
+    
+    const binds = [
+      ym, lastDt, ...brandCodes,
+      prevYm, ...brandCodes
+    ];
+    
+    const rows = await executeQuery<DailyAccumResult>(connection, sql, binds);
+    
+    return rows.map((row) => ({
+      date: row.PST_DT,
+      curAccum: Number(row.CUR_ACCUM) || 0,
+      prevAccum: Number(row.PREV_ACCUM) || 0,
+    }));
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+

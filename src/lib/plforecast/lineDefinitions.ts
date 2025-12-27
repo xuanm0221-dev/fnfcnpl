@@ -484,6 +484,16 @@ export const lineDefinitions: LineDefinition[] = [
       },
     ],
   },
+
+  // 8) 영업이익 (계산행)
+  {
+    id: 'operating-profit',
+    label: '영업이익',
+    level: 0,
+    isParent: false,
+    isCalculated: true,
+    type: 'operatingProfit',
+  },
 ];
 
 // 대리상지원금 계산에 사용되는 item (다른 라인 합산에서 제외)

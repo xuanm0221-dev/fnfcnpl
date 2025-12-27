@@ -15,6 +15,65 @@ export interface PlLine {
   defaultExpanded?: boolean; // 기본 펼침 상태
 }
 
+// 카드 요약 데이터 (개별 카드)
+export interface CardData {
+  accumValue: number | null; // 현시점(누적) 금액
+  accumRate: number | null; // 현시점 비율 (할인율/이익율)
+  forecastValue: number | null; // 월말예상 금액
+  forecastRate: number | null; // 월말예상 비율
+  targetRate: number | null; // 목표대비 (달성율)
+  yoyRate: number | null; // 전년대비
+}
+
+// 카드 요약 전체
+export interface CardSummary {
+  // 카드1: 실판매출(할인율)
+  actSale: CardData;
+  // 카드2: 직접이익(이익율)
+  directProfit: CardData;
+  // 카드3: 영업이익(이익율)
+  operatingProfit: CardData;
+  // 카드4: 직접이익 진척률
+  directProfitProgress: {
+    accumRate: number | null; // 현시점 진척률
+    forecastRate: number | null; // 월말예상 진척률
+  };
+}
+
+// 차트용 데이터 타입
+export interface BrandSalesData {
+  brand: string;
+  brandCode: BrandCode;
+  sales: number; // 실판(V+)
+  operatingProfit: number; // 영업이익
+}
+
+export interface BrandRadarData {
+  brand: string;
+  target: number; // 목표 달성율 (%)
+  prevYear: number; // 전년비 (%)
+}
+
+export interface WaterfallData {
+  name: string;
+  value: number;
+  type: 'positive' | 'negative' | 'subtotal' | 'total';
+}
+
+export interface TrendData {
+  label: string; // 주차 라벨 또는 날짜
+  curAccum: number; // 당년 누적
+  prevAccum: number; // 전년 누적
+}
+
+export interface ChartData {
+  brandSales: BrandSalesData[]; // 브랜드별 매출/영업이익
+  brandRadar: BrandRadarData[]; // 브랜드별 레이더
+  waterfall: WaterfallData[]; // 손익 구조
+  weeklyTrend: TrendData[]; // 주차별 추이
+  dailyTrend: TrendData[]; // 일별 누적 추이
+}
+
 // API 응답 타입
 export interface ApiResponse {
   ym: string; // YYYY-MM
@@ -23,6 +82,8 @@ export interface ApiResponse {
   accumDays: number; // 누적일수
   monthDays: number; // 당월일수 (달력일수)
   lines: PlLine[];
+  summary?: CardSummary; // 카드용 요약 데이터
+  charts?: ChartData; // 차트용 데이터 (전체 페이지만)
   error?: string;
 }
 
@@ -80,7 +141,7 @@ export interface LineDefinition {
   level2?: string;
   level3?: string;
   // 특수 처리 타입
-  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'opexSum' | 'dealerSupport';
+  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'opexSum' | 'dealerSupport' | 'operatingProfit';
   // 직접비/영업비 분류 (월말예상 계산 방식 결정)
   costCategory?: 'direct' | 'opex';
   children?: LineDefinition[];

@@ -1,5 +1,19 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## PL Forecast Dashboard 규칙
+
+### 단위 표기
+- **모든 금액은 K 단위 사용** (예: `94,912K`)
+- 억원, 만원 등 다른 단위 사용하지 않음
+- 단위 표기: `CNY K (천 위안)`
+
+### 계산 방식
+- **직접비 월말예상**: 목표직접비 ÷ 목표실판(V-) × 월말예상실판(V-) (매출 연동)
+- **영업비 월말예상**: 목표 영업비 그대로 사용 (고정비 성격)
+- **달성율**: 월말예상 ÷ 목표 × 100%
+- **직접이익**: 매출총이익 - 직접비
+- **영업이익**: 매출총이익 - 직접비 - 영업비
+
 ## Getting Started
 
 First, run the development server:

@@ -1,9 +1,9 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from 'next/server';
-import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, TrendData } from '@/lib/plforecast/types';
 import { lineDefinitions, vatExcludedItem } from '@/lib/plforecast/lineDefinitions';
-import { allBrandCodes, isValidBrandCode, codeToLabel } from '@/lib/plforecast/brand';
+import { allBrandCodes, isValidBrandCode } from '@/lib/plforecast/brand';
 import { accountMappingCsv } from '@/data/plforecast/accountMapping';
 import { getTargetCsv } from '@/data/plforecast/targets';
 import {
@@ -21,7 +21,10 @@ import {
   getDealerSupportActuals,
   getMonthDays,
   getPrevYearMonth,
+  getWeeklySalesAccum,
+  getDailySalesAccum,
 } from '@/lib/plforecast/snowflake';
+import { codeToLabel } from '@/lib/plforecast/brand';
 
 // 계정맵핑 파싱 (캐시)
 let accountMappings: AccountMapping[] | null = null;
@@ -62,31 +65,6 @@ function sumByLevel(
   return sum;
 }
 
-// 월말예상 계산
-function calcForecast(
-  accum: number,
-  accumDays: number,
-  monthDays: number,
-  costCategory?: 'direct' | 'opex'
-): number {
-  if (accumDays === 0) return 0;
-  
-  // 직접비: (누적/누적일수) × 당월일수
-  if (costCategory === 'direct') {
-    return (accum / accumDays) * monthDays;
-  }
-  
-  // 영업비: 목표 그대로 (월 고정비이므로)
-  // 실제로는 누적 그대로 사용하거나 목표를 사용해야 함
-  // 여기서는 일단 직접비와 동일하게 계산
-  if (costCategory === 'opex') {
-    return (accum / accumDays) * monthDays;
-  }
-  
-  // 기본: (누적/누적일수) × 당월일수
-  return (accum / accumDays) * monthDays;
-}
-
 // 개별 브랜드 데이터 계산
 async function calcBrandData(
   ym: string,
@@ -125,6 +103,15 @@ async function calcBrandData(
   };
 }
 
+// 계산된 값들을 저장하는 컨텍스트 (영업이익 계산용)
+interface CalcContext {
+  vatExcForecast: number; // 실판(V-) 월말예상
+  grossProfitForecast: number; // 매출총이익 월말예상
+  directCostSumForecast: number; // 직접비 합계 월말예상
+  opexSumForecast: number; // 영업비 합계 월말예상
+  vatExcTarget: number; // 목표 실판(V-)
+}
+
 // PlLine 빌드 (재귀)
 function buildPlLine(
   def: LineDefinition,
@@ -138,7 +125,8 @@ function buildPlLine(
   },
   mappings: AccountMapping[],
   targets: TargetRow[],
-  brandCode: BrandCode | 'all'
+  brandCode: BrandCode | 'all',
+  context: CalcContext
 ): PlLine {
   const getTarget = brandCode === 'all'
     ? (l1?: string, l2?: string, l3?: string) => getTargetValueAll(targets, l1, l2, l3)
@@ -160,28 +148,105 @@ function buildPlLine(
       accum = data.accum[vatExcludedItem] || 0;
       target = getTarget('실판(V-)', '실판(V-)', '실판(V-)');
       forecast = data.accumDays > 0 ? (accum / data.accumDays) * data.monthDays : null;
+      
+      // 컨텍스트에 저장 (직접비 계산에 사용)
+      if (forecast !== null) {
+        context.vatExcForecast = forecast;
+      }
+      if (target !== null) {
+        context.vatExcTarget = target;
+      }
       break;
 
     case 'dealerSupport':
-      // 대리상지원금 (특수 계산)
+      // 대리상지원금 (특수 계산) - 직접비이므로 매출 연동
       prevYear = data.dealerSupportPrevYear;
       accum = data.dealerSupportAccum;
       target = getTarget(def.level1, def.level2, def.level3);
-      forecast = data.accumDays > 0 ? calcForecast(accum, data.accumDays, data.monthDays, def.costCategory) : null;
+      
+      // 직접비: 목표직접비 / 목표실판(V-) × 월말예상실판(V-)
+      if (target !== null && context.vatExcTarget > 0 && context.vatExcForecast > 0) {
+        forecast = (target / context.vatExcTarget) * context.vatExcForecast;
+      } else {
+        forecast = null;
+      }
       break;
 
     case 'cogsSum':
-    case 'directCostSum':
-    case 'opexSum':
-      // 자식 합계 (children이 있으면 자식 합산)
+      // 매출원가 합계 (자식 합산)
       if (def.children) {
         const childLines = def.children.map((child) =>
-          buildPlLine(child, data, mappings, targets, brandCode)
+          buildPlLine(child, data, mappings, targets, brandCode, context)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
         target = childLines.reduce((sum, c) => sum + (c.target || 0), 0);
         forecast = childLines.reduce((sum, c) => sum + (c.forecast || 0), 0);
+
+        return {
+          id: def.id,
+          label: def.label,
+          level: def.level,
+          isParent: def.isParent,
+          isCalculated: def.isCalculated,
+          prevYear,
+          target,
+          accum,
+          forecast,
+          yoyRate: calcYoyRate(forecast, prevYear),
+          achvRate: calcAchvRate(forecast, target),
+          defaultExpanded: def.defaultExpanded,
+          children: childLines,
+        };
+      }
+      break;
+
+    case 'directCostSum':
+      // 직접비 합계 (자식 합산, 매출 연동 계산)
+      if (def.children) {
+        const childLines = def.children.map((child) =>
+          buildPlLine(child, data, mappings, targets, brandCode, context)
+        );
+        prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
+        accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
+        target = childLines.reduce((sum, c) => sum + (c.target || 0), 0);
+        forecast = childLines.reduce((sum, c) => sum + (c.forecast || 0), 0);
+
+        // 컨텍스트에 저장 (영업이익 계산용)
+        context.directCostSumForecast = forecast || 0;
+
+        return {
+          id: def.id,
+          label: def.label,
+          level: def.level,
+          isParent: def.isParent,
+          isCalculated: def.isCalculated,
+          prevYear,
+          target,
+          accum,
+          forecast,
+          yoyRate: calcYoyRate(forecast, prevYear),
+          achvRate: calcAchvRate(forecast, target),
+          defaultExpanded: def.defaultExpanded,
+          children: childLines,
+        };
+      }
+      break;
+
+    case 'opexSum':
+      // 영업비 합계 (자식 합산, 목표 그대로 사용)
+      if (def.children) {
+        const childLines = def.children.map((child) =>
+          buildPlLine(child, data, mappings, targets, brandCode, context)
+        );
+        prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
+        accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
+        target = childLines.reduce((sum, c) => sum + (c.target || 0), 0);
+        // 영업비 월말예상 = 목표 그대로 (고정비)
+        forecast = target;
+
+        // 컨텍스트에 저장 (영업이익 계산용)
+        context.opexSumForecast = forecast || 0;
 
         return {
           id: def.id,
@@ -216,14 +281,51 @@ function buildPlLine(
       accum = vatExcAccum - cogsAccum;
 
       // 목표 계산
-      const vatExcTarget = getTarget('실판(V-)', '실판(V-)', '실판(V-)') || 0;
+      const vatExcTargetGP = getTarget('실판(V-)', '실판(V-)', '실판(V-)') || 0;
       const cogsTarget = (getTarget('매출원가', '매출원가', '매출원가') || 0)
         + (getTarget('평가감') || 0);
-      target = vatExcTarget - cogsTarget;
+      target = vatExcTargetGP - cogsTarget;
 
-      const vatExcForecast = data.accumDays > 0 ? (vatExcAccum / data.accumDays) * data.monthDays : 0;
+      const vatExcForecastGP = data.accumDays > 0 ? (vatExcAccum / data.accumDays) * data.monthDays : 0;
       const cogsForecast = data.accumDays > 0 ? (cogsAccum / data.accumDays) * data.monthDays : 0;
-      forecast = vatExcForecast - cogsForecast;
+      forecast = vatExcForecastGP - cogsForecast;
+
+      // 컨텍스트에 저장 (영업이익 계산용)
+      context.grossProfitForecast = forecast;
+      break;
+
+    case 'operatingProfit':
+      // 영업이익 = 매출총이익 - 직접비합계 - 영업비합계
+      // 전년, 누적도 동일한 로직으로 계산
+      const vatExcPY = data.prevYear[vatExcludedItem] || 0;
+      const vatExcAcc = data.accum[vatExcludedItem] || 0;
+      
+      const cogsPY = sumByLevel(data.prevYear, mappings, '매출원가')
+        + sumByLevel(data.prevYear, mappings, '평가감');
+      const cogsAcc = sumByLevel(data.accum, mappings, '매출원가')
+        + sumByLevel(data.accum, mappings, '평가감');
+      
+      const directPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems)
+        + data.dealerSupportPrevYear;
+      const directAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems)
+        + data.dealerSupportAccum;
+      
+      const opexPY = sumByLevel(data.prevYear, mappings, '영업비');
+      const opexAcc = sumByLevel(data.accum, mappings, '영업비');
+      
+      prevYear = (vatExcPY - cogsPY) - directPY - opexPY;
+      accum = (vatExcAcc - cogsAcc) - directAcc - opexAcc;
+      
+      // 목표
+      const vatExcTgt = getTarget('실판(V-)', '실판(V-)', '실판(V-)') || 0;
+      const cogsTgt = (getTarget('매출원가', '매출원가', '매출원가') || 0)
+        + (getTarget('평가감') || 0);
+      const directTgt = getTarget('직접비') || 0;
+      const opexTgt = getTarget('영업비') || 0;
+      target = (vatExcTgt - cogsTgt) - directTgt - opexTgt;
+      
+      // 월말예상 = 매출총이익 월말예상 - 직접비 월말예상 - 영업비 월말예상
+      forecast = context.grossProfitForecast - context.directCostSumForecast - context.opexSumForecast;
       break;
 
     default:
@@ -235,7 +337,23 @@ function buildPlLine(
         accum = sumByLevel(data.accum, mappings, def.level1, def.level2, def.level3,
           def.level2 === '대리상지원금' ? [] : excludeItems);
         target = getTarget(def.level1, def.level2, def.level3);
-        forecast = data.accumDays > 0 ? calcForecast(accum, data.accumDays, data.monthDays, def.costCategory) : null;
+        
+        // 직접비: 목표직접비 / 목표실판(V-) × 월말예상실판(V-)
+        if (def.costCategory === 'direct') {
+          if (target !== null && context.vatExcTarget > 0 && context.vatExcForecast > 0) {
+            forecast = (target / context.vatExcTarget) * context.vatExcForecast;
+          } else {
+            forecast = null;
+          }
+        }
+        // 영업비: 목표 그대로 (고정비)
+        else if (def.costCategory === 'opex') {
+          forecast = target;
+        }
+        // 기타: 일할 계산
+        else {
+          forecast = data.accumDays > 0 ? (accum / data.accumDays) * data.monthDays : null;
+        }
       }
       break;
   }
@@ -244,7 +362,7 @@ function buildPlLine(
   let children: PlLine[] | undefined;
   if (def.children && def.type !== 'cogsSum' && def.type !== 'directCostSum' && def.type !== 'opexSum') {
     children = def.children.map((child) =>
-      buildPlLine(child, data, mappings, targets, brandCode)
+      buildPlLine(child, data, mappings, targets, brandCode, context)
     );
   }
 
@@ -262,6 +380,185 @@ function buildPlLine(
     achvRate: calcAchvRate(forecast, target),
     defaultExpanded: def.defaultExpanded,
     children,
+  };
+}
+
+// 카드 요약 데이터 빌드
+function buildCardSummary(
+  lines: PlLine[],
+  data: {
+    prevYear: Record<string, number>;
+    accum: Record<string, number>;
+    accumDays: number;
+    monthDays: number;
+  },
+  context: CalcContext
+): CardSummary {
+  // lines에서 필요한 데이터 추출
+  const findLine = (id: string) => lines.find((l) => l.id === id);
+  
+  const tagSale = findLine('tag-sale');
+  const actSaleVatInc = findLine('act-sale-vat-inc'); // 실판(V+)
+  const actSaleVatExc = findLine('act-sale-vat-exc'); // 실판(V-)
+  const grossProfit = findLine('gross-profit');
+  const directCostSum = findLine('direct-cost-sum');
+  const opexSum = findLine('opex-sum');
+  const operatingProfit = findLine('operating-profit');
+
+  // 직접이익 = 매출총이익 - 직접비
+  const directProfitAccum = (grossProfit?.accum || 0) - (directCostSum?.accum || 0);
+  const directProfitForecast = (grossProfit?.forecast || 0) - (directCostSum?.forecast || 0);
+  const directProfitPrevYear = (grossProfit?.prevYear || 0) - (directCostSum?.prevYear || 0);
+  const directProfitTarget = (grossProfit?.target || 0) - (directCostSum?.target || 0);
+
+  // 카드1: 실판매출(할인율) - 실판(V+) 사용
+  // 할인율 = 1 - 실판(V+)/Tag매출
+  const actSaleAccum = actSaleVatInc?.accum || 0;
+  const actSaleForecast = actSaleVatInc?.forecast || 0;
+  const actSalePrevYear = actSaleVatInc?.prevYear || 0;
+  const tagSaleAccum = tagSale?.accum || 0;
+  const tagSaleForecast = tagSale?.forecast || 0;
+
+  const discountRateAccum = tagSaleAccum > 0 ? 1 - (actSaleAccum / tagSaleAccum) : null;
+  const discountRateForecast = tagSaleForecast > 0 ? 1 - (actSaleForecast / tagSaleForecast) : null;
+
+  // 실판(V-) 기준 이익율
+  const vatExcAccum = actSaleVatExc?.accum || 0;
+  const vatExcForecast = actSaleVatExc?.forecast || 0;
+
+  // 직접이익 이익율
+  const directProfitRateAccum = vatExcAccum > 0 ? directProfitAccum / vatExcAccum : null;
+  const directProfitRateForecast = vatExcForecast > 0 ? directProfitForecast / vatExcForecast : null;
+
+  // 영업이익 이익율
+  const opProfitAccum = operatingProfit?.accum || 0;
+  const opProfitForecast = operatingProfit?.forecast || 0;
+  const opProfitRateAccum = vatExcAccum > 0 ? opProfitAccum / vatExcAccum : null;
+  const opProfitRateForecast = vatExcForecast > 0 ? opProfitForecast / vatExcForecast : null;
+
+  // 직접이익 진척률 = 누적/목표
+  const directProfitProgressAccum = directProfitTarget !== 0 ? directProfitAccum / directProfitTarget : null;
+  const directProfitProgressForecast = directProfitTarget !== 0 ? directProfitForecast / directProfitTarget : null;
+
+  return {
+    // 카드1: 실판매출(할인율)
+    actSale: {
+      accumValue: actSaleAccum,
+      accumRate: discountRateAccum,
+      forecastValue: actSaleForecast,
+      forecastRate: discountRateForecast,
+      targetRate: actSaleVatInc?.achvRate ?? null,
+      yoyRate: actSaleVatInc?.yoyRate ?? null,
+    },
+    // 카드2: 직접이익(이익율)
+    directProfit: {
+      accumValue: directProfitAccum,
+      accumRate: directProfitRateAccum,
+      forecastValue: directProfitForecast,
+      forecastRate: directProfitRateForecast,
+      targetRate: directProfitTarget !== 0 ? directProfitForecast / directProfitTarget : null,
+      yoyRate: directProfitPrevYear !== 0 ? (directProfitForecast / directProfitPrevYear) - 1 : null,
+    },
+    // 카드3: 영업이익(이익율)
+    operatingProfit: {
+      accumValue: opProfitAccum,
+      accumRate: opProfitRateAccum,
+      forecastValue: opProfitForecast,
+      forecastRate: opProfitRateForecast,
+      targetRate: operatingProfit?.achvRate ?? null,
+      yoyRate: operatingProfit?.yoyRate ?? null,
+    },
+    // 카드4: 직접이익 진척률
+    directProfitProgress: {
+      accumRate: directProfitProgressAccum,
+      forecastRate: directProfitProgressForecast,
+    },
+  };
+}
+
+// 차트 데이터 빌드 (전체 페이지용)
+async function buildChartData(
+  ym: string,
+  lastDt: string,
+  brandDataMap: Map<BrandCode, { lines: PlLine[]; prevYear: Record<string, number>; accum: Record<string, number> }>,
+  allLines: PlLine[],
+  brandCodes: BrandCode[]
+): Promise<ChartData> {
+  // 1. 브랜드별 매출/영업이익
+  const brandSales: BrandSalesData[] = [];
+  const brandRadar: BrandRadarData[] = [];
+  
+  for (const code of brandCodes) {
+    const data = brandDataMap.get(code);
+    if (data) {
+      const actSale = data.lines.find(l => l.id === 'act-sale-vat-inc');
+      const opProfit = data.lines.find(l => l.id === 'operating-profit');
+      
+      brandSales.push({
+        brand: codeToLabel(code),
+        brandCode: code,
+        sales: actSale?.forecast || 0,
+        operatingProfit: opProfit?.forecast || 0,
+      });
+      
+      brandRadar.push({
+        brand: codeToLabel(code),
+        target: (actSale?.achvRate || 0) * 100,
+        prevYear: ((actSale?.yoyRate || 0) + 1) * 100,
+      });
+    }
+  }
+  
+  // 2. Waterfall 차트 데이터 (7단계)
+  const findLine = (id: string) => allLines.find(l => l.id === id);
+  const actSaleVatExc = findLine('act-sale-vat-exc');
+  const cogsSum = findLine('cogs-sum');
+  const grossProfit = findLine('gross-profit');
+  const directCostSum = findLine('direct-cost-sum');
+  const opexSum = findLine('opex-sum');
+  const operatingProfit = findLine('operating-profit');
+  
+  // 직접이익 계산
+  const directProfitForecast = (grossProfit?.forecast || 0) - (directCostSum?.forecast || 0);
+  
+  const waterfall: WaterfallData[] = [
+    { name: '실판매출', value: actSaleVatExc?.forecast || 0, type: 'positive' },
+    { name: '매출원가', value: -(cogsSum?.forecast || 0), type: 'negative' },
+    { name: '매출총이익', value: grossProfit?.forecast || 0, type: 'subtotal' },
+    { name: '직접비', value: -(directCostSum?.forecast || 0), type: 'negative' },
+    { name: '직접이익', value: directProfitForecast, type: 'subtotal' },
+    { name: '영업비', value: -(opexSum?.forecast || 0), type: 'negative' },
+    { name: '영업이익', value: operatingProfit?.forecast || 0, type: 'total' },
+  ];
+  
+  // 3. 주차별/일별 추이 데이터
+  let weeklyTrend: TrendData[] = [];
+  let dailyTrend: TrendData[] = [];
+  
+  try {
+    const weeklyData = await getWeeklySalesAccum(ym, lastDt, brandCodes);
+    weeklyTrend = weeklyData.map(d => ({
+      label: d.weekEnd.substring(5, 10).replace('-', '/'),
+      curAccum: d.curAccum,
+      prevAccum: d.prevAccum,
+    }));
+    
+    const dailyData = await getDailySalesAccum(ym, lastDt, brandCodes);
+    dailyTrend = dailyData.map(d => ({
+      label: d.date.substring(5, 10).replace('-', '/'),
+      curAccum: d.curAccum,
+      prevAccum: d.prevAccum,
+    }));
+  } catch (err) {
+    console.error('Error fetching trend data:', err);
+  }
+  
+  return {
+    brandSales,
+    brandRadar,
+    waterfall,
+    weeklyTrend,
+    dailyTrend,
   };
 }
 
@@ -312,6 +609,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     
     // 각 브랜드별 데이터 조회
     const brandDataList: Awaited<ReturnType<typeof calcBrandData>>[] = [];
+    const brandDataMap = new Map<BrandCode, { lines: PlLine[]; prevYear: Record<string, number>; accum: Record<string, number> }>();
     
     for (const code of brandCodes) {
       const codeDt = lastDates[code] || '';
@@ -324,6 +622,35 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         brandDataList.push(bData);
         if (bData.accumDays > accumDays) {
           accumDays = bData.accumDays;
+        }
+      }
+    }
+    
+    // 브랜드별 개별 lines 생성 (차트용)
+    if (brand === 'all') {
+      for (const code of brandCodes) {
+        const bDataIdx = brandCodes.indexOf(code);
+        const bData = brandDataList[bDataIdx];
+        if (bData) {
+          const bContext: CalcContext = {
+            vatExcForecast: 0,
+            grossProfitForecast: 0,
+            directCostSumForecast: 0,
+            opexSumForecast: 0,
+            vatExcTarget: 0,
+          };
+          const bMerged = {
+            prevYear: bData.prevYear,
+            accum: bData.accum,
+            accumDays: bData.accumDays,
+            monthDays,
+            dealerSupportPrevYear: bData.dealerSupportPrevYear,
+            dealerSupportAccum: bData.dealerSupportAccum,
+          };
+          const bLines = lineDefinitions.map((def) =>
+            buildPlLine(def, bMerged, mappings, targets, code, bContext)
+          );
+          brandDataMap.set(code, { lines: bLines, prevYear: bData.prevYear, accum: bData.accum });
         }
       }
     }
@@ -390,10 +717,28 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       };
     }
 
+    // 계산 컨텍스트 초기화
+    const context: CalcContext = {
+      vatExcForecast: 0,
+      grossProfitForecast: 0,
+      directCostSumForecast: 0,
+      opexSumForecast: 0,
+      vatExcTarget: 0,
+    };
+
     // PlLine 빌드
     const lines: PlLine[] = lineDefinitions.map((def) =>
-      buildPlLine(def, mergedData, mappings, targets, brand === 'all' ? 'all' : (brand as BrandCode))
+      buildPlLine(def, mergedData, mappings, targets, brand === 'all' ? 'all' : (brand as BrandCode), context)
     );
+
+    // 카드 요약 데이터 계산
+    const summary = buildCardSummary(lines, mergedData, context);
+
+    // 차트 데이터 (전체 페이지만)
+    let charts: ChartData | undefined;
+    if (brand === 'all' && brandDataMap.size > 0) {
+      charts = await buildChartData(ym, lastDt, brandDataMap, lines, brandCodes);
+    }
 
     return NextResponse.json({
       ym,
@@ -402,6 +747,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       accumDays,
       monthDays,
       lines,
+      summary,
+      charts,
     });
   } catch (error) {
     console.error('API Error:', error);
@@ -422,4 +769,3 @@ function getCurrentYm(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
-
