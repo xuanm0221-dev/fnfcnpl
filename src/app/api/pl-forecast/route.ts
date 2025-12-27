@@ -537,7 +537,9 @@ async function buildChartData(
   
   try {
     // 주차별 매출 (각 주의 매출)
+    console.log('Fetching weekly sales for lastDt:', lastDt);
     const weeklyData = await getWeeklySales(lastDt, brandCodes);
+    console.log('Weekly data result:', JSON.stringify(weeklyData));
     weeklyTrend = weeklyData.map(d => {
       const startLabel = d.startDt.substring(5, 10).replace('-', '/');
       const endLabel = d.endDt.substring(5, 10).replace('-', '/');
@@ -550,6 +552,7 @@ async function buildChartData(
     
     // 누적 매출 (4주 누적)
     const accumData = await getWeeklyAccumSales(lastDt, brandCodes);
+    console.log('Accum data result:', JSON.stringify(accumData));
     weeklyAccumTrend = accumData.map(d => {
       const startLabel = d.startDt.substring(5, 10).replace('-', '/');
       const endLabel = d.endDt.substring(5, 10).replace('-', '/');

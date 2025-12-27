@@ -268,8 +268,8 @@ export async function getWeeklySales(
     for (const week of weekRanges) {
       const sql = `
         SELECT 
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN ?::DATE AND ?::DATE THEN VAT_INC_ACT_SALE_AMT ELSE 0 END), 0) as CUR_SALE,
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN VAT_INC_ACT_SALE_AMT ELSE 0 END), 0) as PREV_SALE
+          COALESCE(SUM(CASE WHEN pst_dt BETWEEN ?::DATE AND ?::DATE THEN ACT_SALE_AMT ELSE 0 END), 0) as CUR_SALE,
+          COALESCE(SUM(CASE WHEN pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN ACT_SALE_AMT ELSE 0 END), 0) as PREV_SALE
         FROM sap_fnf.dw_cn_copa_d
         WHERE (
           (pst_dt BETWEEN ?::DATE AND ?::DATE)
@@ -325,8 +325,8 @@ export async function getWeeklyAccumSales(
       
       const sql = `
         SELECT 
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN ?::DATE AND ?::DATE THEN VAT_INC_ACT_SALE_AMT ELSE 0 END), 0) as CUR_ACCUM,
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN VAT_INC_ACT_SALE_AMT ELSE 0 END), 0) as PREV_ACCUM
+          COALESCE(SUM(CASE WHEN pst_dt BETWEEN ?::DATE AND ?::DATE THEN ACT_SALE_AMT ELSE 0 END), 0) as CUR_ACCUM,
+          COALESCE(SUM(CASE WHEN pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN ACT_SALE_AMT ELSE 0 END), 0) as PREV_ACCUM
         FROM sap_fnf.dw_cn_copa_d
         WHERE (
           (pst_dt BETWEEN ?::DATE AND ?::DATE)
@@ -380,7 +380,7 @@ export async function getDailySalesAccum(
       WITH cur_daily AS (
         SELECT 
           pst_dt,
-          SUM(SUM(VAT_INC_ACT_SALE_AMT)) OVER (ORDER BY pst_dt) as accum
+          SUM(SUM(ACT_SALE_AMT)) OVER (ORDER BY pst_dt) as accum
         FROM sap_fnf.dw_cn_copa_d
         WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
           AND pst_dt <= ?
@@ -390,7 +390,7 @@ export async function getDailySalesAccum(
       prev_daily AS (
         SELECT 
           DATEADD(year, 1, pst_dt) as pst_dt,
-          SUM(SUM(VAT_INC_ACT_SALE_AMT)) OVER (ORDER BY pst_dt) as accum
+          SUM(SUM(ACT_SALE_AMT)) OVER (ORDER BY pst_dt) as accum
         FROM sap_fnf.dw_cn_copa_d
         WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
           AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
