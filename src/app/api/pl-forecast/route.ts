@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from 'next/server';
-import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, TrendData } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData } from '@/lib/plforecast/types';
 import { lineDefinitions, vatExcludedItem } from '@/lib/plforecast/lineDefinitions';
 import { allBrandCodes, isValidBrandCode } from '@/lib/plforecast/brand';
 import { accountMappingCsv } from '@/data/plforecast/accountMapping';
@@ -21,8 +21,8 @@ import {
   getDealerSupportActuals,
   getMonthDays,
   getPrevYearMonth,
-  getWeeklySalesAccum,
-  getDailySalesAccum,
+  getWeeklySales,
+  getWeeklyAccumSales,
 } from '@/lib/plforecast/snowflake';
 import { codeToLabel } from '@/lib/plforecast/brand';
 
@@ -531,24 +531,34 @@ async function buildChartData(
     { name: '영업이익', value: operatingProfit?.forecast || 0, type: 'total' },
   ];
   
-  // 3. 주차별/일별 추이 데이터
-  let weeklyTrend: TrendData[] = [];
-  let dailyTrend: TrendData[] = [];
+  // 3. 주차별/누적 추이 데이터 (최근 4주)
+  let weeklyTrend: WeeklyTrendData[] = [];
+  let weeklyAccumTrend: WeeklyTrendData[] = [];
   
   try {
-    const weeklyData = await getWeeklySalesAccum(ym, lastDt, brandCodes);
-    weeklyTrend = weeklyData.map(d => ({
-      label: d.weekEnd.substring(5, 10).replace('-', '/'),
-      curAccum: d.curAccum,
-      prevAccum: d.prevAccum,
-    }));
+    // 주차별 매출 (각 주의 매출)
+    const weeklyData = await getWeeklySales(lastDt, brandCodes);
+    weeklyTrend = weeklyData.map(d => {
+      const startLabel = d.startDt.substring(5, 10).replace('-', '/');
+      const endLabel = d.endDt.substring(5, 10).replace('-', '/');
+      return {
+        label: `${startLabel}~${endLabel}`,
+        curValue: d.curSale,
+        prevValue: d.prevSale,
+      };
+    });
     
-    const dailyData = await getDailySalesAccum(ym, lastDt, brandCodes);
-    dailyTrend = dailyData.map(d => ({
-      label: d.date.substring(5, 10).replace('-', '/'),
-      curAccum: d.curAccum,
-      prevAccum: d.prevAccum,
-    }));
+    // 누적 매출 (4주 누적)
+    const accumData = await getWeeklyAccumSales(lastDt, brandCodes);
+    weeklyAccumTrend = accumData.map(d => {
+      const startLabel = d.startDt.substring(5, 10).replace('-', '/');
+      const endLabel = d.endDt.substring(5, 10).replace('-', '/');
+      return {
+        label: `${startLabel}~${endLabel}`,
+        curValue: d.curAccum,
+        prevValue: d.prevAccum,
+      };
+    });
   } catch (err) {
     console.error('Error fetching trend data:', err);
   }
@@ -558,7 +568,7 @@ async function buildChartData(
     brandRadar,
     waterfall,
     weeklyTrend,
-    dailyTrend,
+    weeklyAccumTrend,
   };
 }
 

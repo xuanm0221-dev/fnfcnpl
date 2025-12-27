@@ -66,12 +66,19 @@ export interface TrendData {
   prevAccum: number; // 전년 누적
 }
 
+// 주차별 매출 데이터 (막대 차트용)
+export interface WeeklyTrendData {
+  label: string; // "11/10~11/16" 형식
+  curValue: number; // 당년 매출
+  prevValue: number; // 전년 매출
+}
+
 export interface ChartData {
   brandSales: BrandSalesData[]; // 브랜드별 매출/영업이익
   brandRadar: BrandRadarData[]; // 브랜드별 레이더
   waterfall: WaterfallData[]; // 손익 구조
-  weeklyTrend: TrendData[]; // 주차별 추이
-  dailyTrend: TrendData[]; // 일별 누적 추이
+  weeklyTrend: WeeklyTrendData[]; // 주차별 매출 (4주)
+  weeklyAccumTrend: WeeklyTrendData[]; // 주차별 누적 (4주)
 }
 
 // API 응답 타입

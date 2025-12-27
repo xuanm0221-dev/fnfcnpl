@@ -645,15 +645,17 @@ export default function PlForecastPage() {
                     </div>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart 
-                          data={trendTab === 'weekly' ? data.charts.weeklyTrend : data.charts.dailyTrend} 
-                          margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                        <ComposedChart 
+                          data={trendTab === 'weekly' ? data.charts.weeklyTrend : data.charts.weeklyAccumTrend} 
+                          margin={{ top: 5, right: 20, left: 10, bottom: 25 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                           <XAxis 
                             dataKey="label" 
-                            tick={{ fontSize: 10, fill: '#6b7280' }} 
-                            interval={trendTab === 'daily' ? 4 : 0}
+                            tick={{ fontSize: 9, fill: '#6b7280' }} 
+                            angle={-20}
+                            textAnchor="end"
+                            height={50}
                           />
                           <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => formatKChart(v)} />
                           <Tooltip 
@@ -662,26 +664,23 @@ export default function PlForecastPage() {
                           />
                           <Legend 
                             wrapperStyle={{ fontSize: 11 }} 
-                            formatter={(value) => value === 'curAccum' ? '당년' : '전년'}
+                            formatter={(value) => value === 'curValue' ? '주차별 매출' : '전년 매출'}
+                          />
+                          <Bar 
+                            dataKey="curValue" 
+                            fill="#818cf8" 
+                            radius={[4, 4, 0, 0]} 
+                            name="curValue"
                           />
                           <Line 
                             type="monotone" 
-                            dataKey="curAccum" 
-                            stroke="#0ea5e9" 
+                            dataKey="prevValue" 
+                            stroke="#10b981" 
                             strokeWidth={2} 
-                            dot={{ r: 3 }} 
-                            name="curAccum"
+                            dot={{ r: 4, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} 
+                            name="prevValue"
                           />
-                          <Line 
-                            type="monotone" 
-                            dataKey="prevAccum" 
-                            stroke="#f97316" 
-                            strokeWidth={2} 
-                            strokeDasharray="5 5"
-                            dot={{ r: 3 }} 
-                            name="prevAccum"
-                          />
-                        </LineChart>
+                        </ComposedChart>
                       </ResponsiveContainer>
                     </div>
                   </div>

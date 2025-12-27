@@ -218,71 +218,188 @@ export function getPrevYearMonth(ym: string): string {
   return `${year - 1}-${String(month).padStart(2, '0')}`;
 }
 
-// 주차별 누적 매출 조회 (일요일 기준)
-interface WeeklyResult {
-  WEEK_END: string;
+// 마감일 기준 최근 4주 주간 매출 조회 (일요일~토요일)
+interface WeeklySalesResult {
+  WEEK_NUM: number;
+  START_DT: string;
+  END_DT: string;
+  CUR_SALE: number;
+  PREV_SALE: number;
+}
+
+export async function getWeeklySales(
+  lastDt: string,
+  brandCodes: BrandCode[]
+): Promise<{ weekNum: number; startDt: string; endDt: string; curSale: number; prevSale: number }[]> {
+  const connection = await getConnection();
+  try {
+    // 마감일 기준 최근 4주의 일요일~토요일 기간 계산
+    // 마감일이 포함된 주의 일요일을 찾고, 그 전 3주까지
+    const sql = `
+      WITH week_ranges AS (
+        -- 마감일이 포함된 주의 일요일 계산 (일요일 시작)
+        SELECT 
+          1 as week_num,
+          DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE) as start_dt,
+          LEAST(?::DATE, DATEADD(day, -DAYOFWEEK(?::DATE) + 7, ?::DATE)) as end_dt
+        UNION ALL
+        SELECT 
+          2 as week_num,
+          DATEADD(day, -7, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as start_dt,
+          DATEADD(day, -1, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as end_dt
+        UNION ALL
+        SELECT 
+          3 as week_num,
+          DATEADD(day, -14, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as start_dt,
+          DATEADD(day, -8, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as end_dt
+        UNION ALL
+        SELECT 
+          4 as week_num,
+          DATEADD(day, -21, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as start_dt,
+          DATEADD(day, -15, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as end_dt
+      ),
+      cur_sales AS (
+        SELECT 
+          w.week_num,
+          COALESCE(SUM(d.VAT_INC_ACT_SALE_AMT), 0) as sale_amt
+        FROM week_ranges w
+        LEFT JOIN sap_fnf.dw_cn_copa_d d 
+          ON d.pst_dt BETWEEN w.start_dt AND w.end_dt
+          AND d.brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY w.week_num
+      ),
+      prev_sales AS (
+        SELECT 
+          w.week_num,
+          COALESCE(SUM(d.VAT_INC_ACT_SALE_AMT), 0) as sale_amt
+        FROM week_ranges w
+        LEFT JOIN sap_fnf.dw_cn_copa_d d 
+          ON d.pst_dt BETWEEN DATEADD(year, -1, w.start_dt) AND DATEADD(year, -1, w.end_dt)
+          AND d.brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY w.week_num
+      )
+      SELECT 
+        w.week_num as WEEK_NUM,
+        w.start_dt::VARCHAR as START_DT,
+        w.end_dt::VARCHAR as END_DT,
+        COALESCE(c.sale_amt, 0) as CUR_SALE,
+        COALESCE(p.sale_amt, 0) as PREV_SALE
+      FROM week_ranges w
+      LEFT JOIN cur_sales c ON w.week_num = c.week_num
+      LEFT JOIN prev_sales p ON w.week_num = p.week_num
+      ORDER BY w.week_num DESC
+    `;
+    
+    // lastDt를 여러번 바인딩
+    const binds = [
+      lastDt, lastDt, lastDt, lastDt, lastDt,
+      lastDt, lastDt, lastDt, lastDt,
+      lastDt, lastDt, lastDt, lastDt,
+      lastDt, lastDt, lastDt, lastDt,
+      ...brandCodes,
+      ...brandCodes
+    ];
+    
+    const rows = await executeQuery<WeeklySalesResult>(connection, sql, binds);
+    
+    return rows.map((row) => ({
+      weekNum: Number(row.WEEK_NUM),
+      startDt: row.START_DT,
+      endDt: row.END_DT,
+      curSale: Number(row.CUR_SALE) || 0,
+      prevSale: Number(row.PREV_SALE) || 0,
+    }));
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// 마감일 기준 최근 4주 누적 매출 조회
+interface WeeklyAccumResult {
+  WEEK_NUM: number;
+  START_DT: string;
+  END_DT: string;
   CUR_ACCUM: number;
   PREV_ACCUM: number;
 }
 
-export async function getWeeklySalesAccum(
-  ym: string,
+export async function getWeeklyAccumSales(
   lastDt: string,
   brandCodes: BrandCode[]
-): Promise<{ weekEnd: string; curAccum: number; prevAccum: number }[]> {
+): Promise<{ weekNum: number; startDt: string; endDt: string; curAccum: number; prevAccum: number }[]> {
   const connection = await getConnection();
   try {
-    const prevYm = getPrevYearMonth(ym);
-    
-    // 일요일 기준 주차별 누적 (당월)
+    // 4주 전 시작일부터 각 주말까지의 누적
     const sql = `
-      WITH sundays AS (
-        SELECT DISTINCT 
-          NEXT_DAY(pst_dt, 'SU') as week_end
-        FROM sap_fnf.dw_cn_copa_d
-        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
-          AND pst_dt <= ?
-          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
-      ),
-      cur_data AS (
+      WITH week_ranges AS (
+        -- 마감일이 포함된 주의 일요일 계산
         SELECT 
-          NEXT_DAY(pst_dt, 'SU') as week_end,
-          SUM(VAT_INC_ACT_SALE_AMT) as sale_amt
-        FROM sap_fnf.dw_cn_copa_d
-        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
-          AND pst_dt <= ?
-          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
-        GROUP BY NEXT_DAY(pst_dt, 'SU')
-      ),
-      prev_data AS (
+          1 as week_num,
+          DATEADD(day, -21, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as start_dt,
+          DATEADD(day, -15, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as end_dt
+        UNION ALL
         SELECT 
-          NEXT_DAY(DATEADD(year, 1, pst_dt), 'SU') as week_end,
-          SUM(VAT_INC_ACT_SALE_AMT) as sale_amt
-        FROM sap_fnf.dw_cn_copa_d
-        WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
-          AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
-        GROUP BY NEXT_DAY(DATEADD(year, 1, pst_dt), 'SU')
+          2 as week_num,
+          DATEADD(day, -21, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as start_dt,
+          DATEADD(day, -8, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as end_dt
+        UNION ALL
+        SELECT 
+          3 as week_num,
+          DATEADD(day, -21, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as start_dt,
+          DATEADD(day, -1, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as end_dt
+        UNION ALL
+        SELECT 
+          4 as week_num,
+          DATEADD(day, -21, DATEADD(day, -DAYOFWEEK(?::DATE) + 1, ?::DATE)) as start_dt,
+          ?::DATE as end_dt
+      ),
+      cur_sales AS (
+        SELECT 
+          w.week_num,
+          COALESCE(SUM(d.VAT_INC_ACT_SALE_AMT), 0) as sale_amt
+        FROM week_ranges w
+        LEFT JOIN sap_fnf.dw_cn_copa_d d 
+          ON d.pst_dt BETWEEN w.start_dt AND w.end_dt
+          AND d.brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY w.week_num
+      ),
+      prev_sales AS (
+        SELECT 
+          w.week_num,
+          COALESCE(SUM(d.VAT_INC_ACT_SALE_AMT), 0) as sale_amt
+        FROM week_ranges w
+        LEFT JOIN sap_fnf.dw_cn_copa_d d 
+          ON d.pst_dt BETWEEN DATEADD(year, -1, w.start_dt) AND DATEADD(year, -1, w.end_dt)
+          AND d.brd_cd IN (${brandCodes.map(() => '?').join(',')})
+        GROUP BY w.week_num
       )
       SELECT 
-        s.week_end::VARCHAR as WEEK_END,
-        COALESCE(SUM(c.sale_amt) OVER (ORDER BY s.week_end), 0) as CUR_ACCUM,
-        COALESCE(SUM(p.sale_amt) OVER (ORDER BY s.week_end), 0) as PREV_ACCUM
-      FROM sundays s
-      LEFT JOIN cur_data c ON s.week_end = c.week_end
-      LEFT JOIN prev_data p ON s.week_end = p.week_end
-      ORDER BY s.week_end
+        w.week_num as WEEK_NUM,
+        w.start_dt::VARCHAR as START_DT,
+        w.end_dt::VARCHAR as END_DT,
+        COALESCE(c.sale_amt, 0) as CUR_ACCUM,
+        COALESCE(p.sale_amt, 0) as PREV_ACCUM
+      FROM week_ranges w
+      LEFT JOIN cur_sales c ON w.week_num = c.week_num
+      LEFT JOIN prev_sales p ON w.week_num = p.week_num
+      ORDER BY w.week_num ASC
     `;
     
     const binds = [
-      ym, lastDt, ...brandCodes,
-      ym, lastDt, ...brandCodes,
-      prevYm, ...brandCodes
+      lastDt, lastDt, lastDt, lastDt,
+      lastDt, lastDt, lastDt, lastDt,
+      lastDt, lastDt, lastDt, lastDt,
+      lastDt, lastDt, lastDt,
+      ...brandCodes,
+      ...brandCodes
     ];
     
-    const rows = await executeQuery<WeeklyResult>(connection, sql, binds);
+    const rows = await executeQuery<WeeklyAccumResult>(connection, sql, binds);
     
     return rows.map((row) => ({
-      weekEnd: row.WEEK_END,
+      weekNum: Number(row.WEEK_NUM),
+      startDt: row.START_DT,
+      endDt: row.END_DT,
       curAccum: Number(row.CUR_ACCUM) || 0,
       prevAccum: Number(row.PREV_ACCUM) || 0,
     }));
