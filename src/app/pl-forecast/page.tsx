@@ -551,7 +551,7 @@ export default function PlForecastPage() {
                             tickFormatter={(v) => formatKChart(v)}
                           />
                           <Tooltip 
-                            formatter={(value: number | string, name: string) => [formatKChart(Number(value)), name === 'sales' ? '매출' : '영업이익']}
+                            formatter={(value) => [formatKChart(Number(value || 0)), value !== undefined ? (typeof value === 'number' ? '매출' : '영업이익') : '']}
                             contentStyle={{ fontSize: 11, backgroundColor: '#fff', border: '1px solid #e5e7eb' }}
                           />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -575,7 +575,7 @@ export default function PlForecastPage() {
                           <Radar name="전년비" dataKey="prevYear" stroke="#f97316" fill="#f97316" fillOpacity={0.3} />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
                           <Tooltip 
-                            formatter={(value: number | string, name: string) => [`${Number(value).toFixed(1)}%`, name]}
+                            formatter={(value) => [`${Number(value || 0).toFixed(1)}%`, '']}
                             contentStyle={{ fontSize: 11 }}
                           />
                         </RadarChart>
@@ -596,7 +596,7 @@ export default function PlForecastPage() {
                           <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6b7280' }} angle={-15} textAnchor="end" height={50} />
                           <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => formatKChart(v)} />
                           <Tooltip 
-                            formatter={(value: number | string) => [formatKChart(Math.abs(Number(value))), '']}
+                            formatter={(value) => [formatKChart(Math.abs(Number(value || 0))), '']}
                             contentStyle={{ fontSize: 11 }}
                           />
                           <ReferenceLine y={0} stroke="#6b7280" />
@@ -657,7 +657,7 @@ export default function PlForecastPage() {
                           />
                           <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => formatKChart(v)} />
                           <Tooltip 
-                            formatter={(value: number | string, name: string) => [formatKChart(Number(value)), name === 'curAccum' ? '당년' : '전년']}
+                            formatter={(value) => [formatKChart(Number(value || 0)), '']}
                             contentStyle={{ fontSize: 11 }}
                           />
                           <Legend 
