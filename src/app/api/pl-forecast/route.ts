@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from 'next/server';
-import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, TierRegionSalesData, TierRegionSalesRow } from '@/lib/plforecast/types';
 import { lineDefinitions, vatExcludedItem } from '@/lib/plforecast/lineDefinitions';
 import { allBrandCodes, isValidBrandCode } from '@/lib/plforecast/brand';
 import { accountMappingCsv } from '@/data/plforecast/accountMapping';
@@ -25,7 +25,11 @@ import {
   getWeeklySales,
   getWeeklyAccumSales,
   getChannelActuals,
+  getRetailSalesData,
+  getTierSalesData,
+  getRegionSalesData,
 } from '@/lib/plforecast/snowflake';
+import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
 
 // 계정맵핑 파싱 (캐시)
@@ -723,6 +727,161 @@ async function buildChannelTableData(
   return { plan, actual };
 }
 
+// 브랜드 코드 -> 매장 브랜드명 매핑
+const brandCodeToShopName: Record<string, string> = {
+  'M': 'MLB',
+  'I': 'MLB KIDS',
+  'X': 'DISCOVERY',
+};
+
+// 전일 날짜 계산 (점당매출용 - 자동 업데이트 기준)
+function getYesterdayDate(): string {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const year = yesterday.getFullYear();
+  const month = String(yesterday.getMonth() + 1).padStart(2, '0');
+  const day = String(yesterday.getDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}`;
+}
+
+// 점당매출 테이블 데이터 빌드 (MLB, MLB KIDS, DISCOVERY만)
+// 주의: 점당매출은 전일 기준으로 자동 업데이트됨 (기존 PL의 lastDt와 다름)
+async function buildRetailSalesTable(
+  ym: string,
+  brandCode: BrandCode
+): Promise<{ data: RetailSalesTableData; retailLastDt: string } | null> {
+  // M, I, X만 처리
+  if (!isRetailSalesBrand(brandCode)) return null;
+  
+  const shopBrandName = brandCodeToShopName[brandCode];
+  if (!shopBrandName) return null;
+  
+  // 전일 날짜 (점당매출은 전일까지 자동 업데이트)
+  const retailLastDt = getYesterdayDate();
+  
+  // 1. 계획 데이터 로드
+  const plan = getRetailPlan(ym, brandCode);
+  
+  // 2. Snowflake에서 실적 데이터 조회 (전일 기준)
+  // 매출: 매장 브랜드 무관, 매장수: 매장 브랜드 필터
+  const actuals = await getRetailSalesData(ym, retailLastDt, brandCode, shopBrandName);
+  
+  // 3. 파생값 계산
+  const planSalesAmt = plan?.salesAmt ?? null;
+  const planShopCnt = plan?.shopCnt ?? null;
+  
+  // 리테일 매출액(1K)
+  const cySalesK = actuals.cySalesAmt / 1000;
+  const lyCumSalesK = actuals.lyCumSalesAmt / 1000;
+  const planSalesK = planSalesAmt !== null ? planSalesAmt / 1000 : null;
+  
+  const salesK: RetailSalesRow = {
+    actual: cySalesK,
+    progressRate: planSalesK !== null && planSalesK > 0 ? cySalesK / planSalesK : null,
+    yoy: lyCumSalesK > 0 ? cySalesK / lyCumSalesK : null,
+    plan: planSalesK,
+    prevYear: lyCumSalesK,
+  };
+  
+  // 매장수
+  const shopCount: RetailSalesRow = {
+    actual: actuals.cyShopCnt,
+    progressRate: planShopCnt !== null && planShopCnt > 0 ? actuals.cyShopCnt / planShopCnt : null,
+    yoy: actuals.lyCumShopCnt > 0 ? actuals.cyShopCnt / actuals.lyCumShopCnt : null,
+    plan: planShopCnt,
+    prevYear: actuals.lyCumShopCnt,
+  };
+  
+  // 점당매출 (단위: 위안)
+  const cyPerShop = actuals.cyShopCnt > 0 ? actuals.cySalesAmt / actuals.cyShopCnt : 0;
+  const lyPerShop = actuals.lyCumShopCnt > 0 ? actuals.lyCumSalesAmt / actuals.lyCumShopCnt : 0;
+  const planPerShop = planSalesAmt !== null && planShopCnt !== null && planShopCnt > 0 
+    ? planSalesAmt / planShopCnt : null;
+  
+  const salesPerShop: RetailSalesRow = {
+    actual: cyPerShop,
+    progressRate: planPerShop !== null && planPerShop > 0 ? cyPerShop / planPerShop : null,
+    yoy: lyPerShop > 0 ? cyPerShop / lyPerShop : null,
+    plan: planPerShop,
+    prevYear: lyPerShop,
+  };
+  
+  // 점당매출_월환산
+  // 전년 진척률 = ly_cum / ly_full
+  const lyProgressRate = actuals.lyFullSalesAmt > 0 
+    ? actuals.lyCumSalesAmt / actuals.lyFullSalesAmt : 0;
+  // 월환산 총액 = cy_sales / (전년 진척률)
+  const monthlyTotalAmt = lyProgressRate > 0 ? actuals.cySalesAmt / lyProgressRate : 0;
+  // 실적(점당월환산) = 월환산 총액 / cy_shop_cnt
+  const monthlyPerShop = actuals.cyShopCnt > 0 ? monthlyTotalAmt / actuals.cyShopCnt : 0;
+  // 전년(점당 월전체) = ly_full / ly_full_shop_cnt
+  const lyFullPerShop = actuals.lyFullShopCnt > 0 
+    ? actuals.lyFullSalesAmt / actuals.lyFullShopCnt : 0;
+  
+  const salesPerShopMonthly: RetailSalesRow = {
+    actual: monthlyPerShop,
+    progressRate: planPerShop !== null && planPerShop > 0 ? monthlyPerShop / planPerShop : null,
+    yoy: lyFullPerShop > 0 ? monthlyPerShop / lyFullPerShop : null,
+    plan: planPerShop,
+    prevYear: lyFullPerShop,
+  };
+  
+  return {
+    data: {
+      salesK,
+      shopCount,
+      salesPerShop,
+      salesPerShopMonthly,
+    },
+    retailLastDt,
+  };
+}
+
+// 티어별/지역별 점당매출 데이터 빌드
+async function buildTierRegionData(
+  ym: string,
+  retailLastDt: string,
+  brandCode: BrandCode
+): Promise<TierRegionSalesData | null> {
+  if (!isRetailSalesBrand(brandCode)) return null;
+  
+  const shopBrandName = brandCodeToShopName[brandCode];
+  if (!shopBrandName) return null;
+  
+  // 티어별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+  const tierData = await getTierSalesData(ym, retailLastDt, brandCode, shopBrandName);
+  
+  // 지역별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+  const regionData = await getRegionSalesData(ym, retailLastDt, brandCode, shopBrandName);
+  
+  // 티어별 - 전년 데이터 매칭
+  const tiers: TierRegionSalesRow[] = tierData.current.map((row) => {
+    const prevRow = tierData.prevYear.find(p => p.key === row.key);
+    return {
+      ...row,
+      prevSalesAmt: prevRow?.salesAmt || 0,
+      prevShopCnt: prevRow?.shopCnt || 0,
+      prevSalesPerShop: prevRow?.salesPerShop || 0,
+    };
+  }).sort((a, b) => a.key.localeCompare(b.key)); // T0, T1, T2... 순서
+  
+  // 지역별 - 전년 데이터 매칭
+  const regions: TierRegionSalesRow[] = regionData.current.map((row) => {
+    const prevRow = regionData.prevYear.find(p => p.key === row.key);
+    return {
+      ...row,
+      prevSalesAmt: prevRow?.salesAmt || 0,
+      prevShopCnt: prevRow?.shopCnt || 0,
+      prevSalesPerShop: prevRow?.salesPerShop || 0,
+    };
+  }).sort((a, b) => a.key.localeCompare(b.key));
+  
+  return { tiers, regions };
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse<ApiResponse>> {
   try {
     const { searchParams } = new URL(request.url);
@@ -906,6 +1065,26 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     if (brand !== 'all' && lastDt) {
       channelTable = await buildChannelTableData(ym, lastDt, brand as BrandCode, targetCsv);
     }
+    
+    // 점당매출 테이블 데이터 (MLB, MLB KIDS, DISCOVERY만)
+    // 주의: 점당매출은 전일 기준 (기존 PL의 lastDt와 다름)
+    let retailSalesTable: RetailSalesTableData | undefined;
+    let retailLastDt: string | undefined;
+    let tierRegionData: TierRegionSalesData | undefined;
+    
+    if (brand !== 'all' && isRetailSalesBrand(brand)) {
+      const retailResult = await buildRetailSalesTable(ym, brand as BrandCode);
+      if (retailResult) {
+        retailSalesTable = retailResult.data;
+        retailLastDt = retailResult.retailLastDt;
+        
+        // 티어별/지역별 데이터도 함께 조회
+        const tierRegion = await buildTierRegionData(ym, retailResult.retailLastDt, brand as BrandCode);
+        if (tierRegion) {
+          tierRegionData = tierRegion;
+        }
+      }
+    }
 
     return NextResponse.json({
       ym,
@@ -917,6 +1096,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       summary,
       charts,
       channelTable,
+      retailSalesTable,
+      retailLastDt,
+      tierRegionData,
     });
   } catch (error) {
     console.error('API Error:', error);

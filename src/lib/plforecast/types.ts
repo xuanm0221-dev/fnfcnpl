@@ -92,6 +92,9 @@ export interface ApiResponse {
   summary?: CardSummary; // 카드용 요약 데이터
   charts?: ChartData; // 차트용 데이터 (전체 페이지만)
   channelTable?: ChannelTableData; // 채널별 계획/진척률 테이블 (브랜드별 페이지만)
+  retailSalesTable?: RetailSalesTableData; // 점당매출 테이블 (MLB, MLB KIDS, DISCOVERY만)
+  retailLastDt?: string; // 점당매출 기준일 (전일)
+  tierRegionData?: TierRegionSalesData; // 티어별/지역별 점당매출 (MLB, MLB KIDS, DISCOVERY만)
   error?: string;
 }
 
@@ -178,6 +181,49 @@ export interface ChannelActualTable {
 export interface ChannelTableData {
   plan: ChannelPlanTable;
   actual: ChannelActualTable;
+}
+
+// 점당매출 행 데이터
+export interface RetailSalesRow {
+  actual: number | null;       // 실적
+  progressRate: number | null; // 진척률
+  yoy: number | null;          // YOY
+  plan: number | null;         // 계획
+  prevYear: number | null;     // 전년
+}
+
+// 점당매출 테이블 데이터
+export interface RetailSalesTableData {
+  salesK: RetailSalesRow;          // 리테일 매출액(1K)
+  shopCount: RetailSalesRow;       // 매장수
+  salesPerShop: RetailSalesRow;    // 점당매출
+  salesPerShopMonthly: RetailSalesRow; // 점당매출_월환산
+}
+
+// 매장별 상세 데이터 (모달용)
+export interface ShopSalesDetail {
+  shopId: string;       // oa_shop_id
+  shopName: string;     // 매장명 (shop_nm_cn)
+  salesAmt: number;     // 누적 판매매출
+  frOrCls: string;      // FR/OR 구분
+}
+
+// 티어별/지역별 점당매출 행 데이터
+export interface TierRegionSalesRow {
+  key: string;          // 티어명 또는 지역명 (중국어)
+  labelKo?: string;     // 지역 한국어 번역 (지역만)
+  salesAmt: number;     // 당년 매출 합계
+  shopCnt: number;      // 당년 매장수
+  salesPerShop: number; // 당년 점당매출
+  prevSalesAmt: number; // 전년 매출 합계
+  prevShopCnt: number;  // 전년 매장수
+  prevSalesPerShop: number; // 전년 점당매출
+}
+
+// 티어별/지역별 점당매출 데이터
+export interface TierRegionSalesData {
+  tiers: TierRegionSalesRow[];   // 티어별
+  regions: TierRegionSalesRow[]; // 지역별
 }
 
 // 라인 정의 (화면 표시 순서/구조)
