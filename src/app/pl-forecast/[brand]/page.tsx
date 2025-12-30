@@ -151,12 +151,19 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 
 // 채널별 매출 진척률 테이블 컴포넌트
-function ChannelTable({ data }: { data: ChannelTableData }) {
+function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string }) {
   const { plan, actual } = data;
   
   // 채널 순서
   const channels: Array<'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer'> = 
     ['onlineDirect', 'onlineDealer', 'offlineDirect', 'offlineDealer'];
+  
+  // 날짜 포맷 (25.12.06 형식)
+  const formatShortDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    return `${year.slice(2)}.${month}.${day}`;
+  };
   
   // 금액 포맷 (K 단위, 소수점 없음)
   const formatAmount = (value: number | null): string => {
@@ -212,7 +219,7 @@ function ChannelTable({ data }: { data: ChannelTableData }) {
             <tr className="border-b border-gray-200">
               <th colSpan={2} rowSpan={2} className="py-2 px-3 text-left font-semibold text-gray-600 border-r border-gray-200 sticky left-0 bg-gray-50 z-10"></th>
               <th colSpan={5} className="py-2 px-2 text-center font-semibold text-gray-700 border-r border-gray-300 bg-blue-50">채널별 계획</th>
-              <th colSpan={6} className="py-2 px-2 text-center font-semibold text-gray-700 bg-green-50">채널별 진척률</th>
+              <th colSpan={6} className="py-2 px-2 text-center font-semibold text-gray-700 bg-green-50">채널별 진척률({formatShortDate(lastDt)})</th>
             </tr>
             {/* 헤더 2행: 채널별 */}
             <tr className="border-b border-gray-200">
@@ -655,7 +662,7 @@ export default function BrandPlForecastPage() {
               {/* 채널별 매출 진척률 테이블 */}
               {data.channelTable && (
                 <div className="mt-6">
-                  <ChannelTable data={data.channelTable} />
+                  <ChannelTable data={data.channelTable} lastDt={data.lastDt} />
                 </div>
               )}
             </div>
