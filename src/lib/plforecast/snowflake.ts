@@ -453,6 +453,7 @@ export async function getChannelActuals(
 ): Promise<ChannelActuals> {
   const connection = await getConnection();
   try {
+    // 매출원가 = ACT_COGS + ETC_COGS + 평가감(STK_ASST_APRCT_AMT + STK_ASST_APRCT_RVSL_AMT)
     const sql = `
       SELECT 
         CASE 
@@ -465,7 +466,7 @@ export async function getChannelActuals(
         COALESCE(SUM(TAG_SALE_AMT), 0) as TAG_SALE,
         COALESCE(SUM(ACT_SALE_AMT), 0) as ACT_SALE_VAT_INC,
         COALESCE(SUM(VAT_EXC_ACT_SALE_AMT), 0) as ACT_SALE_VAT_EXC,
-        COALESCE(SUM(COGS), 0) as COGS
+        COALESCE(SUM(ACT_COGS), 0) + COALESCE(SUM(ETC_COGS), 0) + COALESCE(SUM(STK_ASST_APRCT_AMT), 0) + COALESCE(SUM(STK_ASST_APRCT_RVSL_AMT), 0) as COGS
       FROM sap_fnf.dw_cn_copa_d
       WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
         AND pst_dt <= ?
