@@ -91,6 +91,7 @@ export interface ApiResponse {
   lines: PlLine[];
   summary?: CardSummary; // 카드용 요약 데이터
   charts?: ChartData; // 차트용 데이터 (전체 페이지만)
+  channelTable?: ChannelTableData; // 채널별 계획/진척률 테이블 (브랜드별 페이지만)
   error?: string;
 }
 
@@ -133,6 +134,50 @@ export interface ActualData {
   dealerSupportPrevYear: number;
   // 대리상지원금 특별 계산 (누적)
   dealerSupportAccum: number;
+}
+
+// 채널 타입
+export type ChannelType = 'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer';
+
+// 채널별 행 데이터
+export interface ChannelRowData {
+  onlineDirect: number | null;
+  onlineDealer: number | null;
+  offlineDirect: number | null;
+  offlineDealer: number | null;
+  total: number | null;
+}
+
+// 채널별 계획 테이블 데이터 (좌측)
+export interface ChannelPlanTable {
+  tagSale: ChannelRowData;
+  actSaleVatInc: ChannelRowData; // 실판(V+)
+  actSaleVatIncRate: ChannelRowData; // 할인율
+  actSaleVatExc: ChannelRowData; // 실판(V-)
+  cogs: ChannelRowData; // 매출원가
+  cogsRate: ChannelRowData; // 원가율 (매출원가/실판V-)
+  tagCogsRate: ChannelRowData; // Tag 대비 원가율 (매출원가×1.13/Tag매출)
+  grossProfit: ChannelRowData; // 매출총이익
+  grossProfitRate: ChannelRowData; // 이익율
+}
+
+// 채널별 진척률 테이블 데이터 (우측)
+export interface ChannelActualTable {
+  tagSale: ChannelRowData & { progressRate: number | null };
+  actSaleVatInc: ChannelRowData & { progressRate: number | null };
+  actSaleVatIncRate: ChannelRowData & { progressRate: number | null }; // 할인율
+  actSaleVatExc: ChannelRowData & { progressRate: number | null };
+  cogs: ChannelRowData & { progressRate: number | null };
+  cogsRate: ChannelRowData & { progressRate: number | null }; // 원가율
+  tagCogsRate: ChannelRowData & { progressRate: number | null }; // Tag 대비 원가율 차이
+  grossProfit: ChannelRowData & { progressRate: number | null };
+  grossProfitRate: ChannelRowData & { progressRate: number | null }; // 이익율
+}
+
+// 채널별 테이블 전체 데이터
+export interface ChannelTableData {
+  plan: ChannelPlanTable;
+  actual: ChannelActualTable;
 }
 
 // 라인 정의 (화면 표시 순서/구조)

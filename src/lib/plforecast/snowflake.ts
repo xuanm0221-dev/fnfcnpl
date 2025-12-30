@@ -1,5 +1,5 @@
 import snowflake from 'snowflake-sdk';
-import type { BrandCode } from './types';
+import type { BrandCode, ChannelRowData } from './types';
 
 // Snowflake 연결 설정
 function getConnection(): Promise<snowflake.Connection> {
@@ -417,6 +417,106 @@ export async function getDailySalesAccum(
       curAccum: Number(row.CUR_ACCUM) || 0,
       prevAccum: Number(row.PREV_ACCUM) || 0,
     }));
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// 채널별 실적 조회 결과
+interface ChannelActualResult {
+  CHANNEL: string;
+  TAG_SALE: number;
+  ACT_SALE_VAT_INC: number;
+  ACT_SALE_VAT_EXC: number;
+  COGS: number;
+}
+
+// 채널별 실적 데이터
+export interface ChannelActuals {
+  tagSale: ChannelRowData;
+  actSaleVatInc: ChannelRowData;
+  actSaleVatExc: ChannelRowData;
+  cogs: ChannelRowData;
+}
+
+/**
+ * 채널별 누적 실적 조회 (브랜드별 페이지용)
+ * - 온라인 직영: chnl_cd=85
+ * - 온라인 대리상: chnl_cd=84 AND trans_cd=1
+ * - 오프라인 직영: chnl_cd IN (80,81,82,83)
+ * - 오프라인 대리상: chnl_cd=84 AND trans_cd=2
+ */
+export async function getChannelActuals(
+  ym: string,
+  lastDt: string,
+  brandCode: BrandCode
+): Promise<ChannelActuals> {
+  const connection = await getConnection();
+  try {
+    const sql = `
+      SELECT 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END as CHANNEL,
+        COALESCE(SUM(TAG_SALE_AMT), 0) as TAG_SALE,
+        COALESCE(SUM(ACT_SALE_AMT), 0) as ACT_SALE_VAT_INC,
+        COALESCE(SUM(VAT_EXC_ACT_SALE_AMT), 0) as ACT_SALE_VAT_EXC,
+        COALESCE(SUM(COGS), 0) as COGS
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND pst_dt <= ?
+        AND brd_cd = ?
+      GROUP BY 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END
+    `;
+    
+    const rows = await executeQuery<ChannelActualResult>(connection, sql, [ym, lastDt, brandCode]);
+    
+    // 결과 매핑
+    const result: ChannelActuals = {
+      tagSale: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
+      actSaleVatInc: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
+      actSaleVatExc: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
+      cogs: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
+    };
+    
+    let totalTagSale = 0;
+    let totalActSaleVatInc = 0;
+    let totalActSaleVatExc = 0;
+    let totalCogs = 0;
+    
+    for (const row of rows) {
+      const channel = row.CHANNEL as keyof ChannelRowData;
+      if (channel === 'onlineDirect' || channel === 'onlineDealer' || channel === 'offlineDirect' || channel === 'offlineDealer') {
+        result.tagSale[channel] = Number(row.TAG_SALE) || 0;
+        result.actSaleVatInc[channel] = Number(row.ACT_SALE_VAT_INC) || 0;
+        result.actSaleVatExc[channel] = Number(row.ACT_SALE_VAT_EXC) || 0;
+        result.cogs[channel] = Number(row.COGS) || 0;
+        
+        totalTagSale += Number(row.TAG_SALE) || 0;
+        totalActSaleVatInc += Number(row.ACT_SALE_VAT_INC) || 0;
+        totalActSaleVatExc += Number(row.ACT_SALE_VAT_EXC) || 0;
+        totalCogs += Number(row.COGS) || 0;
+      }
+    }
+    
+    // 합계 설정
+    result.tagSale.total = totalTagSale;
+    result.actSaleVatInc.total = totalActSaleVatInc;
+    result.actSaleVatExc.total = totalActSaleVatExc;
+    result.cogs.total = totalCogs;
+    
+    return result;
   } finally {
     await destroyConnection(connection);
   }

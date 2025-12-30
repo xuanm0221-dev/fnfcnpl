@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import type { ApiResponse, PlLine, BrandSlug } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable } from '@/lib/plforecast/types';
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatDateShort } from '@/lib/plforecast/format';
 
@@ -137,6 +137,161 @@ function ProgressCard({
             style={{ width: `${Math.min(progressValue, 100)}%` }}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// 채널 라벨 매핑
+const CHANNEL_LABELS: Record<string, string> = {
+  onlineDirect: '온라인 직영',
+  onlineDealer: '온라인 대리상',
+  offlineDirect: '오프라인 직영',
+  offlineDealer: '오프라인 대리상',
+};
+
+// 채널별 매출 진척률 테이블 컴포넌트
+function ChannelTable({ data }: { data: ChannelTableData }) {
+  const { plan, actual } = data;
+  
+  // 채널 순서
+  const channels: Array<'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer'> = 
+    ['onlineDirect', 'onlineDealer', 'offlineDirect', 'offlineDealer'];
+  
+  // 금액 포맷 (K 단위, 소수점 없음)
+  const formatAmount = (value: number | null): string => {
+    if (value === null) return '-';
+    return Math.round(value / 1000).toLocaleString();
+  };
+  
+  // 퍼센트 포맷 (소수점 1자리)
+  const formatRate = (value: number | null): string => {
+    if (value === null) return '-';
+    return `${(value * 100).toFixed(1)}%`;
+  };
+  
+  // 퍼센트p 포맷 (차이용)
+  const formatRateDiff = (value: number | null): string => {
+    if (value === null) return '-';
+    const pct = value * 100;
+    return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%p`;
+  };
+  
+  // 행 데이터 정의
+  type RowKey = 'tagSale' | 'actSaleVatInc' | 'actSaleVatIncRate' | 'actSaleVatExc' | 'cogs' | 'cogsRate' | 'tagCogsRate' | 'grossProfit' | 'grossProfitRate';
+  
+  const rows: Array<{
+    key: RowKey;
+    label: string;
+    category?: string;
+    isRate?: boolean;
+    isRateDiff?: boolean;
+    highlight?: boolean;
+  }> = [
+    { key: 'tagSale', label: 'Tag가 매출' },
+    { key: 'actSaleVatInc', label: '실판 매출(V+)', category: '매출액' },
+    { key: 'actSaleVatIncRate', label: '', isRate: true },
+    { key: 'actSaleVatExc', label: '실판 매출(V-)', category: '매출액', highlight: true },
+    { key: 'cogs', label: '매출원가', category: '매출원가' },
+    { key: 'cogsRate', label: '', isRate: true },
+    { key: 'tagCogsRate', label: '(Tag 대비 원가율)', category: '매출원가', isRate: true, isRateDiff: true },
+    { key: 'grossProfit', label: '매출총이익', highlight: true },
+    { key: 'grossProfitRate', label: '', isRate: true },
+  ];
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+        <h3 className="text-sm font-semibold text-gray-700">채널별 매출 진척률</h3>
+      </div>
+      
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50">
+            {/* 헤더 1행: 대분류 */}
+            <tr className="border-b border-gray-200">
+              <th colSpan={2} rowSpan={2} className="py-2 px-3 text-left font-semibold text-gray-600 border-r border-gray-200 sticky left-0 bg-gray-50 z-10"></th>
+              <th colSpan={5} className="py-2 px-2 text-center font-semibold text-gray-700 border-r border-gray-300 bg-blue-50">채널별 계획</th>
+              <th colSpan={6} className="py-2 px-2 text-center font-semibold text-gray-700 bg-green-50">채널별 진척률</th>
+            </tr>
+            {/* 헤더 2행: 채널별 */}
+            <tr className="border-b border-gray-200">
+              {/* 계획 */}
+              {channels.map((ch) => (
+                <th key={`plan-${ch}`} className="py-2 px-1 text-center font-medium text-gray-600 border-r border-gray-100 bg-blue-50 whitespace-nowrap">
+                  <div className="text-[10px]">{CHANNEL_LABELS[ch].split(' ')[0]}</div>
+                  <div className="text-[10px]">{CHANNEL_LABELS[ch].split(' ')[1]}</div>
+                </th>
+              ))}
+              <th className="py-2 px-1 text-center font-medium text-gray-700 border-r border-gray-300 bg-blue-100 whitespace-nowrap text-[10px]">12월<br/>계획합계</th>
+              {/* 진척률 */}
+              {channels.map((ch) => (
+                <th key={`actual-${ch}`} className="py-2 px-1 text-center font-medium text-gray-600 border-r border-gray-100 bg-green-50 whitespace-nowrap">
+                  <div className="text-[10px]">{CHANNEL_LABELS[ch].split(' ')[0]}</div>
+                  <div className="text-[10px]">{CHANNEL_LABELS[ch].split(' ')[1]}</div>
+                </th>
+              ))}
+              <th className="py-2 px-1 text-center font-medium text-gray-700 border-r border-gray-200 bg-green-100 whitespace-nowrap text-[10px]">12월<br/>실적합계</th>
+              <th className="py-2 px-1 text-center font-medium text-gray-700 bg-amber-100 whitespace-nowrap text-[10px]">진척률</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => {
+              const planRow = plan[row.key] as ChannelRowData;
+              const actualRow = actual[row.key] as ChannelRowData & { progressRate: number | null };
+              
+              return (
+                <tr 
+                  key={row.key} 
+                  className={`border-b border-gray-100 ${row.highlight ? 'bg-yellow-50' : ''} ${row.isRate ? 'bg-gray-50' : ''}`}
+                >
+                  {/* 카테고리 */}
+                  <td className="py-1.5 px-2 text-left text-gray-500 sticky left-0 bg-inherit z-10 w-12 text-[10px]">
+                    {row.category || ''}
+                  </td>
+                  {/* 행 라벨 */}
+                  <td className="py-1.5 px-2 text-left font-medium text-gray-700 sticky left-12 bg-inherit z-10 border-r border-gray-200 whitespace-nowrap text-[10px]">
+                    {row.label}
+                  </td>
+                  
+                  {/* 계획 - 채널별 */}
+                  {channels.map((ch) => (
+                    <td key={`plan-${ch}`} className="py-1.5 px-1 text-right font-mono text-gray-600 border-r border-gray-100">
+                      {row.isRate ? formatRate(planRow[ch]) : formatAmount(planRow[ch])}
+                    </td>
+                  ))}
+                  {/* 계획 - 합계 */}
+                  <td className="py-1.5 px-1 text-right font-mono font-semibold text-gray-800 border-r border-gray-300 bg-blue-50">
+                    {row.isRate ? formatRate(planRow.total) : formatAmount(planRow.total)}
+                  </td>
+                  
+                  {/* 진척률 - 채널별 */}
+                  {channels.map((ch) => (
+                    <td key={`actual-${ch}`} className="py-1.5 px-1 text-right font-mono text-gray-600 border-r border-gray-100">
+                      {row.isRate ? formatRate(actualRow[ch]) : formatAmount(actualRow[ch])}
+                    </td>
+                  ))}
+                  {/* 진척률 - 합계 */}
+                  <td className="py-1.5 px-1 text-right font-mono font-semibold text-gray-800 border-r border-gray-200 bg-green-50">
+                    {row.isRate ? formatRate(actualRow.total) : formatAmount(actualRow.total)}
+                  </td>
+                  {/* 진척률 */}
+                  <td className={`py-1.5 px-1 text-right font-mono font-semibold bg-amber-50 ${
+                    row.isRateDiff 
+                      ? (actualRow.progressRate !== null && actualRow.progressRate > 0 ? 'text-rose-600' : 'text-emerald-600')
+                      : (actualRow.progressRate !== null && actualRow.progressRate >= 1 ? 'text-emerald-600' : 'text-amber-600')
+                  }`}>
+                    {row.isRateDiff ? formatRateDiff(actualRow.progressRate) : formatRate(actualRow.progressRate)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      
+      <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 text-[10px] text-gray-500">
+        단위: K (천 위안) / 진척률 = 12월 실적합계 ÷ 12월 계획합계
       </div>
     </div>
   );
@@ -494,6 +649,13 @@ export default function BrandPlForecastPage() {
                     forecastRate={summary.directProfitProgress.forecastRate}
                     color="text-purple-600"
                   />
+                </div>
+              )}
+              
+              {/* 채널별 매출 진척률 테이블 */}
+              {data.channelTable && (
+                <div className="mt-6">
+                  <ChannelTable data={data.channelTable} />
                 </div>
               )}
             </div>

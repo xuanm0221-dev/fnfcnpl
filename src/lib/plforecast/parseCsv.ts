@@ -1,5 +1,13 @@
 import { parse } from 'csv-parse/sync';
-import type { AccountMapping, TargetRow, BrandCode } from './types';
+import type { AccountMapping, TargetRow, BrandCode, ChannelRowData, ChannelPlanTable } from './types';
+
+// 채널 컬럼 매핑 (브랜드코드_채널명)
+const CHANNEL_COLUMNS = {
+  onlineDirect: '온라인직영',
+  onlineDealer: '온라인대리상',
+  offlineDirect: '오프라인직영',
+  offlineDealer: '오프라인대리상',
+} as const;
 
 /**
  * 계정맵핑.csv 파싱
@@ -129,5 +137,168 @@ export function getTargetValueAll(
   }
 
   return hasValue ? sum : null;
+}
+
+// 내부용 parseTargetValue (기존 함수와 동일하지만 export하지 않음)
+function parseTargetValueInternal(value: string | undefined): number | null {
+  if (!value || value.trim() === '' || value.trim() === '-') {
+    return null;
+  }
+  const cleaned = value.replace(/[",]/g, '').trim();
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+/**
+ * 채널별 계획 데이터 파싱 (브랜드별 페이지용)
+ */
+export function parseChannelPlanData(
+  csvContent: string,
+  brandCode: BrandCode
+): ChannelPlanTable {
+  const records = parse(csvContent, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    relax_column_count: true,
+  }) as Array<Record<string, string>>;
+
+  // 브랜드 코드에 해당하는 채널 컬럼명 생성
+  const getColName = (channel: keyof typeof CHANNEL_COLUMNS) => 
+    `${brandCode}_${CHANNEL_COLUMNS[channel]}`;
+
+  // 행 데이터 추출 헬퍼
+  const getRowData = (level1: string): ChannelRowData => {
+    const row = records.find((r) => r['level1'] === level1);
+    if (!row) {
+      return { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    }
+    
+    const onlineDirect = parseTargetValueInternal(row[getColName('onlineDirect')]);
+    const onlineDealer = parseTargetValueInternal(row[getColName('onlineDealer')]);
+    const offlineDirect = parseTargetValueInternal(row[getColName('offlineDirect')]);
+    const offlineDealer = parseTargetValueInternal(row[getColName('offlineDealer')]);
+    
+    // 총합계는 브랜드 전체 컬럼 사용
+    const total = parseTargetValueInternal(row[` ${brandCode} `] || row[brandCode]);
+    
+    return { onlineDirect, onlineDealer, offlineDirect, offlineDealer, total };
+  };
+
+  // 매출원가 합산 (매출원가 + 평가감)
+  const getCogsRowData = (): ChannelRowData => {
+    const cogsRow = records.find((r) => r['level1'] === '매출원가');
+    const evalGainRows = records.filter((r) => r['level1'] === '평가감');
+    
+    const sumValues = (rows: Array<Record<string, string>>, colName: string): number | null => {
+      let sum = 0;
+      let hasValue = false;
+      for (const row of rows) {
+        const val = parseTargetValueInternal(row[colName]);
+        if (val !== null) {
+          sum += val;
+          hasValue = true;
+        }
+      }
+      return hasValue ? sum : null;
+    };
+    
+    const onlineDirect = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('onlineDirect'));
+    const onlineDealer = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('onlineDealer'));
+    const offlineDirect = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('offlineDirect'));
+    const offlineDealer = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('offlineDealer'));
+    const total = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, ` ${brandCode} `) 
+      ?? sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, brandCode);
+    
+    return { onlineDirect, onlineDealer, offlineDirect, offlineDealer, total };
+  };
+
+  // 기본 데이터 추출
+  const tagSale = getRowData('Tag매출');
+  const actSaleVatInc = getRowData('실판(V+)');
+  const actSaleVatExc = getRowData('실판(V-)');
+  const cogs = getCogsRowData();
+
+  // 할인율 계산: 1 - 실판(V+)/Tag매출
+  const calcDiscountRate = (vatInc: number | null, tag: number | null): number | null => {
+    if (vatInc === null || tag === null || tag === 0) return null;
+    return 1 - (vatInc / tag);
+  };
+
+  const actSaleVatIncRate: ChannelRowData = {
+    onlineDirect: calcDiscountRate(actSaleVatInc.onlineDirect, tagSale.onlineDirect),
+    onlineDealer: calcDiscountRate(actSaleVatInc.onlineDealer, tagSale.onlineDealer),
+    offlineDirect: calcDiscountRate(actSaleVatInc.offlineDirect, tagSale.offlineDirect),
+    offlineDealer: calcDiscountRate(actSaleVatInc.offlineDealer, tagSale.offlineDealer),
+    total: calcDiscountRate(actSaleVatInc.total, tagSale.total),
+  };
+
+  // 원가율 계산: 매출원가/실판(V-)
+  const calcCogsRate = (cogsVal: number | null, vatExc: number | null): number | null => {
+    if (cogsVal === null || vatExc === null || vatExc === 0) return null;
+    return cogsVal / vatExc;
+  };
+
+  const cogsRate: ChannelRowData = {
+    onlineDirect: calcCogsRate(cogs.onlineDirect, actSaleVatExc.onlineDirect),
+    onlineDealer: calcCogsRate(cogs.onlineDealer, actSaleVatExc.onlineDealer),
+    offlineDirect: calcCogsRate(cogs.offlineDirect, actSaleVatExc.offlineDirect),
+    offlineDealer: calcCogsRate(cogs.offlineDealer, actSaleVatExc.offlineDealer),
+    total: calcCogsRate(cogs.total, actSaleVatExc.total),
+  };
+
+  // Tag 대비 원가율 계산: 매출원가 × 1.13 / Tag매출
+  const calcTagCogsRate = (cogsVal: number | null, tag: number | null): number | null => {
+    if (cogsVal === null || tag === null || tag === 0) return null;
+    return (cogsVal * 1.13) / tag;
+  };
+
+  const tagCogsRate: ChannelRowData = {
+    onlineDirect: calcTagCogsRate(cogs.onlineDirect, tagSale.onlineDirect),
+    onlineDealer: calcTagCogsRate(cogs.onlineDealer, tagSale.onlineDealer),
+    offlineDirect: calcTagCogsRate(cogs.offlineDirect, tagSale.offlineDirect),
+    offlineDealer: calcTagCogsRate(cogs.offlineDealer, tagSale.offlineDealer),
+    total: calcTagCogsRate(cogs.total, tagSale.total),
+  };
+
+  // 매출총이익 계산: 실판(V-) - 매출원가
+  const calcGrossProfit = (vatExc: number | null, cogsVal: number | null): number | null => {
+    if (vatExc === null || cogsVal === null) return null;
+    return vatExc - cogsVal;
+  };
+
+  const grossProfit: ChannelRowData = {
+    onlineDirect: calcGrossProfit(actSaleVatExc.onlineDirect, cogs.onlineDirect),
+    onlineDealer: calcGrossProfit(actSaleVatExc.onlineDealer, cogs.onlineDealer),
+    offlineDirect: calcGrossProfit(actSaleVatExc.offlineDirect, cogs.offlineDirect),
+    offlineDealer: calcGrossProfit(actSaleVatExc.offlineDealer, cogs.offlineDealer),
+    total: calcGrossProfit(actSaleVatExc.total, cogs.total),
+  };
+
+  // 이익율 계산: 매출총이익/실판(V-)
+  const calcProfitRate = (profit: number | null, vatExc: number | null): number | null => {
+    if (profit === null || vatExc === null || vatExc === 0) return null;
+    return profit / vatExc;
+  };
+
+  const grossProfitRate: ChannelRowData = {
+    onlineDirect: calcProfitRate(grossProfit.onlineDirect, actSaleVatExc.onlineDirect),
+    onlineDealer: calcProfitRate(grossProfit.onlineDealer, actSaleVatExc.onlineDealer),
+    offlineDirect: calcProfitRate(grossProfit.offlineDirect, actSaleVatExc.offlineDirect),
+    offlineDealer: calcProfitRate(grossProfit.offlineDealer, actSaleVatExc.offlineDealer),
+    total: calcProfitRate(grossProfit.total, actSaleVatExc.total),
+  };
+
+  return {
+    tagSale,
+    actSaleVatInc,
+    actSaleVatIncRate,
+    actSaleVatExc,
+    cogs,
+    cogsRate,
+    tagCogsRate,
+    grossProfit,
+    grossProfitRate,
+  };
 }
 

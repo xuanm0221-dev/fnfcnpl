@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from 'next/server';
-import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable } from '@/lib/plforecast/types';
 import { lineDefinitions, vatExcludedItem } from '@/lib/plforecast/lineDefinitions';
 import { allBrandCodes, isValidBrandCode } from '@/lib/plforecast/brand';
 import { accountMappingCsv } from '@/data/plforecast/accountMapping';
@@ -12,6 +12,7 @@ import {
   getItemsByLevel,
   getTargetValue,
   getTargetValueAll,
+  parseChannelPlanData,
 } from '@/lib/plforecast/parseCsv';
 import { calcYoyRate, calcAchvRate } from '@/lib/plforecast/format';
 import {
@@ -23,6 +24,7 @@ import {
   getPrevYearMonth,
   getWeeklySales,
   getWeeklyAccumSales,
+  getChannelActuals,
 } from '@/lib/plforecast/snowflake';
 import { codeToLabel } from '@/lib/plforecast/brand';
 
@@ -575,6 +577,152 @@ async function buildChartData(
   };
 }
 
+// 채널별 테이블 데이터 빌드 (브랜드별 페이지용)
+async function buildChannelTableData(
+  ym: string,
+  lastDt: string,
+  brandCode: BrandCode,
+  targetCsv: string
+): Promise<ChannelTableData> {
+  // 1. 계획 데이터 (CSV)
+  const plan: ChannelPlanTable = parseChannelPlanData(targetCsv, brandCode);
+  
+  // 2. 실적 데이터 (Snowflake)
+  const actuals = await getChannelActuals(ym, lastDt, brandCode);
+  
+  // 3. 진척률 계산 헬퍼
+  const calcProgressRate = (actual: number | null, target: number | null): number | null => {
+    if (actual === null || target === null || target === 0) return null;
+    return actual / target;
+  };
+  
+  // 4. 할인율 계산: 1 - 실판(V+)/Tag매출
+  const calcDiscountRate = (vatInc: number | null, tag: number | null): number | null => {
+    if (vatInc === null || tag === null || tag === 0) return null;
+    return 1 - (vatInc / tag);
+  };
+  
+  // 5. 원가율 계산: 매출원가/실판(V-)
+  const calcCogsRate = (cogsVal: number | null, vatExc: number | null): number | null => {
+    if (cogsVal === null || vatExc === null || vatExc === 0) return null;
+    return cogsVal / vatExc;
+  };
+  
+  // 6. Tag 대비 원가율 차이 계산: 누적 원가율 - 계획 원가율
+  const calcTagCogsRateDiff = (actualRate: number | null, planRate: number | null): number | null => {
+    if (actualRate === null || planRate === null) return null;
+    return actualRate - planRate;
+  };
+  
+  // 7. 매출총이익 계산: 실판(V-) - 매출원가
+  const calcGrossProfit = (vatExc: number | null, cogsVal: number | null): number | null => {
+    if (vatExc === null || cogsVal === null) return null;
+    return vatExc - cogsVal;
+  };
+  
+  // 8. 이익율 계산: 매출총이익/실판(V-)
+  const calcProfitRate = (profit: number | null, vatExc: number | null): number | null => {
+    if (profit === null || vatExc === null || vatExc === 0) return null;
+    return profit / vatExc;
+  };
+  
+  // 채널별 계산값 생성
+  const channels: Array<'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer' | 'total'> = 
+    ['onlineDirect', 'onlineDealer', 'offlineDirect', 'offlineDealer', 'total'];
+  
+  // 실적 할인율
+  const actSaleVatIncRate: ChannelRowData = {
+    onlineDirect: calcDiscountRate(actuals.actSaleVatInc.onlineDirect, actuals.tagSale.onlineDirect),
+    onlineDealer: calcDiscountRate(actuals.actSaleVatInc.onlineDealer, actuals.tagSale.onlineDealer),
+    offlineDirect: calcDiscountRate(actuals.actSaleVatInc.offlineDirect, actuals.tagSale.offlineDirect),
+    offlineDealer: calcDiscountRate(actuals.actSaleVatInc.offlineDealer, actuals.tagSale.offlineDealer),
+    total: calcDiscountRate(actuals.actSaleVatInc.total, actuals.tagSale.total),
+  };
+  
+  // 실적 원가율
+  const actualCogsRate: ChannelRowData = {
+    onlineDirect: calcCogsRate(actuals.cogs.onlineDirect, actuals.actSaleVatExc.onlineDirect),
+    onlineDealer: calcCogsRate(actuals.cogs.onlineDealer, actuals.actSaleVatExc.onlineDealer),
+    offlineDirect: calcCogsRate(actuals.cogs.offlineDirect, actuals.actSaleVatExc.offlineDirect),
+    offlineDealer: calcCogsRate(actuals.cogs.offlineDealer, actuals.actSaleVatExc.offlineDealer),
+    total: calcCogsRate(actuals.cogs.total, actuals.actSaleVatExc.total),
+  };
+  
+  // 실적 Tag 대비 원가율 (매출원가 × 1.13 / Tag매출)
+  const calcActualTagCogsRate = (cogsVal: number | null, tag: number | null): number | null => {
+    if (cogsVal === null || tag === null || tag === 0) return null;
+    return (cogsVal * 1.13) / tag;
+  };
+  
+  const actualTagCogsRate: ChannelRowData = {
+    onlineDirect: calcActualTagCogsRate(actuals.cogs.onlineDirect, actuals.tagSale.onlineDirect),
+    onlineDealer: calcActualTagCogsRate(actuals.cogs.onlineDealer, actuals.tagSale.onlineDealer),
+    offlineDirect: calcActualTagCogsRate(actuals.cogs.offlineDirect, actuals.tagSale.offlineDirect),
+    offlineDealer: calcActualTagCogsRate(actuals.cogs.offlineDealer, actuals.tagSale.offlineDealer),
+    total: calcActualTagCogsRate(actuals.cogs.total, actuals.tagSale.total),
+  };
+  
+  // 실적 매출총이익
+  const actualGrossProfit: ChannelRowData = {
+    onlineDirect: calcGrossProfit(actuals.actSaleVatExc.onlineDirect, actuals.cogs.onlineDirect),
+    onlineDealer: calcGrossProfit(actuals.actSaleVatExc.onlineDealer, actuals.cogs.onlineDealer),
+    offlineDirect: calcGrossProfit(actuals.actSaleVatExc.offlineDirect, actuals.cogs.offlineDirect),
+    offlineDealer: calcGrossProfit(actuals.actSaleVatExc.offlineDealer, actuals.cogs.offlineDealer),
+    total: calcGrossProfit(actuals.actSaleVatExc.total, actuals.cogs.total),
+  };
+  
+  // 실적 이익율
+  const actualGrossProfitRate: ChannelRowData = {
+    onlineDirect: calcProfitRate(actualGrossProfit.onlineDirect, actuals.actSaleVatExc.onlineDirect),
+    onlineDealer: calcProfitRate(actualGrossProfit.onlineDealer, actuals.actSaleVatExc.onlineDealer),
+    offlineDirect: calcProfitRate(actualGrossProfit.offlineDirect, actuals.actSaleVatExc.offlineDirect),
+    offlineDealer: calcProfitRate(actualGrossProfit.offlineDealer, actuals.actSaleVatExc.offlineDealer),
+    total: calcProfitRate(actualGrossProfit.total, actuals.actSaleVatExc.total),
+  };
+  
+  // 실적 테이블 구성
+  const actual: ChannelActualTable = {
+    tagSale: {
+      ...actuals.tagSale,
+      progressRate: calcProgressRate(actuals.tagSale.total, plan.tagSale.total),
+    },
+    actSaleVatInc: {
+      ...actuals.actSaleVatInc,
+      progressRate: calcProgressRate(actuals.actSaleVatInc.total, plan.actSaleVatInc.total),
+    },
+    actSaleVatIncRate: {
+      ...actSaleVatIncRate,
+      progressRate: calcProgressRate(actSaleVatIncRate.total, plan.actSaleVatIncRate.total),
+    },
+    actSaleVatExc: {
+      ...actuals.actSaleVatExc,
+      progressRate: calcProgressRate(actuals.actSaleVatExc.total, plan.actSaleVatExc.total),
+    },
+    cogs: {
+      ...actuals.cogs,
+      progressRate: calcProgressRate(actuals.cogs.total, plan.cogs.total),
+    },
+    cogsRate: {
+      ...actualCogsRate,
+      progressRate: calcProgressRate(actualCogsRate.total, plan.cogsRate.total),
+    },
+    tagCogsRate: {
+      ...actualTagCogsRate,
+      progressRate: calcTagCogsRateDiff(actualTagCogsRate.total, plan.tagCogsRate.total), // 차이
+    },
+    grossProfit: {
+      ...actualGrossProfit,
+      progressRate: calcProgressRate(actualGrossProfit.total, plan.grossProfit.total),
+    },
+    grossProfitRate: {
+      ...actualGrossProfitRate,
+      progressRate: calcProgressRate(actualGrossProfitRate.total, plan.grossProfitRate.total),
+    },
+  };
+  
+  return { plan, actual };
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse<ApiResponse>> {
   try {
     const { searchParams } = new URL(request.url);
@@ -752,6 +900,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     if (brand === 'all' && brandDataMap.size > 0) {
       charts = await buildChartData(ym, lastDt, brandDataMap, lines, brandCodes);
     }
+    
+    // 채널별 테이블 데이터 (브랜드별 페이지만)
+    let channelTable: ChannelTableData | undefined;
+    if (brand !== 'all' && lastDt) {
+      channelTable = await buildChannelTableData(ym, lastDt, brand as BrandCode, targetCsv);
+    }
 
     return NextResponse.json({
       ym,
@@ -762,6 +916,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       lines,
       summary,
       charts,
+      channelTable,
     });
   } catch (error) {
     console.error('API Error:', error);
