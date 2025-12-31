@@ -60,15 +60,23 @@ function SummaryCard({
 }) {
   const progressValue = targetRate !== null ? Math.min(targetRate * 100, 100) : 0;
 
+  // 제목에서 괄호 부분 분리
+  const titleParts = title.match(/^(.+?)(\(.+?\))$/);
+  const mainTitle = titleParts ? titleParts[1] : title;
+  const bracketText = titleParts ? titleParts[2] : '';
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-      <h3 className={`text-sm font-semibold mb-4 ${color}`}>{title}</h3>
+      <h3 className="text-sm font-semibold mb-4 text-gray-800">
+        {mainTitle}
+        {bracketText && <span className="text-indigo-600">{bracketText}</span>}
+      </h3>
       
       {/* 현시점 (누적) */}
       <div className="mb-3">
         <div className="flex items-baseline gap-2">
           <span className="text-xl font-bold text-gray-900">{formatK(accumValue)}</span>
-          <span className="text-sm text-gray-500">({formatPct(accumRate)})</span>
+          <span className="text-sm text-indigo-600">({formatPct(accumRate)})</span>
           <span className="text-xs text-gray-400">(현시점)</span>
         </div>
       </div>
@@ -77,7 +85,7 @@ function SummaryCard({
       <div className="mb-4">
         <div className="flex items-baseline gap-2">
           <span className="text-lg font-semibold text-gray-700">{formatK(forecastValue)}</span>
-          <span className="text-sm text-gray-500">({formatPct(forecastRate)})</span>
+          <span className="text-sm text-indigo-600">({formatPct(forecastRate)})</span>
           <span className="text-xs text-gray-400">(월말예상)</span>
         </div>
       </div>
@@ -86,9 +94,7 @@ function SummaryCard({
       <div className="mb-3">
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div
-            className={`h-2 rounded-full transition-all ${
-              progressValue >= 100 ? 'bg-emerald-500' : 'bg-amber-500'
-            }`}
+            className="h-2 rounded-full transition-all bg-indigo-600"
             style={{ width: `${Math.min(progressValue, 100)}%` }}
           />
         </div>
@@ -97,15 +103,13 @@ function SummaryCard({
       {/* 목표대비 / 전년대비 */}
       <div className="flex gap-4 text-xs">
         <div>
-          <span className="text-gray-500">목표대비 </span>
-          <span className={targetRate !== null && targetRate >= 1 ? 'text-emerald-600 font-medium' : 'text-amber-600 font-medium'}>
-            {formatPct(targetRate)}
+          <span className={targetRate !== null && targetRate >= 1 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+            목표대비 {formatPct(targetRate)}
           </span>
         </div>
         <div>
-          <span className="text-gray-500">전년대비 </span>
-          <span className={yoyRate !== null && yoyRate >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>
-            {formatPct(yoyRate !== null ? yoyRate + 1 : null)}
+          <span className={(yoyRate !== null ? yoyRate + 1 : 0) >= 1 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+            전년대비 {formatPct(yoyRate !== null ? yoyRate + 1 : null)}
           </span>
         </div>
       </div>
@@ -129,7 +133,7 @@ function ProgressCard({
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-      <h3 className={`text-sm font-semibold mb-4 ${color}`}>{title}</h3>
+      <h3 className="text-sm font-semibold mb-4 text-gray-800">{title}</h3>
       
       {/* 현시점 진척률 */}
       <div className="mb-3">
@@ -151,9 +155,7 @@ function ProgressCard({
       <div>
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div
-            className={`h-2 rounded-full transition-all ${
-              progressValue >= 100 ? 'bg-emerald-500' : 'bg-purple-500'
-            }`}
+            className="h-2 rounded-full transition-all bg-indigo-600"
             style={{ width: `${Math.min(progressValue, 100)}%` }}
           />
         </div>
@@ -366,9 +368,42 @@ export default function PlForecastPage() {
         <div className="max-w-full mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                예상 손익 현황
-              </h1>
+              <div className="flex items-center gap-3">
+                {/* 바 차트 아이콘 */}
+                <svg width="38" height="38" viewBox="0 0 32 32" className="drop-shadow-sm">
+                  <defs>
+                    <pattern id="grid-icon" width="4" height="4" patternUnits="userSpaceOnUse">
+                      <path d="M 4 0 L 0 0 0 4" fill="none" stroke="#E5E7EB" strokeWidth="0.5"/>
+                    </pattern>
+                    <linearGradient id="greenGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="#059669" stopOpacity="1" />
+                      <stop offset="100%" stopColor="#047857" stopOpacity="1" />
+                    </linearGradient>
+                    <linearGradient id="pinkGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="#DB2777" stopOpacity="1" />
+                      <stop offset="100%" stopColor="#BE185D" stopOpacity="1" />
+                    </linearGradient>
+                    <linearGradient id="blueGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="#2563EB" stopOpacity="1" />
+                      <stop offset="100%" stopColor="#1D4ED8" stopOpacity="1" />
+                    </linearGradient>
+                  </defs>
+                  {/* 배경 사각형 */}
+                  <rect x="2" y="2" width="28" height="28" fill="#F3F4F6" rx="2" />
+                  <rect x="2" y="2" width="28" height="28" fill="url(#grid-icon)" rx="2" />
+                  {/* x축 선 */}
+                  <line x1="6" y1="24" x2="26" y2="24" stroke="#1D4ED8" strokeWidth="1.5" />
+                  {/* 막대 1 (왼쪽, 초록, 가장 높음) */}
+                  <rect x="6" y="8" width="5" height="16" rx="1" fill="url(#greenGradient)" />
+                  {/* 막대 2 (중간, 분홍, 가장 짧음) */}
+                  <rect x="13" y="20" width="5" height="4" rx="1" fill="url(#pinkGradient)" />
+                  {/* 막대 3 (오른쪽, 파랑, 중간 높이) */}
+                  <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient)" />
+                </svg>
+                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+                  월중 손익예측 대시보드
+                </h1>
+              </div>
               <p className="text-sm text-gray-500 mt-1">
                 PL Forecast Dashboard
               </p>
@@ -395,7 +430,7 @@ export default function PlForecastPage() {
                 className={`
                   px-4 py-2 rounded-t-lg text-sm font-medium transition-all
                   ${tab.slug === 'all'
-                    ? 'bg-cyan-600 text-white'
+                    ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
                   }
                 `}
@@ -694,7 +729,40 @@ export default function PlForecastPage() {
             <div className="w-1/4">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700">전체 손익계산서</h3>
+                  <div className="flex items-center gap-2">
+                    {/* 바 차트 아이콘 (제목과 동일) */}
+                    <svg width="20" height="20" viewBox="0 0 32 32" className="drop-shadow-sm">
+                      <defs>
+                        <pattern id="grid-icon-pl-all" width="4" height="4" patternUnits="userSpaceOnUse">
+                          <path d="M 4 0 L 0 0 0 4" fill="none" stroke="#E5E7EB" strokeWidth="0.5"/>
+                        </pattern>
+                        <linearGradient id="greenGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#059669" stopOpacity="1" />
+                          <stop offset="100%" stopColor="#047857" stopOpacity="1" />
+                        </linearGradient>
+                        <linearGradient id="pinkGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#DB2777" stopOpacity="1" />
+                          <stop offset="100%" stopColor="#BE185D" stopOpacity="1" />
+                        </linearGradient>
+                        <linearGradient id="blueGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#2563EB" stopOpacity="1" />
+                          <stop offset="100%" stopColor="#1D4ED8" stopOpacity="1" />
+                        </linearGradient>
+                      </defs>
+                      {/* 배경 사각형 */}
+                      <rect x="2" y="2" width="28" height="28" fill="#F3F4F6" rx="2" />
+                      <rect x="2" y="2" width="28" height="28" fill="url(#grid-icon-pl-all)" rx="2" />
+                      {/* x축 선 */}
+                      <line x1="6" y1="24" x2="26" y2="24" stroke="#1D4ED8" strokeWidth="1.5" />
+                      {/* 막대 1 (왼쪽, 초록, 가장 높음) */}
+                      <rect x="6" y="8" width="5" height="16" rx="1" fill="url(#greenGradient-pl-all)" />
+                      {/* 막대 2 (중간, 분홍, 가장 짧음) */}
+                      <rect x="13" y="20" width="5" height="4" rx="1" fill="url(#pinkGradient-pl-all)" />
+                      {/* 막대 3 (오른쪽, 파랑, 중간 높이) */}
+                      <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl-all)" />
+                    </svg>
+                    <h3 className="text-sm font-semibold text-gray-700">전체 손익계산서</h3>
+                  </div>
                 </div>
                 <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
                   <table className="w-full text-xs">
