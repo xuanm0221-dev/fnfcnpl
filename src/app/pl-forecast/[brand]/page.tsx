@@ -1334,7 +1334,7 @@ function ProductSalesModal({
   if (!isOpen) return null;
   
   const formatK = (value: number) => Math.round(value / 1000).toLocaleString();
-  const formatYoy = (value: number | null) => value ? `${(value * 100).toFixed(1)}%` : '-';
+  const formatYoy = (value: number | null | undefined) => value ? `${(value * 100).toFixed(1)}%` : '-';
   
   // 안전한 products 배열
   const safeProducts = Array.isArray(products) ? products : [];
@@ -1774,8 +1774,8 @@ function ClothingSalesSection({
                   />
                   <Tooltip 
                     contentStyle={{ fontSize: 12 }}
-                    formatter={(value: number, name: string) => [
-                      `${value.toFixed(1)}${name === 'rate' ? '%' : '%'}`,
+                    formatter={(value: number | undefined, name: string | undefined) => [
+                      value !== undefined ? `${value.toFixed(1)}${name === 'rate' ? '%' : '%'}` : '-',
                       name === 'rate' ? '판매율' : 'YOY'
                     ]}
                   />

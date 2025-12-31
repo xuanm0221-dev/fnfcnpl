@@ -1092,7 +1092,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     );
 
     // 카드 요약 데이터 계산 (lines가 비어있지 않을 때만)
-    const summary = lines && lines.length > 0 ? buildCardSummary(lines, mergedData, context) : null;
+    const summary = lines && lines.length > 0 ? buildCardSummary(lines, mergedData, context) : undefined;
 
     // 차트 데이터 (전체 페이지만)
     let charts: ChartData | undefined;
