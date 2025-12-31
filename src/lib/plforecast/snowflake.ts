@@ -1373,6 +1373,7 @@ export async function getClothingSalesData(
   pyRate: number | null;
   yoy: number | null;
   cySalesAmt: number;
+  pySalesAmt: number;
 }[]> {
   const connection = await getConnection();
   
