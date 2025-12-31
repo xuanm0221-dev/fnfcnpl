@@ -42,7 +42,7 @@ export const lineDefinitions: LineDefinition[] = [
     level: 0,
     isParent: true,
     isCalculated: true,
-    defaultExpanded: true,
+    defaultExpanded: false,
     type: 'cogsSum',
     children: [
       {

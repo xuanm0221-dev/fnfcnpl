@@ -28,6 +28,7 @@ import {
   getRetailSalesData,
   getTierSalesData,
   getRegionSalesData,
+  getClothingSalesData,
 } from '@/lib/plforecast/snowflake';
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
@@ -586,9 +587,9 @@ async function buildChannelTableData(
   ym: string,
   lastDt: string,
   brandCode: BrandCode,
-  targetCsv: string
+  targetCsv: string | null
 ): Promise<ChannelTableData> {
-  // 1. 계획 데이터 (CSV)
+  // 1. 계획 데이터 (CSV) - null이면 모든 값이 null인 plan 반환
   const plan: ChannelPlanTable = parseChannelPlanData(targetCsv, brandCode);
   
   // 2. 실적 데이터 (Snowflake)
@@ -747,6 +748,25 @@ function getYesterdayDate(): string {
   return `${year}-${month}-${day}`;
 }
 
+// 기준월 마감 시점 날짜 계산 (점당매출, 의류 판매율 공통 사용)
+// - 현재 진행중인 월: 전일까지 (누적)
+// - 이미 마감된 월: 해당 월의 마지막 날까지
+function getMonthEndDate(ym: string): string {
+  const currentYm = getCurrentYm();
+  
+  // 현재 진행중인 월이면 전일까지
+  if (ym === currentYm) {
+    return getYesterdayDate();
+  }
+  
+  // 이미 마감된 월이면 해당 월의 마지막 날까지
+  const year = parseInt(ym.substring(0, 4));
+  const month = parseInt(ym.substring(5, 7));
+  const lastDay = getMonthDays(ym);
+  
+  return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+
 // 점당매출 테이블 데이터 빌드 (MLB, MLB KIDS, DISCOVERY만)
 // 주의: 점당매출은 전일 기준으로 자동 업데이트됨 (기존 PL의 lastDt와 다름)
 async function buildRetailSalesTable(
@@ -759,8 +779,8 @@ async function buildRetailSalesTable(
   const shopBrandName = brandCodeToShopName[brandCode];
   if (!shopBrandName) return null;
   
-  // 전일 날짜 (점당매출은 전일까지 자동 업데이트)
-  const retailLastDt = getYesterdayDate();
+  // 점당매출용 마지막 날짜 (진행중인 월: 전일, 마감된 월: 월말)
+  const retailLastDt = getMonthEndDate(ym);
   
   // 1. 계획 데이터 로드
   const plan = getRetailPlan(ym, brandCode);
@@ -851,35 +871,50 @@ async function buildTierRegionData(
   const shopBrandName = brandCodeToShopName[brandCode];
   if (!shopBrandName) return null;
   
-  // 티어별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
-  const tierData = await getTierSalesData(ym, retailLastDt, brandCode, shopBrandName);
-  
-  // 지역별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
-  const regionData = await getRegionSalesData(ym, retailLastDt, brandCode, shopBrandName);
-  
-  // 티어별 - 전년 데이터 매칭
-  const tiers: TierRegionSalesRow[] = tierData.current.map((row) => {
-    const prevRow = tierData.prevYear.find(p => p.key === row.key);
-    return {
-      ...row,
-      prevSalesAmt: prevRow?.salesAmt || 0,
-      prevShopCnt: prevRow?.shopCnt || 0,
-      prevSalesPerShop: prevRow?.salesPerShop || 0,
-    };
-  }).sort((a, b) => a.key.localeCompare(b.key)); // T0, T1, T2... 순서
-  
-  // 지역별 - 전년 데이터 매칭
-  const regions: TierRegionSalesRow[] = regionData.current.map((row) => {
-    const prevRow = regionData.prevYear.find(p => p.key === row.key);
-    return {
-      ...row,
-      prevSalesAmt: prevRow?.salesAmt || 0,
-      prevShopCnt: prevRow?.shopCnt || 0,
-      prevSalesPerShop: prevRow?.salesPerShop || 0,
-    };
-  }).sort((a, b) => a.key.localeCompare(b.key));
-  
-  return { tiers, regions };
+  try {
+    // 티어별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+    const tierData = await getTierSalesData(ym, retailLastDt, brandCode, shopBrandName);
+    
+    // 지역별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+    const regionData = await getRegionSalesData(ym, retailLastDt, brandCode, shopBrandName);
+    
+    // 안전한 배열 체크
+    const safeTierCurrent = Array.isArray(tierData?.current) ? tierData.current : [];
+    const safeTierPrevYear = Array.isArray(tierData?.prevYear) ? tierData.prevYear : [];
+    const safeRegionCurrent = Array.isArray(regionData?.current) ? regionData.current : [];
+    const safeRegionPrevYear = Array.isArray(regionData?.prevYear) ? regionData.prevYear : [];
+    
+    // 티어별 - 전년 데이터 매칭
+    const tiers: TierRegionSalesRow[] = safeTierCurrent.map((row) => {
+      if (!row) return null;
+      const prevRow = safeTierPrevYear.find(p => p?.key === row.key);
+      return {
+        ...row,
+        prevSalesAmt: prevRow?.salesAmt || 0,
+        prevShopCnt: prevRow?.shopCnt || 0,
+        prevSalesPerShop: prevRow?.salesPerShop || 0,
+      };
+    }).filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((a, b) => a.key.localeCompare(b.key)); // T0, T1, T2... 순서
+    
+    // 지역별 - 전년 데이터 매칭
+    const regions: TierRegionSalesRow[] = safeRegionCurrent.map((row) => {
+      if (!row) return null;
+      const prevRow = safeRegionPrevYear.find(p => p?.key === row.key);
+      return {
+        ...row,
+        prevSalesAmt: prevRow?.salesAmt || 0,
+        prevShopCnt: prevRow?.shopCnt || 0,
+        prevSalesPerShop: prevRow?.salesPerShop || 0,
+      };
+    }).filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((a, b) => a.key.localeCompare(b.key));
+    
+    return { tiers, regions };
+  } catch (error) {
+    console.error('[buildTierRegionData] 에러 발생:', error);
+    return null;
+  }
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse<ApiResponse>> {
@@ -890,21 +925,18 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
 
     // 목표 CSV 로드
     const targetCsv = getTargetCsv(ym);
-    if (!targetCsv) {
-      return NextResponse.json({
-        ym,
-        brand,
-        lastDt: '',
-        accumDays: 0,
-        monthDays: getMonthDays(ym),
-        lines: [],
-        error: `목표 데이터가 없습니다: ${ym}`,
-      });
-    }
-
     const mappings = getAccountMappings();
-    const targets = parseTargetCsv(targetCsv);
+    const targets = targetCsv ? parseTargetCsv(targetCsv) : [];
     const monthDays = getMonthDays(ym);
+    
+    // 목표 CSV가 없거나 1~11월인 경우 해당 월의 마지막 날 계산
+    const year = parseInt(ym.substring(0, 4));
+    const month = parseInt(ym.substring(5, 7));
+    const shouldUseMonthEnd = !targetCsv || (month >= 1 && month <= 11);
+    const lastDayOfMonth = shouldUseMonthEnd ? new Date(year, month, 0).getDate() : 0;
+    const lastDtOfMonth = shouldUseMonthEnd 
+      ? `${year}-${String(month).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
+      : '';
 
     // 브랜드 코드 목록 결정
     const brandCodes: BrandCode[] = brand === 'all' ? allBrandCodes : [brand as BrandCode];
@@ -923,7 +955,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     // 마지막 날짜 조회
     const lastDates = await getLastDates(ym, brandCodes);
     
-    // 첫 번째 브랜드의 lastDt 사용 (전체의 경우 가장 늦은 날짜)
+    // 첫 번째 브랜드의 lastDt 사용 (전체의 경우 가장 늦은 날짜) - 실제 데이터가 있는 마지막 날짜
     let lastDt = '';
     let accumDays = 0;
     
@@ -933,12 +965,20 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     
     for (const code of brandCodes) {
       const codeDt = lastDates[code] || '';
+      
+      // 마감일 표시는 실제 데이터가 있는 마지막 날짜 사용
       if (!lastDt || codeDt > lastDt) {
         lastDt = codeDt;
       }
       
-      if (codeDt) {
-        const bData = await calcBrandData(ym, code, mappings, targets, codeDt);
+      // 데이터 조회 시에는 목표가 없거나 1~11월이면 월의 마지막 날까지 조회
+      let queryDt = codeDt;
+      if (shouldUseMonthEnd && codeDt && lastDtOfMonth && codeDt < lastDtOfMonth) {
+        queryDt = lastDtOfMonth;
+      }
+      
+      if (queryDt) {
+        const bData = await calcBrandData(ym, code, mappings, targets, queryDt);
         brandDataList.push(bData);
         if (bData.accumDays > accumDays) {
           accumDays = bData.accumDays;
@@ -1051,8 +1091,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       buildPlLine(def, mergedData, mappings, targets, brand === 'all' ? 'all' : (brand as BrandCode), context)
     );
 
-    // 카드 요약 데이터 계산
-    const summary = buildCardSummary(lines, mergedData, context);
+    // 카드 요약 데이터 계산 (lines가 비어있지 않을 때만)
+    const summary = lines && lines.length > 0 ? buildCardSummary(lines, mergedData, context) : null;
 
     // 차트 데이터 (전체 페이지만)
     let charts: ChartData | undefined;
@@ -1085,6 +1125,69 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         }
       }
     }
+    
+    // 의류 판매율 데이터 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
+    const clothingBrands = ['M', 'I', 'X', 'V', 'W'];
+    let clothingSales: { items: any[]; total: any } | undefined;
+    
+    if (brand !== 'all' && clothingBrands.includes(brand)) {
+      try {
+        // 의류 판매율도 기준월 마감 시점까지 사용
+        const clothingLastDt = getMonthEndDate(ym);
+        console.log('[DEBUG] 의류 판매율 조회 시작:', { brand, clothingLastDt });
+        const clothingData = await getClothingSalesData(brand, clothingLastDt);
+        console.log('[DEBUG] 의류 판매율 조회 완료:', {
+          dataLength: clothingData?.length,
+          hasData: clothingData && Array.isArray(clothingData) && clothingData.length > 0,
+          firstItem: clothingData?.[0]
+        });
+        
+        // null/undefined 체크 및 배열 체크 강화
+        if (clothingData && Array.isArray(clothingData) && clothingData.length > 0) {
+          // 전체 합계 계산
+          let totalCyPoAmt = 0;
+          let totalCySalesAmt = 0;
+          let totalPyPoAmt = 0;
+          let totalPySalesAmt = 0;
+          
+          clothingData.forEach(item => {
+            totalCySalesAmt += item.cySalesAmt || 0;
+            totalPySalesAmt += item.pySalesAmt || 0;
+          });
+          
+          const totalCyRate = clothingData.length > 0 
+            ? clothingData.reduce((sum, item) => sum + (item.cyRate || 0), 0) / clothingData.length 
+            : 0;
+          const totalPyRate = clothingData.length > 0
+            ? clothingData.reduce((sum, item) => sum + (item.pyRate || 0), 0) / clothingData.length
+            : 0;
+          const totalYoy = totalPyRate && totalPyRate > 0 ? totalCyRate / totalPyRate : null;
+          
+          clothingSales = {
+            items: clothingData,
+            total: {
+              itemCd: 'TOTAL',
+              itemNm: '의류전체',
+              cyRate: totalCyRate,
+              pyRate: totalPyRate,
+              yoy: totalYoy,
+              cySalesAmt: totalCySalesAmt,
+              pySalesAmt: totalPySalesAmt,
+            },
+          };
+        } else {
+          console.log('[DEBUG] 의류 판매율 데이터가 없거나 빈 배열입니다:', {
+            isNull: clothingData === null,
+            isUndefined: clothingData === undefined,
+            isArray: Array.isArray(clothingData),
+            length: clothingData?.length
+          });
+        }
+      } catch (error) {
+        console.error('의류 판매율 조회 오류:', error);
+        // 에러 발생 시에도 clothingSales는 undefined로 유지 (에러를 API 응답에 포함하지 않음)
+      }
+    }
 
     return NextResponse.json({
       ym,
@@ -1099,6 +1202,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       retailSalesTable,
       retailLastDt,
       tierRegionData,
+      clothingSales,
     });
   } catch (error) {
     console.error('API Error:', error);

@@ -229,16 +229,18 @@ export default function PlForecastPage() {
           setData(json);
           // 기본 펼침 상태 설정
           const defaultExpanded = new Set<string>();
-          json.lines.forEach((line) => {
-            if (line.defaultExpanded) {
-              defaultExpanded.add(line.id);
-            }
-            line.children?.forEach((child) => {
-              if (child.defaultExpanded) {
-                defaultExpanded.add(child.id);
+          if (json.lines && json.lines.length > 0) {
+            json.lines.forEach((line) => {
+              if (line.defaultExpanded) {
+                defaultExpanded.add(line.id);
               }
+              line.children?.forEach((child) => {
+                if (child.defaultExpanded) {
+                  defaultExpanded.add(child.id);
+                }
+              });
             });
-          });
+          }
           setExpandedRows(defaultExpanded);
         }
       } catch (err) {
@@ -712,7 +714,15 @@ export default function PlForecastPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white">
-                      {data.lines.map((line) => renderRow(line))}
+                      {data.lines && data.lines.length > 0 ? (
+                        data.lines.map((line) => renderRow(line))
+                      ) : (
+                        <tr>
+                          <td colSpan={7} className="py-8 text-center text-gray-400">
+                            데이터가 없습니다.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>

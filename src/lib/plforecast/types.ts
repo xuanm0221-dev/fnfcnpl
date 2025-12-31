@@ -95,6 +95,7 @@ export interface ApiResponse {
   retailSalesTable?: RetailSalesTableData; // 점당매출 테이블 (MLB, MLB KIDS, DISCOVERY만)
   retailLastDt?: string; // 점당매출 기준일 (전일)
   tierRegionData?: TierRegionSalesData; // 티어별/지역별 점당매출 (MLB, MLB KIDS, DISCOVERY만)
+  clothingSales?: ClothingSalesData; // 의류 판매율 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
   error?: string;
 }
 
@@ -224,6 +225,34 @@ export interface TierRegionSalesRow {
 export interface TierRegionSalesData {
   tiers: TierRegionSalesRow[];   // 티어별
   regions: TierRegionSalesRow[]; // 지역별
+}
+
+// 의류 판매율 (item 단위)
+export interface ClothingSalesRow {
+  itemCd: string;        // 아이템 코드
+  itemNm: string;        // 아이템 명칭
+  cyRate: number | null; // 당시즌 판매율 (%)
+  pyRate: number | null; // 전년시즌 판매율 (%)
+  yoy: number | null;    // 판매율 YOY (당시즌/전년시즌)
+  cySalesAmt: number;    // 당시즌 누적 판매액 (Tag)
+  pySalesAmt: number;    // 전년시즌 누적 판매액 (Tag)
+}
+
+// 의류 판매율 데이터
+export interface ClothingSalesData {
+  items: ClothingSalesRow[]; // 아이템별
+  total: ClothingSalesRow;   // 전체 합계
+}
+
+// 의류 아이템 상세 (product 단위)
+export interface ClothingItemDetail {
+  prdtCd: string;
+  prdtNm: string;
+  cyRate: number | null;
+  pyCurrentRate: number | null; // 전년 당시즌 판매율
+  pyRate: number | null;
+  yoy: number | null;
+  cySalesAmt: number;
 }
 
 // 라인 정의 (화면 표시 순서/구조)

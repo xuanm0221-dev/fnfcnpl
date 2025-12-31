@@ -153,10 +153,37 @@ function parseTargetValueInternal(value: string | undefined): number | null {
  * 채널별 계획 데이터 파싱 (브랜드별 페이지용)
  */
 export function parseChannelPlanData(
-  csvContent: string,
+  csvContent: string | null | undefined,
   brandCode: BrandCode
 ): ChannelPlanTable {
-  const records = parse(csvContent, {
+  // null 또는 빈 문자열 체크 - 빈 데이터 반환 (모든 값이 null)
+  if (!csvContent || csvContent.trim() === '') {
+    const emptyRow: ChannelRowData = { 
+      onlineDirect: null, 
+      onlineDealer: null, 
+      offlineDirect: null, 
+      offlineDealer: null, 
+      total: null 
+    };
+    return {
+      tagSale: emptyRow,
+      actSaleVatInc: emptyRow,
+      actSaleVatIncRate: emptyRow,
+      actSaleVatExc: emptyRow,
+      cogs: emptyRow,
+      cogsRate: emptyRow,
+      tagCogsRate: emptyRow,
+      grossProfit: emptyRow,
+      grossProfitRate: emptyRow,
+    };
+  }
+  
+  // BOM 제거
+  const cleanContent = csvContent.charCodeAt(0) === 0xFEFF 
+    ? csvContent.slice(1) 
+    : csvContent;
+  
+  const records = parse(cleanContent, {
     columns: true,
     skip_empty_lines: true,
     trim: true,

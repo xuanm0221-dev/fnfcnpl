@@ -987,3 +987,613 @@ export async function getChannelActuals(
   }
 }
 
+// ============================================================
+// 카테고리별 판매 데이터 조회 (트리맵용)
+// ============================================================
+
+interface CategorySalesDbRow {
+  CATEGORY_KEY: string;
+  CY_SALES_AMT: number;
+  PY_SALES_AMT: number;
+}
+
+/**
+ * 카테고리별 판매 데이터 조회 (7개 카테고리)
+ */
+export async function getCategorySalesData(
+  type: 'tier' | 'region',
+  key: string,
+  brdCd: string,
+  ym: string,
+  lastDt: string
+): Promise<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null }[]> {
+  const connection = await getConnection();
+  
+  try {
+    const year = parseInt(lastDt.substring(0, 4));
+    const month = lastDt.substring(5, 7);
+    const day = lastDt.substring(8, 10);
+    const cyStartDt = `${year}-${month}-01`;
+    const cyEndDt = lastDt;
+    const pyStartDt = `${year - 1}-${month}-01`;
+    const pyEndDt = `${year - 1}-${month}-${day}`;
+    
+    // 기준연도 추출 (예: 2025-12 → '25')
+    const baseYear = ym.substring(0, 4);
+    const baseYearShort = baseYear.substring(2, 4); // '25'
+    const nextYearShort = String(parseInt(baseYearShort) + 1).padStart(2, '0'); // '26'
+    const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '24'
+    
+    const regionOrTierFilter = type === 'tier' ? 'd.city_tier_nm' : 'd.sale_region_nm';
+    
+    // 디버깅: 파라미터 값 로깅
+    console.log('[getCategorySalesData] 파라미터:', {
+      type,
+      key,
+      brdCd,
+      ym,
+      lastDt,
+      baseYearShort,
+      nextYearShort,
+      cyStartDt,
+      cyEndDt,
+      pyStartDt,
+      pyEndDt
+    });
+    
+    // 디버깅: valid_shops의 key_value 확인 (일시적으로 비활성화 - 메인 쿼리 우선)
+    // try {
+    //   const debugSql = `
+    //     WITH valid_shops AS (
+    //       SELECT DISTINCT d.shop_id, TRIM(${regionOrTierFilter}) AS key_value
+    //       FROM CHN.dw_shop_wh_detail d
+    //       JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+    //       WHERE d.fr_or_cls = 'FR'
+    //         AND d.anlys_shop_type_nm IN ('FO', 'FP')
+    //         AND m.anlys_onoff_cls_nm = 'Offline'
+    //       QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+    //     )
+    //     SELECT DISTINCT key_value, COUNT(DISTINCT shop_id) AS shop_cnt
+    //     FROM valid_shops
+    //     WHERE key_value IS NOT NULL
+    //     GROUP BY key_value
+    //     ORDER BY key_value
+    //   `;
+    //   const debugRows = await executeQuery<{ KEY_VALUE: string; SHOP_CNT: number }>(connection, debugSql, []);
+    //   console.log('[getCategorySalesData] valid_shops key_value 목록:', debugRows.map(r => ({ key: r.KEY_VALUE, shopCnt: r.SHOP_CNT })));
+    // } catch (debugErr) {
+    //   console.warn('[getCategorySalesData] 디버깅 쿼리 오류 (무시):', debugErr instanceof Error ? debugErr.message : debugErr);
+    // }
+    
+    const sql = `
+      WITH valid_shops AS (
+        SELECT DISTINCT d.shop_id, TRIM(${regionOrTierFilter}) AS key_value
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE d.fr_or_cls = 'FR'
+          AND d.anlys_shop_type_nm IN ('FO', 'FP')
+          AND m.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      )
+      SELECT 
+        CASE
+          -- 조인 실패 시 처리
+          WHEN scs.prdt_scs_cd IS NULL THEN 'others'
+          -- 악세사리: sale_dt 조건 없이 기존대로 유지
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) = 'SHOES' THEN 'Shoes'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) = 'HEADWEAR' THEN 'Headwear'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) = 'BAG' THEN 'Bag'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) NOT IN ('SHOES', 'HEADWEAR', 'BAG') THEN 'Acc_etc'
+          -- 의류: sale_dt 기준으로 당해/전년 구분
+          -- 당해 데이터: 25=당시즌, 26=차시즌
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND LEFT(s.sesn, 2) = '${nextYearShort}' THEN 'wear_next_cy'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_current_cy'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND LEFT(s.sesn, 2) NOT IN ('${baseYearShort}', '${nextYearShort}') THEN 'wear_past_cy'
+          -- 전년 데이터: 24=당시즌, 25=차시즌
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_next_py'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND LEFT(s.sesn, 2) = '${prevYearShort}' THEN 'wear_current_py'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${baseYearShort}') THEN 'wear_past_py'
+          ELSE 'others'
+        END AS CATEGORY_KEY,
+        SUM(CASE WHEN s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}' THEN s.sale_amt ELSE 0 END) AS CY_SALES_AMT,
+        SUM(CASE WHEN s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}' THEN s.sale_amt ELSE 0 END) AS PY_SALES_AMT
+      FROM CHN.dw_sale s
+      INNER JOIN valid_shops vs ON s.shop_id = vs.shop_id
+      LEFT JOIN FNF.CHN.MST_PRDT_SCS scs ON s.prdt_scs_cd = scs.prdt_scs_cd
+      WHERE s.brd_cd = ?
+        AND TRIM(vs.key_value) = TRIM(?)
+        AND (
+          (s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}')
+          OR (s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}')
+        )
+      GROUP BY CATEGORY_KEY
+      HAVING CATEGORY_KEY != 'others'
+      ORDER BY CY_SALES_AMT DESC
+    `;
+    
+    const trimmedKey = key.trim();
+    console.log('[getCategorySalesData] 쿼리 실행:', { brdCd, key: trimmedKey });
+    
+    let rows: any[];
+    try {
+      rows = await executeQuery<any>(connection, sql, [brdCd, trimmedKey]);
+      // null 체크
+      if (!Array.isArray(rows)) {
+        console.warn('[getCategorySalesData] rows가 배열이 아닙니다:', rows);
+        return [];
+      }
+      console.log('[getCategorySalesData] 쿼리 결과:', { rowCount: rows.length, rows: rows.map(r => ({ categoryKey: r?.CATEGORY_KEY, cySalesAmt: r?.CY_SALES_AMT, pySalesAmt: r?.PY_SALES_AMT })) });
+    } catch (queryErr) {
+      console.error('[getCategorySalesData] 메인 쿼리 실행 오류:', queryErr);
+      console.error('[getCategorySalesData] SQL 쿼리:', sql.substring(0, 500) + '...');
+      console.error('[getCategorySalesData] 파라미터:', [brdCd, trimmedKey]);
+      return []; // 에러 시 빈 배열 반환
+    }
+    
+    // 카테고리별로 당해/전년 데이터 합산
+    const categoryMap: Record<string, { category: string; cySalesAmt: number; pySalesAmt: number }> = {};
+    
+    rows.forEach(row => {
+      if (!row) return;
+      const categoryKey = row.CATEGORY_KEY;
+      if (!categoryKey) return;
+      
+      let category = '';
+      
+      if (categoryKey.startsWith('wear_next_')) {
+        category = 'wear_next';
+      } else if (categoryKey.startsWith('wear_current_')) {
+        category = 'wear_current';
+      } else if (categoryKey.startsWith('wear_past_')) {
+        category = 'wear_past';
+      } else {
+        category = categoryKey;
+      }
+      
+      if (!categoryMap[category]) {
+        categoryMap[category] = { category, cySalesAmt: 0, pySalesAmt: 0 };
+      }
+      
+      categoryMap[category].cySalesAmt += Number(row.CY_SALES_AMT) || 0;
+      categoryMap[category].pySalesAmt += Number(row.PY_SALES_AMT) || 0;
+    });
+    
+    const categoryNameMap: Record<string, string> = {
+      'wear_current': '의류 당시즌',
+      'wear_next': '의류 차시즌',
+      'wear_past': '의류 과시즌',
+    };
+    
+    const result = Object.values(categoryMap).map(item => {
+      if (!item) return null;
+      const cySalesAmt = item.cySalesAmt || 0;
+      const pySalesAmt = item.pySalesAmt || 0;
+      const yoy = pySalesAmt > 0 ? cySalesAmt / pySalesAmt : null;
+      
+      return {
+        category: categoryNameMap[item.category] || item.category,
+        cySalesAmt,
+        pySalesAmt,
+        yoy
+      };
+    }).filter((item): item is NonNullable<typeof item> => item !== null);
+    
+    console.log('[getCategorySalesData] 최종 결과:', { 
+      count: result.length, 
+      result: result.map(r => ({ category: r.category, cySalesAmt: r.cySalesAmt, pySalesAmt: r.pySalesAmt }))
+    });
+    
+    return result;
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+interface ProductSalesDbRow {
+  PRDT_SCS_CD: string;
+  PRDT_NM: string;
+  CY_SALES_AMT: number;
+  PY_SALES_AMT: number;
+}
+
+/**
+ * 카테고리별 상품 판매 데이터 조회
+ */
+export async function getCategoryProductSales(
+  type: 'tier' | 'region',
+  key: string,
+  category: string,
+  brdCd: string,
+  ym: string,
+  lastDt: string
+): Promise<{ prdtCd: string; prdtNm: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null }[]> {
+  const connection = await getConnection();
+  
+  try {
+    const year = parseInt(lastDt.substring(0, 4));
+    const month = lastDt.substring(5, 7);
+    const day = lastDt.substring(8, 10);
+    const cyStartDt = `${year}-${month}-01`;
+    const cyEndDt = lastDt;
+    const pyStartDt = `${year - 1}-${month}-01`;
+    const pyEndDt = `${year - 1}-${month}-${day}`;
+    
+    // 기준연도 추출 (예: 2025-12 → '25')
+    const baseYear = ym.substring(0, 4);
+    const baseYearShort = baseYear.substring(2, 4); // '25'
+    const nextYearShort = String(parseInt(baseYearShort) + 1).padStart(2, '0'); // '26'
+    const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '24'
+    
+    const regionOrTierFilter = type === 'tier' ? 'd.city_tier_nm' : 'd.sale_region_nm';
+    
+    let categoryFilter = '';
+    if (category === 'Shoes') {
+      categoryFilter = "UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) = 'SHOES'";
+    } else if (category === 'Headwear') {
+      categoryFilter = "UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) = 'HEADWEAR'";
+    } else if (category === 'Bag') {
+      categoryFilter = "UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) = 'BAG'";
+    } else if (category === 'Acc_etc') {
+      categoryFilter = "UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) NOT IN ('SHOES', 'HEADWEAR', 'BAG')";
+    } else if (category.includes('차시즌') || category.includes('wear_next')) {
+      // 차시즌: 당해 데이터는 26, 전년 데이터는 25
+      categoryFilter = `(
+        (UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+          AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+          AND LEFT(s.sesn, 2) = '${nextYearShort}')
+        OR
+        (UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+          AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+          AND LEFT(s.sesn, 2) = '${baseYearShort}')
+      )`;
+    } else if (category.includes('당시즌') || category.includes('wear_current')) {
+      // 당시즌: 당해 데이터는 25, 전년 데이터는 24
+      categoryFilter = `(
+        (UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+          AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+          AND LEFT(s.sesn, 2) = '${baseYearShort}')
+        OR
+        (UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+          AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+          AND LEFT(s.sesn, 2) = '${prevYearShort}')
+      )`;
+    } else if (category.includes('과시즌') || category.includes('wear_past')) {
+      // 과시즌: 당해 데이터는 25,26 제외, 전년 데이터는 24,25 제외
+      categoryFilter = `(
+        (UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+          AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+          AND LEFT(s.sesn, 2) NOT IN ('${baseYearShort}', '${nextYearShort}'))
+        OR
+        (UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+          AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+          AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${baseYearShort}'))
+      )`;
+    }
+    
+    const sql = `
+      WITH valid_shops AS (
+        SELECT DISTINCT d.shop_id, TRIM(${regionOrTierFilter}) AS key_value
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE d.fr_or_cls = 'FR'
+          AND d.anlys_shop_type_nm IN ('FO', 'FP')
+          AND m.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      )
+      SELECT 
+        s.prdt_scs_cd AS PRDT_SCS_CD,
+        COALESCE(p.prdt_nm_kr, s.prdt_scs_cd) AS PRDT_NM,
+        SUM(CASE WHEN s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}' THEN s.sale_amt ELSE 0 END) AS CY_SALES_AMT,
+        SUM(CASE WHEN s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}' THEN s.sale_amt ELSE 0 END) AS PY_SALES_AMT
+      FROM CHN.dw_sale s
+      INNER JOIN valid_shops vs ON s.shop_id = vs.shop_id
+      LEFT JOIN FNF.CHN.MST_PRDT_SCS scs ON s.prdt_scs_cd = scs.prdt_scs_cd
+      LEFT JOIN CHN.MST_PRDT p ON s.prdt_cd = p.prdt_cd
+      WHERE s.brd_cd = ?
+        AND TRIM(vs.key_value) = TRIM(?)
+        AND (${categoryFilter})
+        AND (
+          (s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}')
+          OR (s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}')
+        )
+      GROUP BY s.prdt_scs_cd, p.prdt_nm_kr
+      HAVING SUM(CASE WHEN s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}' THEN s.sale_amt ELSE 0 END) > 0
+      ORDER BY CY_SALES_AMT DESC
+      LIMIT 100
+    `;
+    
+    const trimmedKey = key.trim();
+    const rows = await executeQuery<ProductSalesDbRow>(connection, sql, [brdCd, trimmedKey]);
+    
+    // null 체크
+    if (!Array.isArray(rows)) {
+      console.warn('[getCategoryProductSales] rows가 배열이 아닙니다:', rows);
+      return [];
+    }
+    
+    return rows.map(row => {
+      if (!row) return null;
+      const cySalesAmt = Number(row.CY_SALES_AMT) || 0;
+      const pySalesAmt = Number(row.PY_SALES_AMT) || 0;
+      const yoy = pySalesAmt > 0 ? cySalesAmt / pySalesAmt : null;
+      
+      return {
+        prdtCd: row.PRDT_SCS_CD || '',
+        prdtNm: row.PRDT_NM || '',
+        cySalesAmt,
+        pySalesAmt,
+        yoy
+      };
+    }).filter((item): item is NonNullable<typeof item> => item !== null);
+  } catch (error) {
+    console.error('[getCategoryProductSales] 에러 발생:', error);
+    return []; // 에러 시 빈 배열 반환
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// ============================================================
+// 의류 판매율 데이터 조회
+// ============================================================
+
+interface ClothingSalesDbRow {
+  ITEM_CD: string;
+  ITEM_NM: string;
+  CY_PO_QTY: number;
+  CY_PO_AMT: number;
+  CY_SALES_AMT: number;
+  PY_PO_QTY: number;
+  PY_PO_AMT: number;
+  PY_SALES_AMT: number;
+}
+
+/**
+ * 브랜드별 의류 판매율 조회 (item 단위)
+ */
+export async function getClothingSalesData(
+  brdCd: string,
+  lastDt: string
+): Promise<{
+  itemCd: string;
+  itemNm: string;
+  cyRate: number | null;
+  pyRate: number | null;
+  yoy: number | null;
+  cySalesAmt: number;
+}[]> {
+  const connection = await getConnection();
+  
+  try {
+    const year = parseInt(lastDt.substring(0, 4));
+    const month = lastDt.substring(5, 7);
+    const day = lastDt.substring(8, 10);
+    const pyLastDt = `${year - 1}-${month}-${day}`;
+    
+    const sql = `
+      WITH po_data AS (
+        SELECT 
+          ord.item AS item_cd,
+          LEFT(ord.sesn, 2) AS sesn_year,
+          SUM(ord.ord_qty) AS po_qty,
+          SUM(ord.ord_qty * COALESCE(prdt.tag_price_rmb, 0)) AS po_amt
+        FROM prcs.dw_ord ord
+        LEFT JOIN chn.mst_prdt prdt ON ord.prdt_cd = prdt.prdt_cd
+        WHERE ord.po_cntry = '5'
+          AND ord.brd_cd = ?
+          AND LEFT(ord.sesn, 2) IN ('25', '24')
+          AND prdt.parent_prdt_kind_cd = 'L'
+        GROUP BY ord.item, sesn_year
+      ),
+      sales_data AS (
+        SELECT 
+          prdt.item_cd,
+          LEFT(s.sesn, 2) AS sesn_year,
+          SUM(s.tag_amt) AS sales_amt
+        FROM chn.dw_sale s
+        JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
+        WHERE s.brd_cd = ?
+          AND LEFT(s.sesn, 2) IN ('25', '24')
+          AND prdt.parent_prdt_kind_cd = 'L'
+          AND (
+            (LEFT(s.sesn, 2) = '25' AND s.sale_dt <= DATE '${lastDt}')
+            OR (LEFT(s.sesn, 2) = '24' AND s.sale_dt <= DATE '${pyLastDt}')
+          )
+        GROUP BY prdt.item_cd, sesn_year
+      ),
+      item_list AS (
+        SELECT DISTINCT item_cd FROM po_data
+        UNION
+        SELECT DISTINCT item_cd FROM sales_data
+      )
+      SELECT 
+        il.item_cd AS ITEM_CD,
+        COALESCE(itm.item_nm, il.item_cd) AS ITEM_NM,
+        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_qty ELSE 0 END) AS CY_PO_QTY,
+        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) AS CY_PO_AMT,
+        SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) AS CY_SALES_AMT,
+        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_qty ELSE 0 END) AS PY_PO_QTY,
+        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
+        SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
+      FROM item_list il
+      LEFT JOIN po_data po ON il.item_cd = po.item_cd
+      LEFT JOIN sales_data s ON il.item_cd = s.item_cd
+      LEFT JOIN prcs.dw_item itm ON il.item_cd = itm.item
+      GROUP BY il.item_cd, itm.item_nm
+      HAVING SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) > 0 
+          OR SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) > 0
+          OR SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) > 0
+          OR SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) > 0
+      ORDER BY CY_SALES_AMT DESC
+    `;
+    
+    const rows = await executeQuery<ClothingSalesDbRow>(connection, sql, [brdCd, brdCd]);
+    
+    // null 또는 undefined 체크
+    if (!rows || !Array.isArray(rows)) {
+      console.warn('[getClothingSalesData] rows가 null이거나 배열이 아닙니다:', rows);
+      return [];
+    }
+    
+    return rows.map(row => {
+      const cyPoAmt = Number(row.CY_PO_AMT) || 0;
+      const cySalesAmt = Number(row.CY_SALES_AMT) || 0;
+      const pyPoAmt = Number(row.PY_PO_AMT) || 0;
+      const pySalesAmt = Number(row.PY_SALES_AMT) || 0;
+      
+      const cyRate = cyPoAmt > 0 ? (cySalesAmt / cyPoAmt) * 100 : null;
+      const pyRate = pyPoAmt > 0 ? (pySalesAmt / pyPoAmt) * 100 : null;
+      const yoy = pyRate && pyRate > 0 ? (cyRate || 0) / pyRate : null;
+      
+      return {
+        itemCd: row.ITEM_CD || '',
+        itemNm: row.ITEM_NM || row.ITEM_CD || '',
+        cyRate,
+        pyRate,
+        yoy, // 판매율 YOY
+        cySalesAmt,
+        pySalesAmt
+      };
+    });
+  } catch (error) {
+    console.error('[getClothingSalesData] 에러 발생:', error);
+    // 에러 발생 시 빈 배열 반환
+    return [];
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+interface ClothingItemDetailDbRow {
+  PRDT_CD: string;
+  PRDT_NM: string;
+  CY_PO_QTY: number;
+  CY_PO_AMT: number;
+  CY_SALES_AMT: number;
+  PY_PO_QTY: number;
+  PY_PO_AMT: number;
+  PY_SALES_AMT: number;
+}
+
+/**
+ * 의류 아이템별 상품 상세 조회
+ */
+export async function getClothingItemDetails(
+  brdCd: string,
+  itemCd: string,
+  lastDt: string
+): Promise<{
+  prdtCd: string;
+  prdtNm: string;
+  cyRate: number | null;
+  pyRate: number | null;
+  yoy: number | null;
+  cySalesAmt: number;
+}[]> {
+  const connection = await getConnection();
+  
+  try {
+    const year = parseInt(lastDt.substring(0, 4));
+    const month = lastDt.substring(5, 7);
+    const day = lastDt.substring(8, 10);
+    const pyLastDt = `${year - 1}-${month}-${day}`;
+    
+    const sql = `
+      WITH po_data AS (
+        SELECT 
+          ord.prdt_cd,
+          LEFT(ord.sesn, 2) AS sesn_year,
+          SUM(ord.ord_qty) AS po_qty,
+          SUM(ord.ord_qty * COALESCE(prdt.tag_price_rmb, 0)) AS po_amt
+        FROM prcs.dw_ord ord
+        LEFT JOIN chn.mst_prdt prdt ON ord.prdt_cd = prdt.prdt_cd
+        WHERE ord.po_cntry = '5'
+          AND ord.brd_cd = ?
+          AND ord.item = ?
+          AND LEFT(ord.sesn, 2) IN ('25', '24')
+          AND prdt.parent_prdt_kind_cd = 'L'
+        GROUP BY ord.prdt_cd, sesn_year
+      ),
+      sales_data AS (
+        SELECT 
+          s.prdt_cd,
+          LEFT(s.sesn, 2) AS sesn_year,
+          SUM(s.tag_amt) AS sales_amt
+        FROM chn.dw_sale s
+        JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
+        WHERE s.brd_cd = ?
+          AND prdt.item_cd = ?
+          AND LEFT(s.sesn, 2) IN ('25', '24')
+          AND prdt.parent_prdt_kind_cd = 'L'
+          AND (
+            (LEFT(s.sesn, 2) = '25' AND s.sale_dt <= DATE '${lastDt}')
+            OR (LEFT(s.sesn, 2) = '24' AND s.sale_dt <= DATE '${pyLastDt}')
+          )
+        GROUP BY s.prdt_cd, sesn_year
+      ),
+      prdt_list AS (
+        SELECT DISTINCT prdt_cd FROM po_data
+        UNION
+        SELECT DISTINCT prdt_cd FROM sales_data
+      )
+      SELECT 
+        pl.prdt_cd AS PRDT_CD,
+        COALESCE(p.prdt_nm_kr, pl.prdt_cd) AS PRDT_NM,
+        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_qty ELSE 0 END) AS CY_PO_QTY,
+        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) AS CY_PO_AMT,
+        SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) AS CY_SALES_AMT,
+        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_qty ELSE 0 END) AS PY_PO_QTY,
+        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
+        SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
+      FROM prdt_list pl
+      LEFT JOIN po_data po ON pl.prdt_cd = po.prdt_cd
+      LEFT JOIN sales_data s ON pl.prdt_cd = s.prdt_cd
+      LEFT JOIN chn.mst_prdt p ON pl.prdt_cd = p.prdt_cd
+      GROUP BY pl.prdt_cd, p.prdt_nm_kr
+      HAVING SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) > 0 
+          OR SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) > 0
+          OR SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) > 0
+          OR SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) > 0
+      ORDER BY CY_SALES_AMT DESC
+    `;
+    
+    const rows = await executeQuery<ClothingItemDetailDbRow>(connection, sql, [brdCd, itemCd, brdCd, itemCd]);
+    
+    return rows.map(row => {
+      const cyPoAmt = Number(row.CY_PO_AMT) || 0;
+      const cySalesAmt = Number(row.CY_SALES_AMT) || 0;
+      const pyPoAmt = Number(row.PY_PO_AMT) || 0;
+      const pySalesAmt = Number(row.PY_SALES_AMT) || 0;
+      
+      const cyRate = cyPoAmt > 0 ? (cySalesAmt / cyPoAmt) * 100 : null;
+      const pyCurrentRate = pyPoAmt > 0 ? (pySalesAmt / pyPoAmt) * 100 : null; // 전년 당시즌 판매율
+      const pyRate = pyPoAmt > 0 ? (pySalesAmt / pyPoAmt) * 100 : null;
+      const yoy = pyRate && pyRate > 0 ? (cyRate || 0) / pyRate : null;
+      
+      return {
+        prdtCd: row.PRDT_CD || '',
+        prdtNm: row.PRDT_NM || row.PRDT_CD || '',
+        cyRate,
+        pyCurrentRate,
+        pyRate,
+        yoy,
+        cySalesAmt
+      };
+    });
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
