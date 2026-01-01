@@ -926,7 +926,26 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     // 목표 CSV 로드
     const targetCsv = getTargetCsv(ym);
     const mappings = getAccountMappings();
-    const targets = targetCsv ? parseTargetCsv(targetCsv) : [];
+    
+    // 디버깅: Vercel에서 targets 파싱 확인
+    let targets: TargetRow[] = [];
+    if (targetCsv) {
+      try {
+        targets = parseTargetCsv(targetCsv);
+        console.log(`[DEBUG] targets parsed for ${ym}:`, {
+          targetCsvLength: targetCsv.length,
+          targetsCount: targets.length,
+          firstTarget: targets[0] || null,
+          sampleTarget: targets.find(t => t.level1 === 'Tag매출') || null,
+        });
+      } catch (error) {
+        console.error(`[ERROR] Failed to parse target CSV for ${ym}:`, error);
+        targets = [];
+      }
+    } else {
+      console.log(`[DEBUG] No target CSV found for ${ym}`);
+    }
+    
     const monthDays = getMonthDays(ym);
     
     // 목표 CSV가 없거나 1~11월인 경우 해당 월의 마지막 날 계산

@@ -32,23 +32,36 @@ export function parseAccountMapping(csvContent: string): AccountMapping[] {
  * 첫 번째 컬럼은 영문 라벨(무시), 이후 level1/level2/level3, M/I/X/V/W 컬럼
  */
 export function parseTargetCsv(csvContent: string): TargetRow[] {
-  const records = parse(csvContent, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-  }) as Array<Record<string, string>>;
+  try {
+    const records = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+    }) as Array<Record<string, string>>;
 
-  return records.map((row) => ({
-    level1: row['level1'] || '',
-    level2: row['level2'] || '',
-    level3: row['level3'] || '',
-    M: parseTargetValue(row[' M '] || row['M'] || ''),
-    I: parseTargetValue(row['I'] || ''),
-    X: parseTargetValue(row['X'] || ''),
-    V: parseTargetValue(row['V'] || ''),
-    W: parseTargetValue(row['W'] || ''),
-  }));
+    if (!records || records.length === 0) {
+      console.warn('[parseTargetCsv] No records parsed from CSV');
+      return [];
+    }
+
+    const parsed = records.map((row) => ({
+      level1: row['level1'] || '',
+      level2: row['level2'] || '',
+      level3: row['level3'] || '',
+      M: parseTargetValue(row[' M '] || row['M'] || ''),
+      I: parseTargetValue(row['I'] || ''),
+      X: parseTargetValue(row['X'] || ''),
+      V: parseTargetValue(row['V'] || ''),
+      W: parseTargetValue(row['W'] || ''),
+    }));
+
+    console.log(`[parseTargetCsv] Parsed ${parsed.length} rows, sample:`, parsed[0] || null);
+    return parsed;
+  } catch (error) {
+    console.error('[parseTargetCsv] Error parsing CSV:', error);
+    throw error;
+  }
 }
 
 /**

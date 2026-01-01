@@ -41,5 +41,7 @@ const targetCsvMap: Record<string, string> = {
  * 기준월에 해당하는 목표 CSV 반환
  */
 export function getTargetCsv(ym: string): string | null {
-  return targetCsvMap[ym] || null;
+  const result = targetCsvMap[ym] || null;
+  console.log(`[getTargetCsv] Requested: ${ym}, Found: ${result ? `yes (${result.length} chars)` : 'no'}, Available keys:`, Object.keys(targetCsvMap));
+  return result;
 }
