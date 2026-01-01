@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail } from '@/lib/plforecast/types';
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatDateShort } from '@/lib/plforecast/format';
@@ -1853,7 +1853,6 @@ function ClothingSalesSection({
 export default function BrandPlForecastPage() {
   const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const brandSlug = params.brand as string;
 
   // 초기값은 현재 월 (처음 대시보드 켤 때)
@@ -1877,13 +1876,16 @@ export default function BrandPlForecastPage() {
   const brandCode = isValid ? slugToCode(brandSlug as BrandSlug) : null;
   const brandLabel = brandCode ? codeToLabel(brandCode) : '';
 
-  // URL 쿼리 파라미터에서 ym 읽기 (마운트 시)
+  // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
   useEffect(() => {
-    const urlYm = searchParams.get('ym');
-    if (urlYm) {
-      setYm(urlYm);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlYm = params.get('ym');
+      if (urlYm) {
+        setYm(urlYm);
+      }
     }
-  }, [searchParams]);
+  }, []);
 
   // 데이터 조회
   useEffect(() => {
@@ -1986,9 +1988,11 @@ export default function BrandPlForecastPage() {
   // 기준월 변경 핸들러 (URL 쿼리 파라미터 업데이트)
   const handleYmChange = (newYm: string) => {
     setYm(newYm);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('ym', newYm);
-    router.push(`/pl-forecast/${brandSlug}?${params.toString()}`);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      params.set('ym', newYm);
+      router.push(`/pl-forecast/${brandSlug}?${params.toString()}`);
+    }
   };
 
   // 탭 클릭 (브랜드 변경) - 기준월 유지

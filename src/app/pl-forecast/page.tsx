@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import type { ApiResponse, PlLine, ChartData } from '@/lib/plforecast/types';
 import { brandTabs } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatDateShort } from '@/lib/plforecast/format';
@@ -209,7 +209,6 @@ function getWaterfallColor(type: string): string {
 
 export default function PlForecastPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   // 초기값은 현재 월 (처음 대시보드 켤 때)
   const [ym, setYm] = useState(getCurrentYm());
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -219,13 +218,16 @@ export default function PlForecastPage() {
   const [showAccum, setShowAccum] = useState(true);
   const [trendTab, setTrendTab] = useState<'weekly' | 'daily'>('weekly');
 
-  // URL 쿼리 파라미터에서 ym 읽기 (마운트 시)
+  // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
   useEffect(() => {
-    const urlYm = searchParams.get('ym');
-    if (urlYm) {
-      setYm(urlYm);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlYm = params.get('ym');
+      if (urlYm) {
+        setYm(urlYm);
+      }
     }
-  }, [searchParams]);
+  }, []);
 
   // 데이터 조회
   useEffect(() => {
@@ -280,9 +282,11 @@ export default function PlForecastPage() {
   // 기준월 변경 핸들러 (URL 쿼리 파라미터 업데이트)
   const handleYmChange = (newYm: string) => {
     setYm(newYm);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('ym', newYm);
-    router.push(`/pl-forecast?${params.toString()}`);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      params.set('ym', newYm);
+      router.push(`/pl-forecast?${params.toString()}`);
+    }
   };
 
   // 탭 클릭 (브랜드 변경) - 기준월 유지
