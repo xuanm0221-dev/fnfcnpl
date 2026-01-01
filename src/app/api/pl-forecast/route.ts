@@ -972,8 +972,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       }
       
       // 데이터 조회 시에는 목표가 없거나 1~11월이면 월의 마지막 날까지 조회
-      let queryDt = codeDt;
-      if (shouldUseMonthEnd && codeDt && lastDtOfMonth && codeDt < lastDtOfMonth) {
+      // codeDt가 없어도 shouldUseMonthEnd이고 lastDtOfMonth가 있으면 사용 (목표 없어도 실제 데이터 조회)
+      let queryDt = codeDt || (shouldUseMonthEnd ? lastDtOfMonth : '');
+      if (shouldUseMonthEnd && queryDt && lastDtOfMonth && queryDt < lastDtOfMonth) {
         queryDt = lastDtOfMonth;
       }
       

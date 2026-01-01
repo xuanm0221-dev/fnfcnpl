@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { ApiResponse, PlLine, ChartData } from '@/lib/plforecast/types';
 import { brandTabs } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatDateShort } from '@/lib/plforecast/format';
@@ -209,6 +209,8 @@ function getWaterfallColor(type: string): string {
 
 export default function PlForecastPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // 초기값은 현재 월 (처음 대시보드 켤 때)
   const [ym, setYm] = useState(getCurrentYm());
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,6 +218,14 @@ export default function PlForecastPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showAccum, setShowAccum] = useState(true);
   const [trendTab, setTrendTab] = useState<'weekly' | 'daily'>('weekly');
+
+  // URL 쿼리 파라미터에서 ym 읽기 (마운트 시)
+  useEffect(() => {
+    const urlYm = searchParams.get('ym');
+    if (urlYm) {
+      setYm(urlYm);
+    }
+  }, [searchParams]);
 
   // 데이터 조회
   useEffect(() => {
@@ -267,12 +277,22 @@ export default function PlForecastPage() {
     });
   };
 
-  // 탭 클릭 (브랜드 변경)
+  // 기준월 변경 핸들러 (URL 쿼리 파라미터 업데이트)
+  const handleYmChange = (newYm: string) => {
+    setYm(newYm);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('ym', newYm);
+    router.push(`/pl-forecast?${params.toString()}`);
+  };
+
+  // 탭 클릭 (브랜드 변경) - 기준월 유지
   const handleTabClick = (slug: string) => {
+    const params = new URLSearchParams();
+    params.set('ym', ym);
     if (slug === 'all') {
-      router.push('/pl-forecast');
+      router.push(`/pl-forecast?${params.toString()}`);
     } else {
-      router.push(`/pl-forecast/${slug}`);
+      router.push(`/pl-forecast/${slug}?${params.toString()}`);
     }
   };
 
@@ -415,7 +435,7 @@ export default function PlForecastPage() {
               <input
                 type="month"
                 value={ym}
-                onChange={(e) => setYm(e.target.value)}
+                onChange={(e) => handleYmChange(e.target.value)}
                 className="bg-white border border-gray-300 rounded-lg px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
               />
             </div>
