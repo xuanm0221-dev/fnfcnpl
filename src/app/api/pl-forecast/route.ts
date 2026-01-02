@@ -942,53 +942,107 @@ async function buildTierRegionData(
     // 안전한 배열 체크
     const safeTierCurrent = Array.isArray(tierData?.current) ? tierData.current : [];
     const safeTierPrevYear = Array.isArray(tierData?.prevYear) ? tierData.prevYear : [];
+    const safeTierPrevYearFull = Array.isArray(tierData?.prevYearFull) ? tierData.prevYearFull : [];
     const safeRegionCurrent = Array.isArray(regionData?.current) ? regionData.current : [];
     const safeRegionPrevYear = Array.isArray(regionData?.prevYear) ? regionData.prevYear : [];
+    const safeRegionPrevYearFull = Array.isArray(regionData?.prevYearFull) ? regionData.prevYearFull : [];
     
     // 디버깅: 전년도 데이터 확인
     console.log('[buildTierRegionData] 전년도 데이터 확인:', {
       tierPrevYearCount: safeTierPrevYear.length,
+      tierPrevYearFullCount: safeTierPrevYearFull.length,
       regionPrevYearCount: safeRegionPrevYear.length,
+      regionPrevYearFullCount: safeRegionPrevYearFull.length,
       tierPrevYearKeys: safeTierPrevYear.map(r => r?.key),
       regionPrevYearKeys: safeRegionPrevYear.map(r => r?.key),
     });
     
-    // 티어별 - 전년 데이터 매칭
+    // 티어별 - 전년 데이터 매칭 및 월환산 점당매출 계산
     const tiers: TierRegionSalesRow[] = safeTierCurrent.map((row) => {
       if (!row) return null;
       const prevRow = safeTierPrevYear.find(p => p?.key === row.key);
+      const prevFullRow = safeTierPrevYearFull.find(p => p?.key === row.key);
+      
+      // 전년 누적 데이터 (진척률 계산용)
+      const prevCumSalesAmt = prevRow?.salesAmt || 0;
+      const prevCumShopCnt = prevRow?.shopCnt || 0;
+      
+      // 전년 월전체 데이터 (표시 및 YOY 비교용)
+      const prevFullSalesAmt = prevFullRow?.prevFullSalesAmt || 0;
+      const prevFullShopCnt = prevFullRow?.prevFullShopCnt || 0;
+      
+      // 월환산 점당매출 계산
+      // 전년 진척률 = 전년 누적 / 전년 전체
+      const lyProgressRate = prevFullSalesAmt > 0 ? prevCumSalesAmt / prevFullSalesAmt : 0;
+      // 월환산 총액 = 당년 누적 / (전년 진척률)
+      const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
+      // 실적(점당월환산) = 월환산 총액 / 당년 매장수
+      const monthlyPerShop = row.shopCnt > 0 ? monthlyTotalAmt / row.shopCnt : 0;
+      // 전년(점당 월전체) = 전년 전체 매출 / 전년 전체 매장수
+      const prevFullPerShop = prevFullShopCnt > 0 ? prevFullSalesAmt / prevFullShopCnt : 0;
+      
       const result = {
         ...row,
-        prevSalesAmt: prevRow?.salesAmt || 0,
-        prevShopCnt: prevRow?.shopCnt || 0,
-        prevSalesPerShop: prevRow?.salesPerShop || 0,
+        prevSalesAmt: prevFullSalesAmt, // 전년도 월전체 매출로 변경
+        prevShopCnt: prevFullShopCnt, // 전년도 월전체 매장수로 변경
+        prevSalesPerShop: prevFullPerShop, // 전년도 월전체 점당매출로 변경
+        prevFullSalesAmt,
+        prevFullShopCnt,
+        prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용)
+        prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용)
+        salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
       };
       // 디버깅: cities 필드 및 전년도 데이터 확인
       if (row.cities && row.cities.length > 0) {
         console.log(`[buildTierRegionData] Tier ${row.key} cities:`, row.cities);
       }
-      if (!prevRow) {
-        console.log(`[buildTierRegionData] Tier ${row.key} 전년도 데이터 없음`);
+      if (!prevFullRow) {
+        console.log(`[buildTierRegionData] Tier ${row.key} 전년도 월전체 데이터 없음`);
       } else {
-        console.log(`[buildTierRegionData] Tier ${row.key} 전년도 매칭 성공:`, {
-          prevSalesAmt: prevRow.salesAmt,
-          prevShopCnt: prevRow.shopCnt,
-          prevSalesPerShop: prevRow.salesPerShop,
+        console.log(`[buildTierRegionData] Tier ${row.key} 전년도 월전체 매칭 성공:`, {
+          prevFullSalesAmt: prevFullRow.prevFullSalesAmt,
+          prevFullShopCnt: prevFullRow.prevFullShopCnt,
+          prevFullPerShop,
         });
       }
       return result;
     }).filter((item): item is NonNullable<typeof item> => item !== null)
       .sort((a, b) => a.key.localeCompare(b.key)); // T0, T1, T2... 순서
     
-    // 지역별 - 전년 데이터 매칭
+    // 지역별 - 전년 데이터 매칭 및 월환산 점당매출 계산
     const regions: TierRegionSalesRow[] = safeRegionCurrent.map((row) => {
       if (!row) return null;
       const prevRow = safeRegionPrevYear.find(p => p?.key === row.key);
+      const prevFullRow = safeRegionPrevYearFull.find(p => p?.key === row.key);
+      
+      // 전년 누적 데이터 (진척률 계산용)
+      const prevCumSalesAmt = prevRow?.salesAmt || 0;
+      const prevCumShopCnt = prevRow?.shopCnt || 0;
+      
+      // 전년 월전체 데이터 (표시 및 YOY 비교용)
+      const prevFullSalesAmt = prevFullRow?.prevFullSalesAmt || 0;
+      const prevFullShopCnt = prevFullRow?.prevFullShopCnt || 0;
+      
+      // 월환산 점당매출 계산
+      // 전년 진척률 = 전년 누적 / 전년 전체
+      const lyProgressRate = prevFullSalesAmt > 0 ? prevCumSalesAmt / prevFullSalesAmt : 0;
+      // 월환산 총액 = 당년 누적 / (전년 진척률)
+      const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
+      // 실적(점당월환산) = 월환산 총액 / 당년 매장수
+      const monthlyPerShop = row.shopCnt > 0 ? monthlyTotalAmt / row.shopCnt : 0;
+      // 전년(점당 월전체) = 전년 전체 매출 / 전년 전체 매장수
+      const prevFullPerShop = prevFullShopCnt > 0 ? prevFullSalesAmt / prevFullShopCnt : 0;
+      
       const result = {
         ...row,
-        prevSalesAmt: prevRow?.salesAmt || 0,
-        prevShopCnt: prevRow?.shopCnt || 0,
-        prevSalesPerShop: prevRow?.salesPerShop || 0,
+        prevSalesAmt: prevFullSalesAmt, // 전년도 월전체 매출로 변경
+        prevShopCnt: prevFullShopCnt, // 전년도 월전체 매장수로 변경
+        prevSalesPerShop: prevFullPerShop, // 전년도 월전체 점당매출로 변경
+        prevFullSalesAmt,
+        prevFullShopCnt,
+        prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용)
+        prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용)
+        salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
       };
       // 디버깅: cities 필드 확인
       if (row.cities && row.cities.length > 0) {
@@ -1276,10 +1330,14 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
           let totalCySalesAmt = 0;
           let totalPyPoAmt = 0;
           let totalPySalesAmt = 0;
+          let totalCyPoQty = 0;
+          let totalPyPoQty = 0;
           
           clothingData.forEach(item => {
             totalCySalesAmt += item.cySalesAmt || 0;
             totalPySalesAmt += item.pySalesAmt || 0;
+            totalCyPoQty += item.cyPoQty || 0;
+            totalPyPoQty += item.pyPoQty || 0;
           });
           
           const totalCyRate = clothingData.length > 0 
@@ -1300,6 +1358,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
               yoy: totalYoy,
               cySalesAmt: totalCySalesAmt,
               pySalesAmt: totalPySalesAmt,
+              cyPoQty: totalCyPoQty,
+              pyPoQty: totalPyPoQty,
             },
           };
         } else {

@@ -224,10 +224,14 @@ export interface TierRegionSalesRow {
   cities?: string[];    // 주요 도시 목록 (중국어)
   salesAmt: number;     // 당년 매출 합계
   shopCnt: number;      // 당년 매장수
-  salesPerShop: number; // 당년 점당매출
-  prevSalesAmt: number; // 전년 매출 합계
-  prevShopCnt: number;  // 전년 매장수
-  prevSalesPerShop: number; // 전년 점당매출
+  salesPerShop: number; // 당년 점당매출 (월환산)
+  prevSalesAmt: number; // 전년 월전체 매출 합계 (표시 및 YOY 비교용)
+  prevShopCnt: number;  // 전년 월전체 매장수 (표시 및 YOY 비교용)
+  prevSalesPerShop: number; // 전년 월전체 점당매출 (표시 및 YOY 비교용)
+  prevFullSalesAmt: number; // 전년 월전체 매출 합계
+  prevFullShopCnt: number;  // 전년 월전체 매장수
+  prevCumSalesAmt: number; // 전년 누적 매출 합계 (월환산 계산용)
+  prevCumShopCnt: number;  // 전년 누적 매장수 (월환산 계산용)
 }
 
 // 티어별/지역별 점당매출 데이터
@@ -245,6 +249,8 @@ export interface ClothingSalesRow {
   yoy: number | null;    // 판매율 YOY (당시즌/전년시즌)
   cySalesAmt: number;    // 당시즌 누적 판매액 (Tag)
   pySalesAmt: number;    // 전년시즌 누적 판매액 (Tag)
+  cyPoQty: number;       // 당년 발주수량
+  pyPoQty: number;       // 전년 발주수량
 }
 
 // 의류 판매율 데이터
@@ -257,11 +263,10 @@ export interface ClothingSalesData {
 export interface ClothingItemDetail {
   prdtCd: string;
   prdtNm: string;
-  cyRate: number | null;
-  pyCurrentRate: number | null; // 전년 당시즌 판매율
-  pyRate: number | null;
-  yoy: number | null;
-  cySalesAmt: number;
+  cyRate: number | null; // 당시즌 판매율
+  cySalesQty: number; // 당시즌 판매수량 (누적)
+  cyStockQty: number | null; // 당시즌 기말 재고수량
+  poQty: number; // 발주수량
 }
 
 // 비용 계산 타입

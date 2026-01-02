@@ -784,7 +784,7 @@ export async function getTierSalesData(
   lastDt: string,
   brandCode: string,
   shopBrandName: string
-): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[] }> {
+): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
   const connection = await getConnection();
   try {
     // 날짜 계산
@@ -792,6 +792,8 @@ export async function getTierSalesData(
     const prevYear = year - 1;
     const lastDay = lastDt.split('-')[2];
     const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
+    const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
+    const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
     
     const sql = `
       WITH valid_shops AS (
@@ -871,6 +873,28 @@ export async function getTierSalesData(
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY vs.city_tier_nm
+      ),
+      -- 전년 월전체 티어별 매출 (판매액 > 0인 매장만)
+      ly_full_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      ly_full_tier AS (
+        SELECT 
+          vs.city_tier_nm as GROUP_KEY,
+          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
+          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+        FROM ly_full_shop_sales lfs
+        INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
+        GROUP BY vs.city_tier_nm
       )
       SELECT 
         'CY' as PERIOD, 
@@ -888,17 +912,27 @@ export async function getTierSalesData(
         SHOP_CNT,
         '' as CITIES
       FROM ly_tier
+      UNION ALL
+      SELECT 
+        'LY_FULL' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_full_tier
     `;
     
     const binds = [
       lastDt, lastDt, brandCode, shopBrandName, shopBrandName,
       prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
     
     const currentRows = rows.filter(r => r.PERIOD === 'CY');
     const prevRows = rows.filter(r => r.PERIOD === 'LY');
+    const prevFullRows = rows.filter(r => r.PERIOD === 'LY_FULL');
     
     // 도시명 배열로 변환 및 한국어 번역 적용
     const parseCities = (citiesStr: string | undefined): string[] => {
@@ -914,7 +948,7 @@ export async function getTierSalesData(
       return displayName;
     };
     
-    const toRow = (r: TierRegionResult, isCurrent: boolean): TierRegionSalesRow => {
+    const toRow = (r: TierRegionResult, isCurrent: boolean, isFull: boolean = false): TierRegionSalesRow => {
       const cities = isCurrent && r.CITIES 
         ? parseCities(r.CITIES).map(formatCityName)
         : [];
@@ -930,6 +964,10 @@ export async function getTierSalesData(
           prevSalesAmt: 0,
           prevShopCnt: 0,
           prevSalesPerShop: 0,
+          prevFullSalesAmt: 0,
+          prevFullShopCnt: 0,
+          prevCumSalesAmt: 0,
+          prevCumShopCnt: 0,
         };
       } else {
         // 전년도 데이터: 실제 전년도 값 사용
@@ -942,13 +980,18 @@ export async function getTierSalesData(
           prevSalesAmt: 0,
           prevShopCnt: 0,
           prevSalesPerShop: 0,
+          prevFullSalesAmt: isFull ? Number(r.SALES_AMT) || 0 : 0,
+          prevFullShopCnt: isFull ? Number(r.SHOP_CNT) || 0 : 0,
+          prevCumSalesAmt: !isFull ? Number(r.SALES_AMT) || 0 : 0, // 전년 누적 매출
+          prevCumShopCnt: !isFull ? Number(r.SHOP_CNT) || 0 : 0, // 전년 누적 매장수
         };
       }
     };
     
     return {
       current: currentRows.map(r => toRow(r, true)),
-      prevYear: prevRows.map(r => toRow(r, false)),
+      prevYear: prevRows.map(r => toRow(r, false, false)),
+      prevYearFull: prevFullRows.map(r => toRow(r, false, true)),
     };
   } finally {
     await destroyConnection(connection);
@@ -963,7 +1006,7 @@ export async function getRegionSalesData(
   lastDt: string,
   brandCode: string,
   shopBrandName: string
-): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[] }> {
+): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
   const connection = await getConnection();
   try {
     // 날짜 계산
@@ -971,6 +1014,8 @@ export async function getRegionSalesData(
     const prevYear = year - 1;
     const lastDay = lastDt.split('-')[2];
     const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
+    const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
+    const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
     
     const sql = `
       WITH valid_shops AS (
@@ -1050,6 +1095,28 @@ export async function getRegionSalesData(
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY vs.sale_region_nm
+      ),
+      -- 전년 월전체 지역별 매출 (판매액 > 0인 매장만)
+      ly_full_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      ly_full_region AS (
+        SELECT 
+          vs.sale_region_nm as GROUP_KEY,
+          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
+          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+        FROM ly_full_shop_sales lfs
+        INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
+        GROUP BY vs.sale_region_nm
       )
       SELECT 
         'CY' as PERIOD, 
@@ -1067,17 +1134,27 @@ export async function getRegionSalesData(
         SHOP_CNT,
         '' as CITIES
       FROM ly_region
+      UNION ALL
+      SELECT 
+        'LY_FULL' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_full_region
     `;
     
     const binds = [
       lastDt, lastDt, brandCode, shopBrandName, shopBrandName,
       prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
     
     const currentRows = rows.filter(r => r.PERIOD === 'CY');
     const prevRows = rows.filter(r => r.PERIOD === 'LY');
+    const prevFullRows = rows.filter(r => r.PERIOD === 'LY_FULL');
     
     // 도시명 배열로 변환 및 한국어 번역 적용
     const parseCities = (citiesStr: string | undefined): string[] => {
@@ -1093,7 +1170,7 @@ export async function getRegionSalesData(
       return displayName;
     };
     
-    const toRow = (r: TierRegionResult, isCurrent: boolean): TierRegionSalesRow => {
+    const toRow = (r: TierRegionResult, isCurrent: boolean, isFull: boolean = false): TierRegionSalesRow => {
       const cities = isCurrent && r.CITIES 
         ? parseCities(r.CITIES).map(formatCityName)
         : [];
@@ -1110,6 +1187,10 @@ export async function getRegionSalesData(
           prevSalesAmt: 0,
           prevShopCnt: 0,
           prevSalesPerShop: 0,
+          prevFullSalesAmt: 0,
+          prevFullShopCnt: 0,
+          prevCumSalesAmt: 0,
+          prevCumShopCnt: 0,
         };
       } else {
         // 전년도 데이터: 실제 전년도 값 사용
@@ -1123,13 +1204,18 @@ export async function getRegionSalesData(
           prevSalesAmt: 0,
           prevShopCnt: 0,
           prevSalesPerShop: 0,
+          prevFullSalesAmt: isFull ? Number(r.SALES_AMT) || 0 : 0,
+          prevFullShopCnt: isFull ? Number(r.SHOP_CNT) || 0 : 0,
+          prevCumSalesAmt: !isFull ? Number(r.SALES_AMT) || 0 : 0, // 전년 누적 매출
+          prevCumShopCnt: !isFull ? Number(r.SHOP_CNT) || 0 : 0, // 전년 누적 매장수
         };
       }
     };
     
     return {
       current: currentRows.map(r => toRow(r, true)),
-      prevYear: prevRows.map(r => toRow(r, false)),
+      prevYear: prevRows.map(r => toRow(r, false, false)),
+      prevYearFull: prevFullRows.map(r => toRow(r, false, true)),
     };
   } finally {
     await destroyConnection(connection);
@@ -1566,6 +1652,8 @@ export async function getClothingSalesData(
   yoy: number | null;
   cySalesAmt: number;
   pySalesAmt: number;
+  cyPoQty: number;
+  pyPoQty: number;
 }[]> {
   const connection = await getConnection();
   
@@ -1645,6 +1733,8 @@ export async function getClothingSalesData(
       const cySalesAmt = Number(row.CY_SALES_AMT) || 0;
       const pyPoAmt = Number(row.PY_PO_AMT) || 0;
       const pySalesAmt = Number(row.PY_SALES_AMT) || 0;
+      const cyPoQty = Number(row.CY_PO_QTY) || 0;
+      const pyPoQty = Number(row.PY_PO_QTY) || 0;
       
       const cyRate = cyPoAmt > 0 ? (cySalesAmt / cyPoAmt) * 100 : null;
       const pyRate = pyPoAmt > 0 ? (pySalesAmt / pyPoAmt) * 100 : null;
@@ -1657,7 +1747,9 @@ export async function getClothingSalesData(
         pyRate,
         yoy, // 판매율 YOY
         cySalesAmt,
-        pySalesAmt
+        pySalesAmt,
+        cyPoQty,
+        pyPoQty
       };
     });
   } catch (error) {
@@ -1672,12 +1764,10 @@ export async function getClothingSalesData(
 interface ClothingItemDetailDbRow {
   PRDT_CD: string;
   PRDT_NM: string;
-  CY_PO_QTY: number;
-  CY_PO_AMT: number;
-  CY_SALES_AMT: number;
-  PY_PO_QTY: number;
-  PY_PO_AMT: number;
-  PY_SALES_AMT: number;
+  CY_RATE: number | null;
+  CY_SALES_QTY: number;
+  CY_STOCK_QTY: number | null;
+  PO_QTY: number;
 }
 
 /**
@@ -1691,100 +1781,76 @@ export async function getClothingItemDetails(
   prdtCd: string;
   prdtNm: string;
   cyRate: number | null;
-  pyRate: number | null;
-  yoy: number | null;
-  cySalesAmt: number;
+  cySalesQty: number;
+  cyStockQty: number | null;
+  poQty: number;
 }[]> {
   const connection = await getConnection();
   
   try {
-    const year = parseInt(lastDt.substring(0, 4));
-    const month = lastDt.substring(5, 7);
-    const day = lastDt.substring(8, 10);
-    const pyLastDt = `${year - 1}-${month}-${day}`;
-    
     const sql = `
-      WITH po_data AS (
+      SELECT 
+        sd.prdt_cd AS PRDT_CD,
+        COALESCE(p.prdt_nm_kr, sd.prdt_cd) AS PRDT_NM,
+        CASE 
+          WHEN po.po_amt > 0 AND po.po_amt IS NOT NULL THEN (sd.sales_amt / po.po_amt) * 100
+          ELSE NULL
+        END AS CY_RATE,
+        sd.sales_qty AS CY_SALES_QTY,
+        st.stock_qty_expected AS CY_STOCK_QTY,
+        COALESCE(po.po_qty, 0) AS PO_QTY
+      FROM (
+        SELECT 
+          s.prdt_cd,
+          SUM(s.qty) AS sales_qty,
+          SUM(s.tag_amt) AS sales_amt
+        FROM chn.dw_sale s
+        INNER JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
+        WHERE s.brd_cd = ?
+          AND prdt.item_cd = ?
+          AND LEFT(s.sesn, 2) = '25'
+          AND prdt.parent_prdt_kind_cd = 'L'
+          AND s.sale_dt <= DATE '${lastDt}'
+        GROUP BY s.prdt_cd
+        HAVING SUM(s.qty) > 0
+      ) sd
+      LEFT JOIN (
         SELECT 
           ord.prdt_cd,
-          LEFT(ord.sesn, 2) AS sesn_year,
           SUM(ord.ord_qty) AS po_qty,
           SUM(ord.ord_qty * COALESCE(prdt.tag_price_rmb, 0)) AS po_amt
         FROM prcs.dw_ord ord
-        LEFT JOIN chn.mst_prdt prdt ON ord.prdt_cd = prdt.prdt_cd
+        INNER JOIN chn.mst_prdt prdt ON ord.prdt_cd = prdt.prdt_cd
         WHERE ord.po_cntry = '5'
           AND ord.brd_cd = ?
           AND ord.item = ?
-          AND LEFT(ord.sesn, 2) IN ('25', '24')
+          AND LEFT(ord.sesn, 2) = '25'
           AND prdt.parent_prdt_kind_cd = 'L'
-        GROUP BY ord.prdt_cd, sesn_year
-      ),
-      sales_data AS (
+        GROUP BY ord.prdt_cd
+      ) po ON sd.prdt_cd = po.prdt_cd
+      LEFT JOIN (
         SELECT 
-          s.prdt_cd,
-          LEFT(s.sesn, 2) AS sesn_year,
-          SUM(s.tag_amt) AS sales_amt
-        FROM chn.dw_sale s
-        JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
-        WHERE s.brd_cd = ?
-          AND prdt.item_cd = ?
-          AND LEFT(s.sesn, 2) IN ('25', '24')
-          AND prdt.parent_prdt_kind_cd = 'L'
-          AND (
-            (LEFT(s.sesn, 2) = '25' AND s.sale_dt <= DATE '${lastDt}')
-            OR (LEFT(s.sesn, 2) = '24' AND s.sale_dt <= DATE '${pyLastDt}')
-          )
-        GROUP BY s.prdt_cd, sesn_year
-      ),
-      prdt_list AS (
-        SELECT DISTINCT prdt_cd FROM po_data
-        UNION
-        SELECT DISTINCT prdt_cd FROM sales_data
-      )
-      SELECT 
-        pl.prdt_cd AS PRDT_CD,
-        COALESCE(p.prdt_nm_kr, pl.prdt_cd) AS PRDT_NM,
-        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_qty ELSE 0 END) AS CY_PO_QTY,
-        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) AS CY_PO_AMT,
-        SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) AS CY_SALES_AMT,
-        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_qty ELSE 0 END) AS PY_PO_QTY,
-        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
-        SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
-      FROM prdt_list pl
-      LEFT JOIN po_data po ON pl.prdt_cd = po.prdt_cd
-      LEFT JOIN sales_data s ON pl.prdt_cd = s.prdt_cd
-      LEFT JOIN chn.mst_prdt p ON pl.prdt_cd = p.prdt_cd
-      GROUP BY pl.prdt_cd, p.prdt_nm_kr
-      HAVING SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) > 0 
-          OR SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) > 0
-          OR SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) > 0
-          OR SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) > 0
-      ORDER BY CY_SALES_AMT DESC
+          st.prdt_cd,
+          SUM(st.stock_qty_expected) AS stock_qty_expected
+        FROM CHN.dw_stock_d st
+        WHERE st.dt = DATE '${lastDt}'
+        GROUP BY st.prdt_cd
+      ) st ON sd.prdt_cd = st.prdt_cd
+      LEFT JOIN chn.mst_prdt p ON sd.prdt_cd = p.prdt_cd
+      ORDER BY sd.sales_amt DESC
+      LIMIT 1000
     `;
     
     const rows = await executeQuery<ClothingItemDetailDbRow>(connection, sql, [brdCd, itemCd, brdCd, itemCd]);
     
-    return rows.map(row => {
-      const cyPoAmt = Number(row.CY_PO_AMT) || 0;
-      const cySalesAmt = Number(row.CY_SALES_AMT) || 0;
-      const pyPoAmt = Number(row.PY_PO_AMT) || 0;
-      const pySalesAmt = Number(row.PY_SALES_AMT) || 0;
-      
-      const cyRate = cyPoAmt > 0 ? (cySalesAmt / cyPoAmt) * 100 : null;
-      const pyCurrentRate = pyPoAmt > 0 ? (pySalesAmt / pyPoAmt) * 100 : null; // 전년 당시즌 판매율
-      const pyRate = pyPoAmt > 0 ? (pySalesAmt / pyPoAmt) * 100 : null;
-      const yoy = pyRate && pyRate > 0 ? (cyRate || 0) / pyRate : null;
-      
-      return {
-        prdtCd: row.PRDT_CD || '',
-        prdtNm: row.PRDT_NM || row.PRDT_CD || '',
-        cyRate,
-        pyCurrentRate,
-        pyRate,
-        yoy,
-        cySalesAmt
-      };
-    });
+    return rows.map(row => ({
+      prdtCd: row.PRDT_CD || '',
+      prdtNm: row.PRDT_NM || row.PRDT_CD || '',
+      cyRate: row.CY_RATE !== null ? Number(row.CY_RATE) : null,
+      cySalesQty: Number(row.CY_SALES_QTY) || 0,
+      cyStockQty: row.CY_STOCK_QTY !== null ? Number(row.CY_STOCK_QTY) : null,
+      poQty: Number(row.PO_QTY) || 0
+    }));
   } finally {
     await destroyConnection(connection);
   }

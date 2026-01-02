@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail } from '@/lib/plforecast/types';
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
-import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Treemap } from 'recharts';
+import { ResponsiveContainer, Treemap } from 'recharts';
 
 // 현재 월 계산 (YYYY-MM)
 function getCurrentYm(): string {
@@ -200,13 +200,13 @@ function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string
   }> = [
     { key: 'tagSale', label: 'Tag가 매출' },
     { key: 'actSaleVatInc', label: '실판 매출(V+)', category: '매출액' },
-    { key: 'actSaleVatIncRate', label: '', isRate: true },
+    { key: 'actSaleVatIncRate', label: '(할인율)', isRate: true },
     { key: 'actSaleVatExc', label: '실판 매출(V-)', category: '매출액', highlight: true },
     { key: 'cogs', label: '매출원가', category: '매출원가' },
-    { key: 'cogsRate', label: '', isRate: true },
+    { key: 'cogsRate', label: '(원가율)', isRate: true },
     { key: 'tagCogsRate', label: '(Tag 대비 원가율)', category: '매출원가', isRate: true, isRateDiff: true },
     { key: 'grossProfit', label: '매출총이익', highlight: true },
-    { key: 'grossProfitRate', label: '', isRate: true },
+    { key: 'grossProfitRate', label: '(매출총이익률)', isRate: true },
   ];
 
   return (
@@ -571,6 +571,7 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
         <p>※ 기준 안내</p>
         <p>• 리테일 매출: 대리상 오프라인 매장 + 상품 브랜드 필터 (매장 브랜드 무관)</p>
         <p>• 매장수: 대리상 오프라인 매장 + 매장 브랜드 필터 (해당 상품 브랜드 매출 &gt; 0 매장만 카운팅)</p>
+        <p>• 점당매출_월환산: 전년 진척률(전년 누적/전년 전체)을 기준으로 당년 누적 매출을 월환산하여 계산한 점당매출</p>
       </div>
     </div>
   );
@@ -608,7 +609,17 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
   // 티어 합계 계산
   const tierTotalSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
   const tierTotalShopCnt = safeTiers.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
-  const tierTotalSalesPerShop = tierTotalShopCnt > 0 ? tierTotalSalesAmt / tierTotalShopCnt : 0;
+  // 전년 누적 데이터 합계 (월환산 계산용)
+  const tierTotalPrevCumSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
+  const tierTotalPrevCumShopCnt = safeTiers.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
+  // 전년 월전체 데이터 합계
+  const tierTotalPrevFullSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
+  const tierTotalPrevFullShopCnt = safeTiers.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
+  // 월환산 점당매출 계산
+  const tierLyProgressRate = tierTotalPrevFullSalesAmt > 0 ? tierTotalPrevCumSalesAmt / tierTotalPrevFullSalesAmt : 0;
+  const tierMonthlyTotalAmt = tierLyProgressRate > 0 ? tierTotalSalesAmt / tierLyProgressRate : 0;
+  const tierTotalSalesPerShop = tierTotalShopCnt > 0 ? tierMonthlyTotalAmt / tierTotalShopCnt : 0;
+  // 전년 월전체 데이터 (표시용)
   const tierTotalPrevSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
   const tierTotalPrevShopCnt = safeTiers.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
   const tierTotalPrevSalesPerShop = tierTotalPrevShopCnt > 0 ? tierTotalPrevSalesAmt / tierTotalPrevShopCnt : 0;
@@ -616,7 +627,17 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
   // 지역 합계 계산
   const regionTotalSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
   const regionTotalShopCnt = safeRegions.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
-  const regionTotalSalesPerShop = regionTotalShopCnt > 0 ? regionTotalSalesAmt / regionTotalShopCnt : 0;
+  // 전년 누적 데이터 합계 (월환산 계산용)
+  const regionTotalPrevCumSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
+  const regionTotalPrevCumShopCnt = safeRegions.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
+  // 전년 월전체 데이터 합계
+  const regionTotalPrevFullSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
+  const regionTotalPrevFullShopCnt = safeRegions.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
+  // 월환산 점당매출 계산
+  const regionLyProgressRate = regionTotalPrevFullSalesAmt > 0 ? regionTotalPrevCumSalesAmt / regionTotalPrevFullSalesAmt : 0;
+  const regionMonthlyTotalAmt = regionLyProgressRate > 0 ? regionTotalSalesAmt / regionLyProgressRate : 0;
+  const regionTotalSalesPerShop = regionTotalShopCnt > 0 ? regionMonthlyTotalAmt / regionTotalShopCnt : 0;
+  // 전년 월전체 데이터 (표시용)
   const regionTotalPrevSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
   const regionTotalPrevShopCnt = safeRegions.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
   const regionTotalPrevSalesPerShop = regionTotalPrevShopCnt > 0 ? regionTotalPrevSalesAmt / regionTotalPrevShopCnt : 0;
@@ -645,7 +666,7 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
                 )}
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">리테일매출(K)</th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">매장수</th>
-                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">점당매출</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">월환산 점당매출</th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-200">YOY(점당매출)</th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-200">YOY(매장수)</th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 border-r border-gray-100">(전년)리테일매출(K)</th>
@@ -783,7 +804,7 @@ function TreemapContent(props: TreemapContentProps) {
     yoy, color 
   } = props;
   
-  // 타일 간 간격 (2px)
+  // 타일 간 간격 (2px - 하얀색 구분선)
   const gap = 2;
   const innerX = x + gap;
   const innerY = y + gap;
@@ -858,7 +879,7 @@ function TreemapContent(props: TreemapContentProps) {
       <text 
         x={innerX + 8} 
         y={startY} 
-        fill="#555" 
+        fill="#fff" 
         fontSize={titleFontSize} 
         fontWeight="normal"
         stroke="none"
@@ -871,7 +892,7 @@ function TreemapContent(props: TreemapContentProps) {
       {innerHeight > 80 && (
         <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
           {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
-          <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#555', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
+          <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#fff', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
             <div>실판&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{salesK}K ({salesYoyPercent !== null ? `${salesYoyPercent}%` : '-'})</div>
             <div>점당&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{formatNum(salesPerShop || 0)} ({salesPerShopYoyPercent !== null ? `${salesPerShopYoyPercent}%` : '-'})</div>
             <div>매장수&nbsp;&nbsp;{shopCnt || 0}개 ({shopYoyText})</div>
@@ -1067,7 +1088,7 @@ function CategoryTreemapInline({
               data={treemapData}
               dataKey="size"
               aspectRatio={4 / 3}
-              stroke="#fff"
+              stroke="none"
               content={(props) => {
                 const { x, y, width, height, name, displayName, cySalesAmt, pySalesAmt, yoy, color, percentage } = props as TreemapContentProps & { cySalesAmt?: number; pySalesAmt?: number; percentage?: string };
                 
@@ -1121,7 +1142,7 @@ function CategoryTreemapInline({
                 return (
                   <g style={{ cursor: 'pointer' }}>
                     <rect x={innerX} y={innerY} width={innerWidth} height={innerHeight} 
-                          fill={color || '#8884d8'} stroke="#fff" strokeWidth={1} rx={0} />
+                                  fill={color || '#8884d8'} stroke="#fff" strokeWidth={1} rx={0} />
                     
                     <text 
                       x={innerX + 8} 
@@ -1347,11 +1368,11 @@ function CategoryTreemapModal({
                     data={treemapData}
                     dataKey="size"
                     aspectRatio={4 / 3}
-                    stroke="#fff"
+                    stroke="none"
                     content={(props) => {
                       const { x, y, width, height, name, displayName, cySalesAmt, pySalesAmt, yoy, color, percentage } = props as TreemapContentProps & { cySalesAmt?: number; pySalesAmt?: number; percentage?: string };
                       
-                      // 타일 간 간격 (2px)
+                      // 타일 간 간격 (2px - 하얀색 구분선)
                       const gap = 2;
                       const innerX = (x || 0) + gap;
                       const innerY = (y || 0) + gap;
@@ -1802,7 +1823,7 @@ function TierRegionTreemap({
                     data={tierTreemapData}
                     dataKey="size"
                     aspectRatio={4 / 3}
-                    stroke="#fff"
+                    stroke="none"
                     content={<TreemapContent />}
                     onClick={(data) => data && handleTierClick(data as { name: string; labelKo?: string })}
                   />
@@ -1837,7 +1858,7 @@ function TierRegionTreemap({
                     data={regionTreemapData}
                     dataKey="size"
                     aspectRatio={4 / 3}
-                    stroke="#fff"
+                    stroke="none"
                     content={<TreemapContent />}
                     onClick={(data) => data && handleRegionClick(data as { name: string; labelKo?: string })}
                   />
@@ -1879,23 +1900,27 @@ function ClothingSalesSection({
   brandCode: string; 
   lastDt: string;
 }) {
-  const [sortBy, setSortBy] = useState<'rate' | 'sales'>('rate');
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [itemDetails, setItemDetails] = useState<ClothingItemDetail[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // 정렬된 아이템 목록
+  // 정렬된 아이템 목록 (누적판매 기준 내림차순)
   const sortedItems = React.useMemo(() => {
     if (!data || !data.items || !Array.isArray(data.items)) {
       return [];
     }
     const items = [...data.items];
-    if (sortBy === 'rate') {
-      return items.sort((a, b) => (b.cyRate || 0) - (a.cyRate || 0));
-    } else {
-      return items.sort((a, b) => b.cySalesAmt - a.cySalesAmt);
+    return items.sort((a, b) => b.cySalesAmt - a.cySalesAmt);
+  }, [data]);
+  
+  // 아이템 상세 정렬 (당시즌 판매수량 내림차순)
+  const sortedItemDetails = React.useMemo(() => {
+    if (!itemDetails || !Array.isArray(itemDetails)) {
+      return [];
     }
-  }, [data, sortBy]);
+    const details = [...itemDetails];
+    return details.sort((a, b) => b.cySalesQty - a.cySalesQty);
+  }, [itemDetails]);
   
   // 아이템 클릭 핸들러
   const handleItemClick = async (itemCd: string) => {
@@ -1913,13 +1938,6 @@ function ClothingSalesSection({
     }
   };
   
-  // 차트 데이터
-  const chartData = sortedItems.map(item => ({
-    name: item.itemNm,
-    rate: item.cyRate || 0,
-    yoy: item.yoy ? (item.yoy - 1) * 100 : 0,
-  }));
-  
   const formatRate = (value: number | null) => value ? `${value.toFixed(1)}%` : '-';
   const formatYoy = (value: number | null) => value ? `${(value * 100).toFixed(1)}%` : '-';
   const formatK = (value: number) => Math.round(value / 1000).toLocaleString();
@@ -1930,16 +1948,27 @@ function ClothingSalesSection({
     return cy / py;
   };
   
+  // 발주수량 YOY 계산 함수 (비율: 1.0 = 100%)
+  const calcPoQtyYoy = (cy: number, py: number): number | null => {
+    if (py === 0) return null;
+    return cy / py; // 비율로 반환 (formatYoy에서 백분율로 변환)
+  };
+  
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-sm font-semibold text-gray-700">의류 판매율</h3>
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+        <h3 className="text-sm font-semibold text-gray-700">의류 판매율 ({formatDateShort(lastDt)} 까지)</h3>
+        <p className="text-xs text-gray-400">
+          ※ 판매율 = 누적 판매 TAG 금액 / (PO 수량 × TAG 단가) × 100
+        </p>
       </div>
       
       <div className="p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* 좌측: 테이블 */}
-          <div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* 좌측: 메인 테이블 */}
+          <div className={selectedItem ? 'lg:col-span-1' : 'lg:col-span-2'}>
+            {/* 테이블 */}
+            <div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50">
@@ -1952,6 +1981,7 @@ function ClothingSalesSection({
                     <th className="py-2 px-2 text-right font-semibold text-gray-700">전년시즌 판매율</th>
                     <th className="py-2 px-2 text-right font-semibold text-gray-700">누적 판매금액 YOY</th>
                     <th className="py-2 px-2 text-right font-semibold text-gray-700">판매율 YOY</th>
+                    <th className="py-2 px-2 text-right font-semibold text-gray-700">발주수량 YOY</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1972,6 +2002,11 @@ function ClothingSalesSection({
                       data.total.yoy && data.total.yoy >= 1 ? 'text-emerald-600' : 'text-rose-600'
                     }`}>
                       {formatYoy(data.total.yoy)}
+                    </td>
+                    <td className={`py-2 px-2 text-right font-mono font-semibold ${
+                      calcPoQtyYoy(data.total.cyPoQty, data.total.pyPoQty) && calcPoQtyYoy(data.total.cyPoQty, data.total.pyPoQty)! >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                    }`}>
+                      {formatYoy(calcPoQtyYoy(data.total.cyPoQty, data.total.pyPoQty))}
                     </td>
                   </tr>
                   {/* 아이템별 */}
@@ -1997,123 +2032,81 @@ function ClothingSalesSection({
                       }`}>
                         {formatYoy(item.yoy)}
                       </td>
+                      <td className={`py-2 px-2 text-right font-mono ${
+                        calcPoQtyYoy(item.cyPoQty, item.pyPoQty) && calcPoQtyYoy(item.cyPoQty, item.pyPoQty)! >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                      }`}>
+                        {formatYoy(calcPoQtyYoy(item.cyPoQty, item.pyPoQty))}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-gray-400 mt-2">
-              ※ 판매율 = 누적 판매 TAG 금액 / (PO 수량 × TAG 단가) × 100
-            </p>
+          </div>
           </div>
           
-          {/* 우측: 차트 */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <h4 className="text-xs font-medium text-gray-600">아이템별 판매율 차트</h4>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'rate' | 'sales')}
-                className="text-xs border border-gray-300 rounded px-2 py-1"
-              >
-                <option value="rate">판매율순</option>
-                <option value="sales">누적판매순</option>
-              </select>
+          {/* 우측: 아이템 상세 (선택 시 표시) */}
+          {selectedItem && (
+            <div className="lg:col-span-1">
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-full">
+                <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    아이템 상세: {data?.items?.find(i => i.itemCd === selectedItem)?.itemNm || ''}
+                  </h3>
+                  <button 
+                    onClick={() => setSelectedItem(null)} 
+                    className="text-gray-500 hover:text-gray-700 text-xl font-bold"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 300px)' }}>
+                  {loading ? (
+                    <div className="py-12 text-center text-gray-500">로딩 중...</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-gray-100 z-10">
+                          <tr>
+                            <th className="py-2 px-3 text-left font-semibold text-gray-700 border-b-2">상품코드</th>
+                            <th className="py-2 px-3 text-left font-semibold text-gray-700 border-b-2">상품명</th>
+                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">당시즌 판매율</th>
+                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">당시즌 판매수량</th>
+                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">당시즌 기말 재고수량</th>
+                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">발주수량</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedItemDetails.map((prod, idx) => (
+                            <tr key={`${prod.prdtCd}-${idx}`} className={idx % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
+                              <td className="py-2 px-3 text-gray-800 font-mono text-xs">{prod.prdtCd}</td>
+                              <td className="py-2 px-3 text-gray-800">{prod.prdtNm}</td>
+                              <td className="py-2 px-3 text-right text-gray-800 font-semibold">{formatRate(prod.cyRate)}</td>
+                              <td className="py-2 px-3 text-right text-gray-800">{prod.cySalesQty.toLocaleString()}</td>
+                              <td className="py-2 px-3 text-right text-gray-800">{prod.cyStockQty !== null ? prod.cyStockQty.toLocaleString() : '-'}</td>
+                              <td className="py-2 px-3 text-right text-gray-800">{prod.poQty.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                          {sortedItemDetails.length === 0 && (
+                            <tr>
+                              <td colSpan={6} className="py-12 text-center text-gray-400">데이터가 없습니다.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-500">
+                  총 {sortedItemDetails.length}개 상품 | 당시즌 판매수량 기준 내림차순
+                </div>
+              </div>
             </div>
-            <div className="h-[320px] border border-gray-200 rounded-lg overflow-hidden">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 20, right: 30, bottom: 60, left: 40 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="name" 
-                    angle={-45} 
-                    textAnchor="end" 
-                    height={80}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <YAxis 
-                    yAxisId="left" 
-                    label={{ value: '판매율 (%)', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <YAxis 
-                    yAxisId="right" 
-                    orientation="right"
-                    label={{ value: 'YOY (%)', angle: 90, position: 'insideRight', style: { fontSize: 11 } }}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip 
-                    contentStyle={{ fontSize: 12 }}
-                    formatter={(value: number | undefined, name: string | undefined) => [
-                      value !== undefined ? `${value.toFixed(1)}${name === 'rate' ? '%' : '%'}` : '-',
-                      name === 'rate' ? '판매율' : 'YOY'
-                    ]}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar yAxisId="left" dataKey="rate" fill="#3B82F6" name="당시즌 판매율" />
-                  <Line yAxisId="right" dataKey="yoy" stroke="#F59E0B" strokeWidth={2} name="YOY" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          )}
         </div>
       </div>
-      
-      {/* 아이템 상세 모달 */}
-      {selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setSelectedItem(null)}>
-          <div className="bg-white rounded-xl shadow-2xl w-[800px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-purple-600 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white">
-                아이템 상세: {data?.items?.find(i => i.itemCd === selectedItem)?.itemNm || ''}
-              </h3>
-              <button onClick={() => setSelectedItem(null)} className="text-white hover:text-gray-200 text-3xl font-bold">×</button>
-            </div>
-            
-            <div className="p-6 max-h-[calc(80vh-140px)] overflow-y-auto">
-              {loading ? (
-                <div className="py-12 text-center text-gray-500">로딩 중...</div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-gray-100 z-10">
-                    <tr>
-                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b-2">상품코드</th>
-                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b-2">상품명</th>
-                      <th className="py-3 px-4 text-right font-semibold text-gray-700 border-b-2">당시즌 판매율</th>
-                      <th className="py-3 px-4 text-right font-semibold text-gray-700 border-b-2">전년 당시즌 판매율</th>
-                      <th className="py-3 px-4 text-right font-semibold text-gray-700 border-b-2">전년시즌 판매율</th>
-                      <th className="py-3 px-4 text-right font-semibold text-gray-700 border-b-2">YOY</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {itemDetails.map((prod, idx) => (
-                      <tr key={idx} className={idx % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
-                        <td className="py-2 px-4 text-gray-800 font-mono text-xs">{prod.prdtCd}</td>
-                        <td className="py-2 px-4 text-gray-800">{prod.prdtNm}</td>
-                        <td className="py-2 px-4 text-right text-gray-800 font-semibold">{formatRate(prod.cyRate)}</td>
-                        <td className="py-2 px-4 text-right text-gray-600">{formatRate(prod.pyCurrentRate)}</td>
-                        <td className="py-2 px-4 text-right text-gray-600">{formatRate(prod.pyRate)}</td>
-                        <td className={`py-2 px-4 text-right font-semibold ${prod.yoy && prod.yoy >= 1 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatYoy(prod.yoy)}
-                        </td>
-                      </tr>
-                    ))}
-                    {itemDetails.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-12 text-center text-gray-400">데이터가 없습니다.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
-            
-            <div className="px-6 py-3 border-t border-gray-200 bg-gray-50 text-xs text-gray-500">
-              총 {itemDetails.length}개 상품 | 당시즌 판매액 기준 내림차순
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2628,7 +2621,7 @@ export default function BrandPlForecastPage() {
                 </div>
               ) : data && ['M', 'I', 'X', 'V', 'W'].includes(data.brand) ? (
                 <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">의류 판매율</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">의류 판매율 {data?.lastDt ? `(${formatDateShort(data.lastDt)} 까지)` : ''}</h3>
                   <p className="text-sm text-gray-500">의류 판매율 데이터를 조회 중이거나 데이터가 없습니다.</p>
                   <p className="text-xs text-gray-400 mt-2">브랜드: {data?.brand || ''}, 기준일: {data?.lastDt || ''}</p>
                 </div>
