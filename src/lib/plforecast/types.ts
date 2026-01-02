@@ -165,6 +165,14 @@ export interface ChannelPlanTable {
   grossProfitRate: ChannelRowData; // 이익율
 }
 
+// 채널별 실적 데이터
+export interface ChannelActuals {
+  tagSale: ChannelRowData;
+  actSaleVatInc: ChannelRowData;
+  actSaleVatExc: ChannelRowData;
+  cogs: ChannelRowData;
+}
+
 // 채널별 진척률 테이블 데이터 (우측)
 export interface ChannelActualTable {
   tagSale: ChannelRowData & { progressRate: number | null };
@@ -255,6 +263,32 @@ export interface ClothingItemDetail {
   cySalesAmt: number;
 }
 
+// 비용 계산 타입
+export type CostCalculationType = 'fixed' | 'variable';
+
+// 변동비 채널 타입
+export type VariableCostChannel = 'onlineDirect' | 'offlineDirect' | 'total';
+
+// level3별 비용 계산 방식 매핑 (하드코딩)
+export const COST_CALCULATION_MAP: Record<string, { type: CostCalculationType; channel?: VariableCostChannel }> = {
+  // 직접비 - 변동비
+  '급여': { type: 'variable', channel: 'offlineDirect' },
+  '복리후생비': { type: 'variable', channel: 'offlineDirect' },
+  '플랫폼수수료': { type: 'variable', channel: 'onlineDirect' },
+  'TP수수료': { type: 'variable', channel: 'onlineDirect' },
+  '직접광고비': { type: 'variable', channel: 'onlineDirect' },
+  '물류비': { type: 'variable', channel: 'total' },
+  '매장임차료': { type: 'variable', channel: 'offlineDirect' },
+  // 직접비 - 고정비
+  '지급수수료': { type: 'fixed' },
+  '대리상지원금': { type: 'fixed' },
+  '포장비': { type: 'fixed' },
+  '감가상각비': { type: 'fixed' },
+  '진열소모품': { type: 'fixed' },
+  '기타지급수수료': { type: 'fixed' },
+  // 영업비는 모두 고정비 (별도 매핑 불필요)
+};
+
 // 라인 정의 (화면 표시 순서/구조)
 export interface LineDefinition {
   id: string;
@@ -268,7 +302,7 @@ export interface LineDefinition {
   level2?: string;
   level3?: string;
   // 특수 처리 타입
-  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'opexSum' | 'dealerSupport' | 'operatingProfit';
+  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'opexSum' | 'dealerSupport' | 'operatingProfit' | 'channelVatInc';
   // 직접비/영업비 분류 (월말예상 계산 방식 결정)
   costCategory?: 'direct' | 'opex';
   children?: LineDefinition[];

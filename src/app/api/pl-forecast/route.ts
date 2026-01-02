@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from 'next/server';
 import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, TierRegionSalesData, TierRegionSalesRow } from '@/lib/plforecast/types';
+import { COST_CALCULATION_MAP } from '@/lib/plforecast/types';
 import { lineDefinitions, vatExcludedItem } from '@/lib/plforecast/lineDefinitions';
 import { allBrandCodes, isValidBrandCode } from '@/lib/plforecast/brand';
 import { accountMappingCsv } from '@/data/plforecast/accountMapping';
@@ -19,12 +20,12 @@ import {
   getLastDates,
   getPrevYearActuals,
   getAccumActuals,
-  getDealerSupportActuals,
   getMonthDays,
   getPrevYearMonth,
   getWeeklySales,
   getWeeklyAccumSales,
   getChannelActuals,
+  getPrevYearChannelActuals,
   getRetailSalesData,
   getTierSalesData,
   getRegionSalesData,
@@ -84,8 +85,6 @@ async function calcBrandData(
   accum: Record<string, number>;
   accumDays: number;
   monthDays: number;
-  dealerSupportPrevYear: number;
-  dealerSupportAccum: number;
   targets: TargetRow[];
 }> {
   const prevYm = getPrevYearMonth(ym);
@@ -93,10 +92,9 @@ async function calcBrandData(
   const monthDays = getMonthDays(ym);
 
   // 병렬 조회
-  const [prevYear, accumResult, dealerSupport] = await Promise.all([
+  const [prevYear, accumResult] = await Promise.all([
     getPrevYearActuals(prevYm, brandCode, items),
     getAccumActuals(ym, lastDt, brandCode, items),
-    getDealerSupportActuals(ym, lastDt, brandCode),
   ]);
 
   return {
@@ -104,8 +102,6 @@ async function calcBrandData(
     accum: accumResult.accum,
     accumDays: accumResult.accumDays,
     monthDays,
-    dealerSupportPrevYear: dealerSupport.prevYear,
-    dealerSupportAccum: dealerSupport.accum,
     targets,
   };
 }
@@ -127,13 +123,18 @@ function buildPlLine(
     accum: Record<string, number>;
     accumDays: number;
     monthDays: number;
-    dealerSupportPrevYear: number;
-    dealerSupportAccum: number;
   },
   mappings: AccountMapping[],
   targets: TargetRow[],
   brandCode: BrandCode | 'all',
-  context: CalcContext
+  context: CalcContext,
+  channelData?: {
+    prevYearChannel?: { onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number };
+    targetChannel?: ChannelRowData;
+    accumChannel?: ChannelRowData;
+    targetChannelVatExc?: ChannelRowData;
+    accumChannelVatExc?: ChannelRowData;
+  }
 ): PlLine {
   const getTarget = brandCode === 'all'
     ? (l1?: string, l2?: string, l3?: string) => getTargetValueAll(targets, l1, l2, l3)
@@ -149,6 +150,27 @@ function buildPlLine(
 
   // 타입별 계산
   switch (def.type) {
+    case 'channelVatInc':
+      // 채널별 실판(V+)
+      if (channelData) {
+        // id 형식: 'act-sale-vat-inc-online-direct'
+        const channelMap: Record<string, 'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer'> = {
+          'act-sale-vat-inc-online-direct': 'onlineDirect',
+          'act-sale-vat-inc-online-dealer': 'onlineDealer',
+          'act-sale-vat-inc-offline-direct': 'offlineDirect',
+          'act-sale-vat-inc-offline-dealer': 'offlineDealer',
+        };
+        const channel = channelMap[def.id];
+        
+        if (channel) {
+          prevYear = channelData.prevYearChannel?.[channel] || 0;
+          accum = channelData.accumChannel?.[channel] || null;
+          target = channelData.targetChannel?.[channel] || null;
+          forecast = data.accumDays > 0 && accum !== null && accum !== 0 ? (accum / data.accumDays) * data.monthDays : null;
+        }
+      }
+      break;
+
     case 'vatExcluded':
       // VAT 제외 실판
       prevYear = data.prevYear[vatExcludedItem] || 0;
@@ -165,25 +187,11 @@ function buildPlLine(
       }
       break;
 
-    case 'dealerSupport':
-      // 대리상지원금 (특수 계산) - 직접비이므로 매출 연동
-      prevYear = data.dealerSupportPrevYear;
-      accum = data.dealerSupportAccum;
-      target = getTarget(def.level1, def.level2, def.level3);
-      
-      // 직접비: 목표직접비 / 목표실판(V-) × 월말예상실판(V-)
-      if (target !== null && context.vatExcTarget > 0 && context.vatExcForecast > 0) {
-        forecast = (target / context.vatExcTarget) * context.vatExcForecast;
-      } else {
-        forecast = null;
-      }
-      break;
-
     case 'cogsSum':
       // 매출원가 합계 (자식 합산)
       if (def.children) {
         const childLines = def.children.map((child) =>
-          buildPlLine(child, data, mappings, targets, brandCode, context)
+          buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
@@ -212,7 +220,7 @@ function buildPlLine(
       // 직접비 합계 (자식 합산, 매출 연동 계산)
       if (def.children) {
         const childLines = def.children.map((child) =>
-          buildPlLine(child, data, mappings, targets, brandCode, context)
+          buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
@@ -244,7 +252,7 @@ function buildPlLine(
       // 영업비 합계 (자식 합산, 목표 그대로 사용)
       if (def.children) {
         const childLines = def.children.map((child) =>
-          buildPlLine(child, data, mappings, targets, brandCode, context)
+          buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
@@ -312,10 +320,8 @@ function buildPlLine(
       const cogsAcc = sumByLevel(data.accum, mappings, '매출원가')
         + sumByLevel(data.accum, mappings, '평가감');
       
-      const directPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems)
-        + data.dealerSupportPrevYear;
-      const directAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems)
-        + data.dealerSupportAccum;
+      const directPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      const directAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems);
       
       const opexPY = sumByLevel(data.prevYear, mappings, '영업비');
       const opexAcc = sumByLevel(data.accum, mappings, '영업비');
@@ -338,24 +344,43 @@ function buildPlLine(
     default:
       // 일반 항목 (level1/level2/level3 조건으로 합산)
       if (def.level1) {
-        const excludeItems = def.type === 'dealerSupport' ? [] : dealerSupportItems;
-        prevYear = sumByLevel(data.prevYear, mappings, def.level1, def.level2, def.level3, 
-          def.level2 === '대리상지원금' ? [] : excludeItems);
-        accum = sumByLevel(data.accum, mappings, def.level1, def.level2, def.level3,
-          def.level2 === '대리상지원금' ? [] : excludeItems);
+        prevYear = sumByLevel(data.prevYear, mappings, def.level1, def.level2, def.level3, dealerSupportItems);
+        accum = sumByLevel(data.accum, mappings, def.level1, def.level2, def.level3, dealerSupportItems);
         target = getTarget(def.level1, def.level2, def.level3);
         
-        // 직접비: 목표직접비 / 목표실판(V-) × 월말예상실판(V-)
-        if (def.costCategory === 'direct') {
-          if (target !== null && context.vatExcTarget > 0 && context.vatExcForecast > 0) {
-            forecast = (target / context.vatExcTarget) * context.vatExcForecast;
+        // 직접비/영업비: level3 기준으로 고정비/변동비 판단
+        if (def.costCategory === 'direct' || def.costCategory === 'opex') {
+          const level3Key = def.level3 || def.level2 || '';
+          const calcInfo = COST_CALCULATION_MAP[level3Key];
+          
+          // 영업비는 모두 고정비 (매핑에 없으면 고정비로 처리)
+          if (def.costCategory === 'opex' || !calcInfo || calcInfo.type === 'fixed') {
+            // 고정비: 목표 그대로
+            forecast = target;
+          } else if (calcInfo.type === 'variable' && calcInfo.channel && channelData) {
+            // 변동비: 목표 비용 ÷ 목표 실판(V-) × 월말예상 실판(V-)
+            const channel = calcInfo.channel;
+            const targetVatExc = channel === 'total' 
+              ? (channelData.targetChannelVatExc?.total || null)
+              : (channelData.targetChannelVatExc?.[channel] || null);
+            const accumVatExc = channel === 'total'
+              ? (channelData.accumChannelVatExc?.total || null)
+              : (channelData.accumChannelVatExc?.[channel] || null);
+            
+            // 월말예상 실판(V-) = 누적 / 누적일수 × 월일수
+            const forecastVatExc = data.accumDays > 0 && accumVatExc !== null && accumVatExc !== 0
+              ? (accumVatExc / data.accumDays) * data.monthDays
+              : null;
+            
+            if (target !== null && targetVatExc !== null && targetVatExc !== 0 && forecastVatExc !== null) {
+              forecast = (target / targetVatExc) * forecastVatExc;
+            } else {
+              forecast = null;
+            }
           } else {
+            // 변동비인데 채널 데이터가 없거나 채널 정보가 없으면 null
             forecast = null;
           }
-        }
-        // 영업비: 목표 그대로 (고정비)
-        else if (def.costCategory === 'opex') {
-          forecast = target;
         }
         // 기타: 일할 계산
         else {
@@ -369,8 +394,16 @@ function buildPlLine(
   let children: PlLine[] | undefined;
   if (def.children && def.type !== 'cogsSum' && def.type !== 'directCostSum' && def.type !== 'opexSum') {
     children = def.children.map((child) =>
-      buildPlLine(child, data, mappings, targets, brandCode, context)
+      buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
     );
+    
+    // 실판(V+) 부모 행의 경우 자식들의 합계로 계산 (기존 level1 로직보다 우선)
+    if (def.id === 'act-sale-vat-inc' && children.length > 0) {
+      prevYear = children.reduce((sum, c) => sum + (c.prevYear || 0), 0);
+      accum = children.reduce((sum, c) => sum + (c.accum || 0), 0);
+      target = children.reduce((sum, c) => sum + (c.target || 0), 0);
+      forecast = children.reduce((sum, c) => sum + (c.forecast || 0), 0);
+    }
   }
 
   return {
@@ -1024,8 +1057,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
             accum: bData.accum,
             accumDays: bData.accumDays,
             monthDays,
-            dealerSupportPrevYear: bData.dealerSupportPrevYear,
-            dealerSupportAccum: bData.dealerSupportAccum,
           };
           const bLines = lineDefinitions.map((def) =>
             buildPlLine(def, bMerged, mappings, targets, code, bContext)
@@ -1054,16 +1085,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       accum: Record<string, number>;
       accumDays: number;
       monthDays: number;
-      dealerSupportPrevYear: number;
-      dealerSupportAccum: number;
     };
 
     if (brand === 'all') {
       // 전체: 모든 브랜드 합산
       const merged: Record<string, number> = {};
       const mergedAccum: Record<string, number> = {};
-      let totalDealerPY = 0;
-      let totalDealerAccum = 0;
 
       for (const bd of brandDataList) {
         for (const [item, val] of Object.entries(bd.prevYear)) {
@@ -1072,8 +1099,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         for (const [item, val] of Object.entries(bd.accum)) {
           mergedAccum[item] = (mergedAccum[item] || 0) + val;
         }
-        totalDealerPY += bd.dealerSupportPrevYear;
-        totalDealerAccum += bd.dealerSupportAccum;
       }
 
       mergedData = {
@@ -1081,8 +1106,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         accum: mergedAccum,
         accumDays,
         monthDays,
-        dealerSupportPrevYear: totalDealerPY,
-        dealerSupportAccum: totalDealerAccum,
       };
     } else {
       // 개별 브랜드
@@ -1092,8 +1115,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         accum: bd.accum,
         accumDays: bd.accumDays,
         monthDays,
-        dealerSupportPrevYear: bd.dealerSupportPrevYear,
-        dealerSupportAccum: bd.dealerSupportAccum,
       };
     }
 
@@ -1106,9 +1127,40 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       vatExcTarget: 0,
     };
 
+    // 채널별 데이터 조회 (개별 브랜드일 때만)
+    let channelData: {
+      prevYearChannel?: { onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number };
+      targetChannel?: ChannelRowData;
+      accumChannel?: ChannelRowData;
+      targetChannelVatExc?: ChannelRowData;
+      accumChannelVatExc?: ChannelRowData;
+    } | undefined;
+    
+    if (brand !== 'all' && lastDt) {
+      const prevYm = getPrevYearMonth(ym);
+      const brandCode = brand as BrandCode;
+      
+      // 채널별 데이터 병렬 조회
+      const [prevYearChannel, channelActuals] = await Promise.all([
+        getPrevYearChannelActuals(prevYm, brandCode),
+        getChannelActuals(ym, lastDt, brandCode),
+      ]);
+      
+      // 목표 데이터는 parseChannelPlanData 사용
+      const channelPlan = parseChannelPlanData(targetCsv, brandCode);
+      
+      channelData = {
+        prevYearChannel,
+        targetChannel: channelPlan.actSaleVatInc,
+        accumChannel: channelActuals.actSaleVatInc,
+        targetChannelVatExc: channelPlan.actSaleVatExc,
+        accumChannelVatExc: channelActuals.actSaleVatExc,
+      };
+    }
+
     // PlLine 빌드
     const lines: PlLine[] = lineDefinitions.map((def) =>
-      buildPlLine(def, mergedData, mappings, targets, brand === 'all' ? 'all' : (brand as BrandCode), context)
+      buildPlLine(def, mergedData, mappings, targets, brand === 'all' ? 'all' : (brand as BrandCode), context, channelData)
     );
 
     // 카드 요약 데이터 계산 (lines가 비어있지 않을 때만)

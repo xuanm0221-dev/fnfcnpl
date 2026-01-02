@@ -822,12 +822,35 @@ export default function PlForecastPage() {
 
               {/* 범례 - 손익표 아래 */}
               <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-500">
-                <div className="font-medium text-gray-600 mb-1">계산 방식</div>
-                <ul className="space-y-0.5">
-                  <li><span className="text-gray-600">직접비</span>: 목표직접비÷목표실판(V-)×월말예상실판(V-)</li>
-                  <li><span className="text-gray-600">영업비</span>: 목표 그대로 (고정비)</li>
-                  <li><span className="text-gray-600">달성율</span>: 월말예상÷목표×100%</li>
-                </ul>
+                <div className="font-medium text-gray-600 mb-2">월말예상 계산 방식</div>
+                <div className="space-y-2">
+                  <div>
+                    <div className="font-medium text-gray-700 mb-1">직접비 (고정비)</div>
+                    <ul className="space-y-0.5 ml-2 text-gray-600">
+                      <li>• 지급수수료, 대리상지원금, 포장비, 감가상각비, 진열소모품, 기타지급수수료</li>
+                      <li>계산식: 월말예상 = 목표 비용</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="font-medium text-gray-700 mb-1">직접비 (변동비)</div>
+                    <ul className="space-y-0.5 ml-2 text-gray-600">
+                      <li>• 오프라인 직영 기준: 급여, 복리후생비, 매장임차료</li>
+                      <li>• 온라인 직영 기준: 플랫폼수수료, TP수수료, 직접광고비</li>
+                      <li>• 전체 기준: 물류비</li>
+                      <li>계산식: 월말예상 = 목표 비용 ÷ 목표 실판(V-) × 월말예상 실판(V-)</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="font-medium text-gray-700 mb-1">영업비 (모두 고정비)</div>
+                    <ul className="space-y-0.5 ml-2 text-gray-600">
+                      <li>• 급여, 복리후생비, 광고비, 수주회, 지급수수료, 임차료, 감가상각비, 세금과공과, 기타지급수수료</li>
+                      <li>계산식: 월말예상 = 목표 비용</li>
+                    </ul>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-gray-300">
+                    <div className="text-gray-600">달성율: 월말예상 ÷ 목표 × 100%</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

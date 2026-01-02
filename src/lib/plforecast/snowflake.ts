@@ -1,5 +1,5 @@
 import snowflake from 'snowflake-sdk';
-import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow } from './types';
+import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow, ChannelActuals } from './types';
 
 // Snowflake 연결 설정
 function getConnection(): Promise<snowflake.Connection> {
@@ -62,30 +62,33 @@ interface LastDtResult {
   LAST_DT: string;
 }
 
-// 브랜드별 last_dt 조회
+// 브랜드별 last_dt 조회 (CSV 파일명에서 날짜 추출)
 export async function getLastDates(
   ym: string,
   brandCodes: BrandCode[]
 ): Promise<Record<BrandCode, string>> {
-  const connection = await getConnection();
-  try {
-    const sql = `
-      SELECT brd_cd as BRD_CD, MAX(pst_dt)::VARCHAR as LAST_DT
-      FROM sap_fnf.dw_cn_copa_d
-      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
-        AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
-      GROUP BY brd_cd
-    `;
-    const rows = await executeQuery<LastDtResult>(connection, sql, [ym, ...brandCodes]);
-    
-    const result: Partial<Record<BrandCode, string>> = {};
-    for (const row of rows) {
-      result[row.BRD_CD as BrandCode] = row.LAST_DT;
+  // CSV 파일에서 날짜 추출
+  const { getActualsCsv } = await import('@/data/plforecast/actuals');
+  
+  // 해당 월의 모든 CSV 파일 날짜 중 가장 최신 날짜 찾기
+  const dates: string[] = [];
+  for (let day = 1; day <= 31; day++) {
+    const dateStr = `${ym}-${String(day).padStart(2, '0')}`;
+    const csv = getActualsCsv(ym, dateStr);
+    if (csv) {
+      dates.push(dateStr);
     }
-    return result as Record<BrandCode, string>;
-  } finally {
-    await destroyConnection(connection);
   }
+  
+  // 가장 최신 날짜
+  const latestDate = dates.length > 0 ? dates.sort().reverse()[0] : '';
+  
+  // 모든 브랜드에 대해 같은 날짜 반환 (CSV 파일은 월별로 하나만 존재)
+  const result: Partial<Record<BrandCode, string>> = {};
+  for (const code of brandCodes) {
+    result[code] = latestDate;
+  }
+  return result as Record<BrandCode, string>;
 }
 
 // 실적 조회 결과
@@ -126,7 +129,7 @@ export async function getPrevYearActuals(
   }
 }
 
-// 누적 실적 조회
+// 누적 실적 조회 (CSV 파일에서 데이터 읽기)
 export async function getAccumActuals(
   ym: string,
   lastDt: string,
@@ -135,39 +138,107 @@ export async function getAccumActuals(
 ): Promise<{ accum: Record<string, number>; accumDays: number }> {
   if (items.length === 0) return { accum: {}, accumDays: 0 };
   
+  // CSV 파일에서 데이터 읽기
+  const { getActualsCsv } = await import('@/data/plforecast/actuals');
+  const { parseAccumActualsCsv } = await import('./parseActualsCsv');
+  
+  const csvContent = getActualsCsv(ym, lastDt);
+  if (!csvContent) {
+    // CSV 파일이 없으면 빈 데이터 반환
+    return {
+      accum: Object.fromEntries(items.map((item) => [item, 0])),
+      accumDays: 0,
+    };
+  }
+  
+  // CSV 파싱
+  const parsed = parseAccumActualsCsv(csvContent, brandCode, lastDt);
+  
+  // CSV에서 추출 가능한 항목 (Tag매출, 실판(V+), 실판(V-), 매출원가만)
+  const csvItems = ['TAG_SALE_AMT', 'ACT_SALE_AMT', 'VAT_EXC_ACT_SALE_AMT', 'ACT_COGS'];
+  
+  // items에 해당하는 데이터만 반환 (CSV 항목만 값 반환, 나머지는 0)
+  const accum: Record<string, number> = {};
+  for (const item of items) {
+    if (csvItems.includes(item)) {
+      // CSV에서 추출한 항목만 parsed.accum에서 가져오기
+      accum[item] = parsed.accum[item] || 0;
+    } else {
+      // 나머지 항목은 모두 0
+      accum[item] = 0;
+    }
+  }
+  
+  return {
+    accum,
+    accumDays: parsed.accumDays,
+  };
+}
+
+// 전년도 채널별 실판(V+) 조회
+export async function getPrevYearChannelActuals(
+  prevYm: string,
+  brandCode: BrandCode
+): Promise<{ onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number }> {
   const connection = await getConnection();
   try {
-    const selectClauses = items.map((item) => `COALESCE(SUM(${item}), 0) as "${item}"`).join(', ');
     const sql = `
-      SELECT ${selectClauses}, COUNT(DISTINCT pst_dt) as ACCUM_DAYS
+      SELECT 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END as CHANNEL,
+        COALESCE(SUM(ACT_SALE_AMT), 0) as ACT_SALE_VAT_INC
       FROM sap_fnf.dw_cn_copa_d
       WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
-        AND pst_dt <= ?
         AND brd_cd = ?
+      GROUP BY 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END
     `;
-    const rows = await executeQuery<ActualResult>(connection, sql, [ym, lastDt, brandCode]);
     
-    if (rows.length === 0) {
-      return {
-        accum: Object.fromEntries(items.map((item) => [item, 0])),
-        accumDays: 0,
-      };
+    interface ChannelResult {
+      CHANNEL: string;
+      ACT_SALE_VAT_INC: number;
     }
     
-    const accum: Record<string, number> = {};
-    for (const item of items) {
-      accum[item] = Number(rows[0][item]) || 0;
-    }
-    return {
-      accum,
-      accumDays: Number(rows[0]['ACCUM_DAYS']) || 0,
+    const rows = await executeQuery<ChannelResult>(connection, sql, [prevYm, brandCode]);
+    
+    const result = {
+      onlineDirect: 0,
+      onlineDealer: 0,
+      offlineDirect: 0,
+      offlineDealer: 0,
     };
+    
+    for (const row of rows) {
+      if (row.CHANNEL === 'onlineDirect') {
+        result.onlineDirect = Number(row.ACT_SALE_VAT_INC) || 0;
+      } else if (row.CHANNEL === 'onlineDealer') {
+        result.onlineDealer = Number(row.ACT_SALE_VAT_INC) || 0;
+      } else if (row.CHANNEL === 'offlineDirect') {
+        result.offlineDirect = Number(row.ACT_SALE_VAT_INC) || 0;
+      } else if (row.CHANNEL === 'offlineDealer') {
+        result.offlineDealer = Number(row.ACT_SALE_VAT_INC) || 0;
+      }
+    }
+    
+    return result;
   } finally {
     await destroyConnection(connection);
   }
 }
 
 // 대리상지원금 전용 조회 (OUTSRC_PROC_CST + SMPL_BUY_CST - MILE_SALE_AMT)
+// 주의: 누적(accum)은 CSV에서 데이터가 없으므로 항상 0 반환
 export async function getDealerSupportActuals(
   ym: string,
   lastDt: string,
@@ -179,7 +250,7 @@ export async function getDealerSupportActuals(
     const [year, month] = ym.split('-').map(Number);
     const prevYm = `${year - 1}-${String(month).padStart(2, '0')}`;
     
-    // 전년 실적
+    // 전년 실적 (Snowflake에서 조회)
     const prevSql = `
       SELECT COALESCE(SUM(OUTSRC_PROC_CST), 0) + COALESCE(SUM(SMPL_BUY_CST), 0) - COALESCE(SUM(MILE_SALE_AMT), 0) as DEALER_SUPPORT
       FROM sap_fnf.dw_cn_copa_d
@@ -189,16 +260,8 @@ export async function getDealerSupportActuals(
     const prevRows = await executeQuery<{ DEALER_SUPPORT: number }>(connection, prevSql, [prevYm, brandCode]);
     const prevYear = prevRows.length > 0 ? Number(prevRows[0].DEALER_SUPPORT) || 0 : 0;
     
-    // 당월 누적
-    const accumSql = `
-      SELECT COALESCE(SUM(OUTSRC_PROC_CST), 0) + COALESCE(SUM(SMPL_BUY_CST), 0) - COALESCE(SUM(MILE_SALE_AMT), 0) as DEALER_SUPPORT
-      FROM sap_fnf.dw_cn_copa_d
-      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
-        AND pst_dt <= ?
-        AND brd_cd = ?
-    `;
-    const accumRows = await executeQuery<{ DEALER_SUPPORT: number }>(connection, accumSql, [ym, lastDt, brandCode]);
-    const accum = accumRows.length > 0 ? Number(accumRows[0].DEALER_SUPPORT) || 0 : 0;
+    // 당월 누적: CSV에 직접비/영업비 데이터가 없으므로 항상 0
+    const accum = 0;
     
     return { prevYear, accum };
   } finally {
@@ -896,12 +959,6 @@ interface ChannelActualResult {
 }
 
 // 채널별 실적 데이터
-export interface ChannelActuals {
-  tagSale: ChannelRowData;
-  actSaleVatInc: ChannelRowData;
-  actSaleVatExc: ChannelRowData;
-  cogs: ChannelRowData;
-}
 
 /**
  * 채널별 누적 실적 조회 (브랜드별 페이지용)
@@ -915,76 +972,24 @@ export async function getChannelActuals(
   lastDt: string,
   brandCode: BrandCode
 ): Promise<ChannelActuals> {
-  const connection = await getConnection();
-  try {
-    // 매출원가 = ACT_COGS + ETC_COGS + 평가감(STK_ASST_APRCT_AMT + STK_ASST_APRCT_RVSL_AMT)
-    const sql = `
-      SELECT 
-        CASE 
-          WHEN chnl_cd = '85' THEN 'onlineDirect'
-          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
-          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
-          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
-          ELSE 'other'
-        END as CHANNEL,
-        COALESCE(SUM(TAG_SALE_AMT), 0) as TAG_SALE,
-        COALESCE(SUM(ACT_SALE_AMT), 0) as ACT_SALE_VAT_INC,
-        COALESCE(SUM(VAT_EXC_ACT_SALE_AMT), 0) as ACT_SALE_VAT_EXC,
-        COALESCE(SUM(ACT_COGS), 0) + COALESCE(SUM(ETC_COGS), 0) + COALESCE(SUM(STK_ASST_APRCT_AMT), 0) + COALESCE(SUM(STK_ASST_APRCT_RVSL_AMT), 0) as COGS
-      FROM sap_fnf.dw_cn_copa_d
-      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
-        AND pst_dt <= ?
-        AND brd_cd = ?
-      GROUP BY 
-        CASE 
-          WHEN chnl_cd = '85' THEN 'onlineDirect'
-          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
-          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
-          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
-          ELSE 'other'
-        END
-    `;
-    
-    const rows = await executeQuery<ChannelActualResult>(connection, sql, [ym, lastDt, brandCode]);
-    
-    // 결과 매핑
-    const result: ChannelActuals = {
-      tagSale: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
-      actSaleVatInc: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
-      actSaleVatExc: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
-      cogs: { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null },
+  // CSV 파일에서 데이터 읽기
+  const { getActualsCsv } = await import('@/data/plforecast/actuals');
+  const { parseChannelActualsCsv } = await import('./parseActualsCsv');
+  
+  const csvContent = getActualsCsv(ym, lastDt);
+  if (!csvContent) {
+    // CSV 파일이 없으면 빈 데이터 반환
+    const emptyRow: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    return {
+      tagSale: emptyRow,
+      actSaleVatInc: emptyRow,
+      actSaleVatExc: emptyRow,
+      cogs: emptyRow,
     };
-    
-    let totalTagSale = 0;
-    let totalActSaleVatInc = 0;
-    let totalActSaleVatExc = 0;
-    let totalCogs = 0;
-    
-    for (const row of rows) {
-      const channel = row.CHANNEL as keyof ChannelRowData;
-      if (channel === 'onlineDirect' || channel === 'onlineDealer' || channel === 'offlineDirect' || channel === 'offlineDealer') {
-        result.tagSale[channel] = Number(row.TAG_SALE) || 0;
-        result.actSaleVatInc[channel] = Number(row.ACT_SALE_VAT_INC) || 0;
-        result.actSaleVatExc[channel] = Number(row.ACT_SALE_VAT_EXC) || 0;
-        result.cogs[channel] = Number(row.COGS) || 0;
-        
-        totalTagSale += Number(row.TAG_SALE) || 0;
-        totalActSaleVatInc += Number(row.ACT_SALE_VAT_INC) || 0;
-        totalActSaleVatExc += Number(row.ACT_SALE_VAT_EXC) || 0;
-        totalCogs += Number(row.COGS) || 0;
-      }
-    }
-    
-    // 합계 설정
-    result.tagSale.total = totalTagSale;
-    result.actSaleVatInc.total = totalActSaleVatInc;
-    result.actSaleVatExc.total = totalActSaleVatExc;
-    result.cogs.total = totalCogs;
-    
-    return result;
-  } finally {
-    await destroyConnection(connection);
   }
+  
+  // CSV 파싱
+  return parseChannelActualsCsv(csvContent, brandCode);
 }
 
 // ============================================================
