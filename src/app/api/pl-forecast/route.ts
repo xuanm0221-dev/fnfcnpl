@@ -945,16 +945,38 @@ async function buildTierRegionData(
     const safeRegionCurrent = Array.isArray(regionData?.current) ? regionData.current : [];
     const safeRegionPrevYear = Array.isArray(regionData?.prevYear) ? regionData.prevYear : [];
     
+    // 디버깅: 전년도 데이터 확인
+    console.log('[buildTierRegionData] 전년도 데이터 확인:', {
+      tierPrevYearCount: safeTierPrevYear.length,
+      regionPrevYearCount: safeRegionPrevYear.length,
+      tierPrevYearKeys: safeTierPrevYear.map(r => r?.key),
+      regionPrevYearKeys: safeRegionPrevYear.map(r => r?.key),
+    });
+    
     // 티어별 - 전년 데이터 매칭
     const tiers: TierRegionSalesRow[] = safeTierCurrent.map((row) => {
       if (!row) return null;
       const prevRow = safeTierPrevYear.find(p => p?.key === row.key);
-      return {
+      const result = {
         ...row,
         prevSalesAmt: prevRow?.salesAmt || 0,
         prevShopCnt: prevRow?.shopCnt || 0,
         prevSalesPerShop: prevRow?.salesPerShop || 0,
       };
+      // 디버깅: cities 필드 및 전년도 데이터 확인
+      if (row.cities && row.cities.length > 0) {
+        console.log(`[buildTierRegionData] Tier ${row.key} cities:`, row.cities);
+      }
+      if (!prevRow) {
+        console.log(`[buildTierRegionData] Tier ${row.key} 전년도 데이터 없음`);
+      } else {
+        console.log(`[buildTierRegionData] Tier ${row.key} 전년도 매칭 성공:`, {
+          prevSalesAmt: prevRow.salesAmt,
+          prevShopCnt: prevRow.shopCnt,
+          prevSalesPerShop: prevRow.salesPerShop,
+        });
+      }
+      return result;
     }).filter((item): item is NonNullable<typeof item> => item !== null)
       .sort((a, b) => a.key.localeCompare(b.key)); // T0, T1, T2... 순서
     
@@ -962,12 +984,17 @@ async function buildTierRegionData(
     const regions: TierRegionSalesRow[] = safeRegionCurrent.map((row) => {
       if (!row) return null;
       const prevRow = safeRegionPrevYear.find(p => p?.key === row.key);
-      return {
+      const result = {
         ...row,
         prevSalesAmt: prevRow?.salesAmt || 0,
         prevShopCnt: prevRow?.shopCnt || 0,
         prevSalesPerShop: prevRow?.salesPerShop || 0,
       };
+      // 디버깅: cities 필드 확인
+      if (row.cities && row.cities.length > 0) {
+        console.log(`[buildTierRegionData] Region ${row.key} cities:`, row.cities);
+      }
+      return result;
     }).filter((item): item is NonNullable<typeof item> => item !== null)
       .sort((a, b) => a.key.localeCompare(b.key));
     

@@ -26,6 +26,19 @@ export function formatPercent(value: number | null): string {
 }
 
 /**
+ * 비율을 % 형태로 변환하여 표시 (소수점 없이 반올림)
+ * @param value 비율 (0.1 = 10%)
+ * @returns % 문자열 (정수, 반올림)
+ */
+export function formatPercentNoDecimal(value: number | null): string {
+  if (value === null) {
+    return '-';
+  }
+  const percent = value * 100;
+  return `${Math.round(percent)}%`;
+}
+
+/**
  * 날짜를 YY.MM.DD 형식으로 변환
  * @param dateStr YYYY-MM-DD 형식의 날짜
  * @returns YY.MM.DD 형식

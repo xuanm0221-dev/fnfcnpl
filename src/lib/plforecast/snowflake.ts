@@ -723,6 +723,7 @@ interface TierRegionResult {
   GROUP_KEY: string;
   SALES_AMT: number;
   SHOP_CNT: number;
+  CITIES?: string;
 }
 
 // 지역 한국어 번역
@@ -734,6 +735,45 @@ const regionKoMap: Record<string, string> = {
   '华中': '화중',
   '东北': '동북',
   '西南': '서남',
+};
+
+// 도시명 한국어 번역 (주요 도시)
+const cityKoMap: Record<string, string> = {
+  '上海': '상하이',
+  '北京': '베이징',
+  '广州': '광저우',
+  '深圳': '선전',
+  '杭州': '항저우',
+  '成都': '청두',
+  '重庆': '충칭',
+  '武汉': '우한',
+  '西安': '시안',
+  '苏州': '쑤저우',
+  '南京': '난징',
+  '天津': '톈진',
+  '长沙': '창사',
+  '郑州': '정저우',
+  '青岛': '칭다오',
+  '大连': '다롄',
+  '沈阳': '선양',
+  '宁波': '닝보',
+  '无锡': '우시',
+  '佛山': '포산',
+  '东莞': '둥관',
+  '济南': '지난',
+  '合肥': '허페이',
+  '福州': '푸저우',
+  '厦门': '샤먼',
+  '昆明': '쿤밍',
+  '哈尔滨': '하얼빈',
+  '长春': '창춘',
+  '石家庄': '석가장',
+  '太原': '타이위안',
+  '南昌': '난창',
+  '贵阳': '구이양',
+  '兰州': '란저우',
+  '乌鲁木齐': '우루무치',
+  '银川': '인촨',
 };
 
 /**
@@ -777,6 +817,30 @@ export async function getTierSalesData(
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
       ),
+      -- 티어별 도시 정보 (매장수 기준 상위 4개)
+      tier_cities AS (
+        SELECT 
+          vs.city_tier_nm,
+          m.city_nm,
+          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
+        FROM cy_shop_sales css
+        INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
+        JOIN FNF.CHN.MST_SHOP_ALL m ON css.shop_id = m.shop_id
+        WHERE m.city_nm IS NOT NULL AND TRIM(m.city_nm) != ''
+        GROUP BY vs.city_tier_nm, m.city_nm
+      ),
+      tier_top_cities AS (
+        SELECT 
+          city_tier_nm,
+          LISTAGG(city_nm, ', ') WITHIN GROUP (ORDER BY shop_cnt DESC) as cities
+        FROM (
+          SELECT city_tier_nm, city_nm, shop_cnt,
+                 ROW_NUMBER() OVER (PARTITION BY city_tier_nm ORDER BY shop_cnt DESC) as rn
+          FROM tier_cities
+        )
+        WHERE rn <= 4
+        GROUP BY city_tier_nm
+      ),
       cy_tier AS (
         SELECT 
           vs.city_tier_nm as GROUP_KEY,
@@ -808,13 +872,26 @@ export async function getTierSalesData(
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY vs.city_tier_nm
       )
-      SELECT 'CY' as PERIOD, GROUP_KEY, SALES_AMT, SHOP_CNT FROM cy_tier
+      SELECT 
+        'CY' as PERIOD, 
+        t.GROUP_KEY, 
+        t.SALES_AMT, 
+        t.SHOP_CNT,
+        COALESCE(tc.cities, '') as CITIES
+      FROM cy_tier t
+      LEFT JOIN tier_top_cities tc ON t.GROUP_KEY = tc.city_tier_nm
       UNION ALL
-      SELECT 'LY' as PERIOD, GROUP_KEY, SALES_AMT, SHOP_CNT FROM ly_tier
+      SELECT 
+        'LY' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_tier
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName,
+      lastDt, lastDt, brandCode, shopBrandName, shopBrandName,
       prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
     ];
     
@@ -823,19 +900,55 @@ export async function getTierSalesData(
     const currentRows = rows.filter(r => r.PERIOD === 'CY');
     const prevRows = rows.filter(r => r.PERIOD === 'LY');
     
-    const toRow = (r: TierRegionResult): TierRegionSalesRow => ({
-      key: r.GROUP_KEY || 'Unknown',
-      salesAmt: Number(r.SALES_AMT) || 0,
-      shopCnt: Number(r.SHOP_CNT) || 0,
-      salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
-      prevSalesAmt: 0,
-      prevShopCnt: 0,
-      prevSalesPerShop: 0,
-    });
+    // 도시명 배열로 변환 및 한국어 번역 적용
+    const parseCities = (citiesStr: string | undefined): string[] => {
+      if (!citiesStr || citiesStr.trim() === '') return [];
+      return citiesStr.split(', ').map(city => city.trim()).filter(city => city);
+    };
+    
+    const formatCityName = (cityCn: string): string => {
+      // "市" 제거 후 번역 시도
+      const cityWithoutSuffix = cityCn.replace(/市$/, '');
+      const cityKo = cityKoMap[cityWithoutSuffix] || cityKoMap[cityCn];
+      const displayName = cityKo ? `${cityKo}(${cityWithoutSuffix})` : cityCn;
+      return displayName;
+    };
+    
+    const toRow = (r: TierRegionResult, isCurrent: boolean): TierRegionSalesRow => {
+      const cities = isCurrent && r.CITIES 
+        ? parseCities(r.CITIES).map(formatCityName)
+        : [];
+      
+      // 전년도 데이터인 경우 실제 데이터를 사용, 당해 데이터인 경우 전년도는 0 (나중에 buildTierRegionData에서 매칭)
+      if (isCurrent) {
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          cities: cities.length > 0 ? cities : undefined,
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+        };
+      } else {
+        // 전년도 데이터: 실제 전년도 값 사용
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          cities: undefined, // 전년도는 도시 정보 없음
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+        };
+      }
+    };
     
     return {
-      current: currentRows.map(toRow),
-      prevYear: prevRows.map(toRow),
+      current: currentRows.map(r => toRow(r, true)),
+      prevYear: prevRows.map(r => toRow(r, false)),
     };
   } finally {
     await destroyConnection(connection);
@@ -883,6 +996,30 @@ export async function getRegionSalesData(
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
       ),
+      -- 지역별 도시 정보 (매장수 기준 상위 4개)
+      region_cities AS (
+        SELECT 
+          vs.sale_region_nm,
+          m.city_nm,
+          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
+        FROM cy_shop_sales css
+        INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
+        JOIN FNF.CHN.MST_SHOP_ALL m ON css.shop_id = m.shop_id
+        WHERE m.city_nm IS NOT NULL AND TRIM(m.city_nm) != ''
+        GROUP BY vs.sale_region_nm, m.city_nm
+      ),
+      region_top_cities AS (
+        SELECT 
+          sale_region_nm,
+          LISTAGG(city_nm, ', ') WITHIN GROUP (ORDER BY shop_cnt DESC) as cities
+        FROM (
+          SELECT sale_region_nm, city_nm, shop_cnt,
+                 ROW_NUMBER() OVER (PARTITION BY sale_region_nm ORDER BY shop_cnt DESC) as rn
+          FROM region_cities
+        )
+        WHERE rn <= 4
+        GROUP BY sale_region_nm
+      ),
       cy_region AS (
         SELECT 
           vs.sale_region_nm as GROUP_KEY,
@@ -914,13 +1051,26 @@ export async function getRegionSalesData(
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY vs.sale_region_nm
       )
-      SELECT 'CY' as PERIOD, GROUP_KEY, SALES_AMT, SHOP_CNT FROM cy_region
+      SELECT 
+        'CY' as PERIOD, 
+        r.GROUP_KEY, 
+        r.SALES_AMT, 
+        r.SHOP_CNT,
+        COALESCE(rc.cities, '') as CITIES
+      FROM cy_region r
+      LEFT JOIN region_top_cities rc ON r.GROUP_KEY = rc.sale_region_nm
       UNION ALL
-      SELECT 'LY' as PERIOD, GROUP_KEY, SALES_AMT, SHOP_CNT FROM ly_region
+      SELECT 
+        'LY' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_region
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName,
+      lastDt, lastDt, brandCode, shopBrandName, shopBrandName,
       prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
     ];
     
@@ -929,20 +1079,57 @@ export async function getRegionSalesData(
     const currentRows = rows.filter(r => r.PERIOD === 'CY');
     const prevRows = rows.filter(r => r.PERIOD === 'LY');
     
-    const toRow = (r: TierRegionResult): TierRegionSalesRow => ({
-      key: r.GROUP_KEY || 'Unknown',
-      labelKo: regionKoMap[r.GROUP_KEY] || r.GROUP_KEY,
-      salesAmt: Number(r.SALES_AMT) || 0,
-      shopCnt: Number(r.SHOP_CNT) || 0,
-      salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
-      prevSalesAmt: 0,
-      prevShopCnt: 0,
-      prevSalesPerShop: 0,
-    });
+    // 도시명 배열로 변환 및 한국어 번역 적용
+    const parseCities = (citiesStr: string | undefined): string[] => {
+      if (!citiesStr || citiesStr.trim() === '') return [];
+      return citiesStr.split(', ').map(city => city.trim()).filter(city => city);
+    };
+    
+    const formatCityName = (cityCn: string): string => {
+      // "市" 제거 후 번역 시도
+      const cityWithoutSuffix = cityCn.replace(/市$/, '');
+      const cityKo = cityKoMap[cityWithoutSuffix] || cityKoMap[cityCn];
+      const displayName = cityKo ? `${cityKo}(${cityWithoutSuffix})` : cityCn;
+      return displayName;
+    };
+    
+    const toRow = (r: TierRegionResult, isCurrent: boolean): TierRegionSalesRow => {
+      const cities = isCurrent && r.CITIES 
+        ? parseCities(r.CITIES).map(formatCityName)
+        : [];
+      
+      // 전년도 데이터인 경우 실제 데이터를 사용, 당해 데이터인 경우 전년도는 0 (나중에 buildTierRegionData에서 매칭)
+      if (isCurrent) {
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          labelKo: regionKoMap[r.GROUP_KEY] || r.GROUP_KEY,
+          cities: cities.length > 0 ? cities : undefined,
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+        };
+      } else {
+        // 전년도 데이터: 실제 전년도 값 사용
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          labelKo: regionKoMap[r.GROUP_KEY] || r.GROUP_KEY,
+          cities: undefined, // 전년도는 도시 정보 없음
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+        };
+      }
+    };
     
     return {
-      current: currentRows.map(toRow),
-      prevYear: prevRows.map(toRow),
+      current: currentRows.map(r => toRow(r, true)),
+      prevYear: prevRows.map(r => toRow(r, false)),
     };
   } finally {
     await destroyConnection(connection);

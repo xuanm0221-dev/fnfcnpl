@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail } from '@/lib/plforecast/types';
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
-import { formatK, formatPercent, formatDateShort } from '@/lib/plforecast/format';
+import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Treemap } from 'recharts';
 
 // 현재 월 계산 (YYYY-MM)
@@ -578,8 +578,6 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
 
 // 티어별/지역별 점당매출 테이블 컴포넌트
 function TierRegionTable({ data }: { data: TierRegionSalesData }) {
-  const [activeTab, setActiveTab] = useState<'tier' | 'region'>('tier');
-  
   // 숫자 포맷 (천단위 콤마)
   const formatNumber = (value: number): string => {
     return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -590,127 +588,171 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
     return Math.round(value / 1000).toLocaleString();
   };
   
-  // 안전한 데이터 배열
-  const safeTiers = Array.isArray(data?.tiers) ? data.tiers : [];
-  const safeRegions = Array.isArray(data?.regions) ? data.regions : [];
-  const rows = activeTab === 'tier' ? safeTiers : safeRegions;
+  // 매장수 YOY 포맷팅 (증감 개수 + 백분율)
+  const formatShopYoy = (shopCnt: number, prevShopCnt: number): string => {
+    if (!prevShopCnt || prevShopCnt === 0) return '-';
+    const diff = shopCnt - prevShopCnt;
+    const percent = Math.round((shopCnt / prevShopCnt) * 100);
+    const sign = diff >= 0 ? '+' : '△';
+    return `${sign}${Math.abs(diff)}개(${percent}%)`;
+  };
   
-  // 합계 계산 (null 체크)
-  const totalSalesAmt = rows.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
-  const totalShopCnt = rows.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
-  const totalSalesPerShop = totalShopCnt > 0 ? totalSalesAmt / totalShopCnt : 0;
-  const totalPrevSalesAmt = rows.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
-  const totalPrevShopCnt = rows.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
-  const totalPrevSalesPerShop = totalPrevShopCnt > 0 ? totalPrevSalesAmt / totalPrevShopCnt : 0;
+  // 안전한 데이터 배열 (리테일 매출 내림차순 정렬)
+  const safeTiers = Array.isArray(data?.tiers) 
+    ? [...data.tiers].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    : [];
+  const safeRegions = Array.isArray(data?.regions) 
+    ? [...data.regions].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    : [];
+  
+  // 티어 합계 계산
+  const tierTotalSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
+  const tierTotalShopCnt = safeTiers.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
+  const tierTotalSalesPerShop = tierTotalShopCnt > 0 ? tierTotalSalesAmt / tierTotalShopCnt : 0;
+  const tierTotalPrevSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
+  const tierTotalPrevShopCnt = safeTiers.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
+  const tierTotalPrevSalesPerShop = tierTotalPrevShopCnt > 0 ? tierTotalPrevSalesAmt / tierTotalPrevShopCnt : 0;
+  
+  // 지역 합계 계산
+  const regionTotalSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
+  const regionTotalShopCnt = safeRegions.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
+  const regionTotalSalesPerShop = regionTotalShopCnt > 0 ? regionTotalSalesAmt / regionTotalShopCnt : 0;
+  const regionTotalPrevSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
+  const regionTotalPrevShopCnt = safeRegions.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
+  const regionTotalPrevSalesPerShop = regionTotalPrevShopCnt > 0 ? regionTotalPrevSalesAmt / regionTotalPrevShopCnt : 0;
+
+  // 테이블 렌더링 함수
+  const renderTable = (type: 'tier' | 'region', rows: TierRegionSalesRow[], totalSalesAmt: number, totalShopCnt: number, totalSalesPerShop: number, totalPrevSalesAmt: number, totalPrevShopCnt: number, totalPrevSalesPerShop: number) => {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-full flex flex-col">
+        {/* 헤더 */}
+        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+          <h3 className="text-sm font-semibold text-gray-700">{type === 'tier' ? 'Tier (대리상)' : '지역(대리상)'}</h3>
+        </div>
+        
+        {/* 테이블 */}
+        <div className="overflow-x-auto flex-1">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr className="border-b border-gray-200">
+                {type === 'tier' ? (
+                  <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-200">티어구분</th>
+                ) : (
+                  <>
+                    <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-100">중국어</th>
+                    <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-200">한국어</th>
+                  </>
+                )}
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">리테일매출(K)</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">매장수</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">점당매출</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-200">YOY(점당매출)</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-200">YOY(매장수)</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 border-r border-gray-100">(전년)리테일매출(K)</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 border-r border-gray-100">(전년)매장수</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700">(전년)점당매출</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* 합계 행 */}
+              <tr className="border-b border-gray-300 bg-yellow-50 font-semibold">
+                {type === 'tier' ? (
+                  <td className="py-2 px-3 text-left text-gray-800 border-r border-gray-200">합계</td>
+                ) : (
+                  <>
+                    <td className="py-2 px-3 text-left text-gray-800 border-r border-gray-100">합계</td>
+                    <td className="py-2 px-3 text-left text-gray-600 border-r border-gray-200">-</td>
+                  </>
+                )}
+                <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatK(totalSalesAmt)}</td>
+                <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatNumber(totalShopCnt)}</td>
+                <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatNumber(totalSalesPerShop)}</td>
+                <td className={`py-2 px-2 text-right font-mono font-semibold bg-yellow-100 border-r border-gray-200 ${
+                  totalPrevSalesPerShop > 0 && totalSalesPerShop / totalPrevSalesPerShop >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                }`}>
+                  {totalPrevSalesPerShop > 0 ? ((totalSalesPerShop / totalPrevSalesPerShop) * 100).toFixed(1) + '%' : '-'}
+                </td>
+                <td className={`py-2 px-2 text-right font-mono font-semibold bg-yellow-100 border-r border-gray-200 ${
+                  totalPrevShopCnt > 0 && totalShopCnt / totalPrevShopCnt >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                }`}>
+                  {formatShopYoy(totalShopCnt, totalPrevShopCnt)}
+                </td>
+                <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatK(totalPrevSalesAmt)}</td>
+                <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(totalPrevShopCnt)}</td>
+                <td className="py-2 px-2 text-right font-mono text-gray-600">{formatNumber(totalPrevSalesPerShop)}</td>
+              </tr>
+              {/* 데이터 행 */}
+              {rows.map((row) => {
+                if (!row) return null;
+                const tooltipText = row.cities && row.cities.length > 0 
+                  ? `주요 도시: ${row.cities.join(', ')}`
+                  : null;
+                const hasTooltip = !!tooltipText;
+                return (
+                  <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50">
+                    {type === 'tier' ? (
+                      <td 
+                        className={`py-2 px-3 text-left font-medium text-gray-700 border-r border-gray-200 ${hasTooltip ? 'cursor-help' : ''}`}
+                        {...(hasTooltip ? { title: tooltipText } : {})}
+                      >
+                        {row.key}
+                      </td>
+                    ) : (
+                      <>
+                        <td 
+                          className={`py-2 px-3 text-left font-medium text-gray-700 border-r border-gray-100 ${hasTooltip ? 'cursor-help' : ''}`}
+                          {...(hasTooltip ? { title: tooltipText } : {})}
+                        >
+                          {row.key}
+                        </td>
+                        <td 
+                          className={`py-2 px-3 text-left text-gray-600 border-r border-gray-200 ${hasTooltip ? 'cursor-help' : ''}`}
+                          {...(hasTooltip ? { title: tooltipText } : {})}
+                        >
+                          {row.labelKo || row.key}
+                        </td>
+                      </>
+                    )}
+                    <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatK(row.salesAmt || 0)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatNumber(row.shopCnt || 0)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatNumber(row.salesPerShop || 0)}</td>
+                    <td className={`py-2 px-2 text-right font-mono bg-blue-50 border-r border-gray-200 ${
+                      (row.prevSalesPerShop || 0) > 0 && (row.salesPerShop || 0) / (row.prevSalesPerShop || 1) >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                    }`}>
+                      {(row.prevSalesPerShop || 0) > 0 ? (((row.salesPerShop || 0) / row.prevSalesPerShop) * 100).toFixed(1) + '%' : '-'}
+                    </td>
+                    <td className={`py-2 px-2 text-right font-mono bg-blue-50 border-r border-gray-200 ${
+                      (row.prevShopCnt || 0) > 0 && (row.shopCnt || 0) / (row.prevShopCnt || 1) >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                    }`}>
+                      {formatShopYoy(row.shopCnt || 0, row.prevShopCnt || 0)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatK(row.prevSalesAmt || 0)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(row.prevShopCnt || 0)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-600">{formatNumber(row.prevSalesPerShop || 0)}</td>
+                  </tr>
+                );
+              })}
+              {(rows?.length ?? 0) === 0 && (
+                <tr>
+                  <td colSpan={type === 'tier' ? 8 : 9} className="py-4 text-center text-gray-500">
+                    데이터가 없습니다.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      {/* 탭 헤더 */}
-      <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex gap-2">
-        <button
-          onClick={() => setActiveTab('tier')}
-          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-            activeTab === 'tier' 
-              ? 'bg-blue-600 text-white' 
-              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
-          }`}
-        >
-          티어
-        </button>
-        <button
-          onClick={() => setActiveTab('region')}
-          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-            activeTab === 'region' 
-              ? 'bg-blue-600 text-white' 
-              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
-          }`}
-        >
-          지역
-        </button>
-      </div>
+    <div className="grid grid-cols-2 gap-4">
+      {/* 좌측: Tier 테이블 */}
+      {renderTable('tier', safeTiers, tierTotalSalesAmt, tierTotalShopCnt, tierTotalSalesPerShop, tierTotalPrevSalesAmt, tierTotalPrevShopCnt, tierTotalPrevSalesPerShop)}
       
-      {/* 테이블 */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="bg-gray-50">
-            <tr className="border-b border-gray-200">
-              {activeTab === 'tier' ? (
-                <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-200">티어구분</th>
-              ) : (
-                <>
-                  <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-100">중국어</th>
-                  <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-200">한국어</th>
-                </>
-              )}
-              <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">리테일매출(K)</th>
-              <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">매장수</th>
-              <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">점당매출</th>
-              <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-200">YOY(점당매출)</th>
-              <th className="py-2 px-2 text-right font-semibold text-gray-700 border-r border-gray-100">(전년)리테일매출(K)</th>
-              <th className="py-2 px-2 text-right font-semibold text-gray-700 border-r border-gray-100">(전년)매장수</th>
-              <th className="py-2 px-2 text-right font-semibold text-gray-700">(전년)점당매출</th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* 합계 행 */}
-            <tr className="border-b border-gray-300 bg-yellow-50 font-semibold">
-              {activeTab === 'tier' ? (
-                <td className="py-2 px-3 text-left text-gray-800 border-r border-gray-200">합계</td>
-              ) : (
-                <>
-                  <td className="py-2 px-3 text-left text-gray-800 border-r border-gray-100">합계</td>
-                  <td className="py-2 px-3 text-left text-gray-600 border-r border-gray-200">-</td>
-                </>
-              )}
-              <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatK(totalSalesAmt)}</td>
-              <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatNumber(totalShopCnt)}</td>
-              <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatNumber(totalSalesPerShop)}</td>
-              <td className={`py-2 px-2 text-right font-mono font-semibold bg-yellow-100 border-r border-gray-200 ${
-                totalPrevSalesPerShop > 0 && totalSalesPerShop / totalPrevSalesPerShop >= 1 ? 'text-emerald-600' : 'text-rose-600'
-              }`}>
-                {totalPrevSalesPerShop > 0 ? ((totalSalesPerShop / totalPrevSalesPerShop) * 100).toFixed(1) + '%' : '-'}
-              </td>
-              <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatK(totalPrevSalesAmt)}</td>
-              <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(totalPrevShopCnt)}</td>
-              <td className="py-2 px-2 text-right font-mono text-gray-600">{formatNumber(totalPrevSalesPerShop)}</td>
-            </tr>
-            {/* 데이터 행 */}
-            {rows.map((row) => {
-              if (!row) return null;
-              return (
-                <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50">
-                  {activeTab === 'tier' ? (
-                    <td className="py-2 px-3 text-left font-medium text-gray-700 border-r border-gray-200">{row.key}</td>
-                  ) : (
-                    <>
-                      <td className="py-2 px-3 text-left font-medium text-gray-700 border-r border-gray-100">{row.key}</td>
-                      <td className="py-2 px-3 text-left text-gray-600 border-r border-gray-200">{row.labelKo || row.key}</td>
-                    </>
-                  )}
-                  <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatK(row.salesAmt || 0)}</td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatNumber(row.shopCnt || 0)}</td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatNumber(row.salesPerShop || 0)}</td>
-                  <td className={`py-2 px-2 text-right font-mono bg-blue-50 border-r border-gray-200 ${
-                    (row.prevSalesPerShop || 0) > 0 && (row.salesPerShop || 0) / (row.prevSalesPerShop || 1) >= 1 ? 'text-emerald-600' : 'text-rose-600'
-                  }`}>
-                    {(row.prevSalesPerShop || 0) > 0 ? (((row.salesPerShop || 0) / row.prevSalesPerShop) * 100).toFixed(1) + '%' : '-'}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatK(row.prevSalesAmt || 0)}</td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(row.prevShopCnt || 0)}</td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-600">{formatNumber(row.prevSalesPerShop || 0)}</td>
-                </tr>
-              );
-            })}
-            {(rows?.length ?? 0) === 0 && (
-              <tr>
-                <td colSpan={activeTab === 'tier' ? 8 : 9} className="py-4 text-center text-gray-500">
-                  데이터가 없습니다.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* 우측: 지역 테이블 */}
+      {renderTable('region', safeRegions, regionTotalSalesAmt, regionTotalShopCnt, regionTotalSalesPerShop, regionTotalPrevSalesAmt, regionTotalPrevShopCnt, regionTotalPrevSalesPerShop)}
     </div>
   );
 }
@@ -757,7 +799,7 @@ function TreemapContent(props: TreemapContentProps) {
         <text 
           x={innerX + 12} 
           y={innerY + 20} 
-          fill="#000" 
+          fill="#fff" 
           fontSize={14} 
           fontWeight="normal"
           stroke="none"
@@ -770,15 +812,41 @@ function TreemapContent(props: TreemapContentProps) {
   }
   
   const formatNum = (v: number) => Math.round(v).toLocaleString();
-  const formatYoy = (v: number | undefined) => v ? `${(v * 100).toFixed(1)}%` : '-';
+  const formatYoyPercent = (v: number | null | undefined) => {
+    if (v === null || v === undefined) return '-';
+    return `${Math.round(v)}%`;
+  };
   
-  // 판매매출 YOY 계산
-  const salesYoy = salesK && prevSalesK ? 
-    (parseFloat(salesK.replace(/,/g, '')) / parseFloat(prevSalesK.replace(/,/g, ''))) : undefined;
+  // 매장수 YOY 포맷팅 (증감 개수 + 백분율)
+  const formatShopYoy = (shopCnt: number | undefined, prevShopCnt: number | undefined): string => {
+    if (!shopCnt || !prevShopCnt || prevShopCnt === 0) return '-';
+    const diff = shopCnt - prevShopCnt;
+    const percent = Math.round((shopCnt / prevShopCnt) * 100);
+    const sign = diff >= 0 ? '+' : '△';
+    return `${sign}${Math.abs(diff)}개, ${percent}%`;
+  };
+  
+  // YOY 계산
+  const tagYoy = salesK && prevSalesK 
+    ? (parseFloat(salesK.replace(/,/g, '')) / parseFloat(prevSalesK.replace(/,/g, ''))) * 100
+    : null;
+  const salesYoy = yoy ? yoy * 100 : null;
   
   // 라인 높이
   const lineHeight = 18;
   const startY = innerY + 16;
+  const contentStartY = startY + lineHeight;
+  
+  // 작은 박스 처리: 폰트 크기 조정 (더 작게)
+  const fontSize = innerWidth < 120 ? '8px' : innerWidth < 150 ? '9px' : '10px';
+  const titleFontSize = innerWidth < 120 ? 14 : innerWidth < 150 ? 15 : 16;
+  
+  // 실판 YOY 계산
+  const salesYoyPercent = tagYoy ? Math.round(tagYoy) : null;
+  // 점당매출 YOY 계산
+  const salesPerShopYoyPercent = salesYoy ? Math.round(salesYoy) : null;
+  // 매장수 YOY 포맷팅
+  const shopYoyText = formatShopYoy(shopCnt, prevShopCnt);
   
   return (
     <g>
@@ -788,10 +856,10 @@ function TreemapContent(props: TreemapContentProps) {
       
       {/* 1줄: 카테고리명 */}
       <text 
-        x={innerX + 12} 
+        x={innerX + 8} 
         y={startY} 
-        fill="#000" 
-        fontSize={16} 
+        fill="#555" 
+        fontSize={titleFontSize} 
         fontWeight="normal"
         stroke="none"
         style={{ fontFamily: 'inherit' }}
@@ -799,24 +867,16 @@ function TreemapContent(props: TreemapContentProps) {
         {displayName}
       </text>
       
-      {/* 2줄: 당월 점당매출 */}
-      <text x={innerX + 12} y={startY + lineHeight} fill="#000" fontSize={12}>
-        당월: {formatNum(salesPerShop || 0)} ({salesK}K)
-      </text>
-      
-      {/* 3줄: 전년 점당매출 */}
-      <text x={innerX + 12} y={startY + lineHeight * 2} fill="#000" fontSize={12}>
-        전년: {formatNum(prevSalesPerShop || 0)} ({prevSalesK}K)
-      </text>
-      
-      {/* 4줄: YOY */}
+      {/* 간단한 텍스트 형식으로 표시 */}
       {innerHeight > 80 && (
-        <text x={innerX + 12} y={startY + lineHeight * 3} fill="#000" fontSize={11}>
-          YOY : <tspan fill="#B9F18C">{formatYoy(yoy)}</tspan>
-          {salesYoy && (
-            <tspan fill="#B9F18C"> ({formatYoy(salesYoy)})</tspan>
-          )}
-        </text>
+        <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
+          {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
+          <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#555', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
+            <div>실판&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{salesK}K ({salesYoyPercent !== null ? `${salesYoyPercent}%` : '-'})</div>
+            <div>점당&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{formatNum(salesPerShop || 0)} ({salesPerShopYoyPercent !== null ? `${salesPerShopYoyPercent}%` : '-'})</div>
+            <div>매장수&nbsp;&nbsp;{shopCnt || 0}개 ({shopYoyText})</div>
+          </div>
+        </foreignObject>
       )}
     </g>
   );
@@ -840,7 +900,7 @@ function CategoryTreemapInline({
   ym: string;
   lastDt: string;
   onBack: () => void;
-  onCategoryClick: (categoryName: string) => void;
+  onCategoryClick: (categoryName: string, type: 'tier' | 'region') => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null }[]>([]);
@@ -865,19 +925,72 @@ function CategoryTreemapInline({
   
   const displayName = labelKo ? `${labelKo}(${keyName})` : keyName;
   
-  // 카테고리별 색상
-  const categoryColors: Record<string, string> = {
-    'Shoes': '#8B5CF6',
-    'Headwear': '#EC4899',
-    'Bag': '#F59E0B',
-    'Acc_etc': '#10B981',
-    '의류 당시즌': '#3B82F6',
-    '의류 차시즌': '#8B5CF6',
-    '의류 과시즌': '#6B7280',
-    '신발': '#8B5CF6',
-    '모자': '#EC4899',
-    '가방': '#F59E0B',
-    '기타악세': '#10B981',
+  // 파스텔 변환 함수
+  const toPastel = (r: number, g: number, b: number): [number, number, number] => {
+    return [
+      Math.floor(r * 0.7 + 255 * 0.3),
+      Math.floor(g * 0.7 + 255 * 0.3),
+      Math.floor(b * 0.7 + 255 * 0.3)
+    ];
+  };
+  
+  // YOY 기반 그라데이션 색상 계산 (7단계, 파스텔 톤)
+  const getYoyColor = (yoy: number | null | undefined): string => {
+    if (!yoy || yoy === 0) return '#8884d8'; // 기본색
+    
+    const yoyPercent = yoy * 100; // 100% 기준
+    
+    // 색상 범위 정의 (원본 색상 보간 후 파스텔 변환)
+    let r, g, b;
+    
+    if (yoyPercent >= 110) {
+      // 110% 이상: 네이비
+      [r, g, b] = toPastel(30, 58, 138);
+    } else if (yoyPercent >= 105) {
+      // 105% ~ 110%: 파랑 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 105) / 5; // 0~1
+      const r1 = 59 + (30 - 59) * ratio;
+      const g1 = 130 + (58 - 130) * ratio;
+      const b1 = 246 + (138 - 246) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 100) {
+      // 100% ~ 105%: 민트 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 100) / 5; // 0~1
+      const r1 = 16 + (59 - 16) * ratio;
+      const g1 = 185 + (130 - 185) * ratio;
+      const b1 = 129 + (246 - 129) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 95) {
+      // 95% ~ 100%: 연한 노랑 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 95) / 5; // 0~1
+      const r1 = 254 + (16 - 254) * ratio;
+      const g1 = 240 + (185 - 240) * ratio;
+      const b1 = 138 + (129 - 138) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 90) {
+      // 90% ~ 95%: 연한 오렌지 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 90) / 5; // 0~1
+      const r1 = 255 + (254 - 255) * ratio;
+      const g1 = 183 + (240 - 183) * ratio;
+      const b1 = 107 + (138 - 107) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 85) {
+      // 85% ~ 90%: 오렌지 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 85) / 5; // 0~1
+      const r1 = 251 + (255 - 251) * ratio;
+      const g1 = 146 + (183 - 146) * ratio;
+      const b1 = 60 + (107 - 60) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else {
+      // 85% 미만: 빨강 계열 (낮을수록 진한 빨강)
+      const ratio = Math.min(yoyPercent / 85, 1); // 0~1
+      const r1 = 239 + (220 - 239) * ratio;
+      const g1 = 68 - 68 * ratio;
+      const b1 = 68 - 68 * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    }
+    
+    return `rgb(${r}, ${g}, ${b})`;
   };
   
   // 영문 키와 한글 키 매핑
@@ -902,21 +1015,25 @@ function CategoryTreemapInline({
     if (!cat) return null;
     const categoryKey = categoryKeyMap[cat.category] || cat.category;
     const percentage = totalSales > 0 ? ((cat.cySalesAmt || 0) / totalSales * 100).toFixed(1) : '0.0';
+    // YOY 계산 (판매액 기준)
+    const categoryYoy = cat.pySalesAmt && cat.pySalesAmt > 0 
+      ? (cat.cySalesAmt || 0) / cat.pySalesAmt 
+      : null;
     return {
       name: categoryKey,
       displayName: cat.category,
       size: cat.cySalesAmt || 0,
       cySalesAmt: cat.cySalesAmt || 0,
       pySalesAmt: cat.pySalesAmt || 0,
-      yoy: cat.yoy,
+      yoy: categoryYoy,
       percentage,
-      color: categoryColors[cat.category] || categoryColors[categoryKey] || '#6B7280',
+      color: getYoyColor(categoryYoy), // YOY 기반 그라데이션 색상
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
   
   const handleCategoryClick = (data: { name: string }) => {
     if (data && data.name) {
-      onCategoryClick(data.name);
+      onCategoryClick(data.name, type);
     }
   };
   
@@ -925,7 +1042,7 @@ function CategoryTreemapInline({
       {/* 뒤로가기 버튼 */}
       <button
         onClick={onBack}
-        className="absolute top-4 left-4 z-10 bg-white border border-gray-300 rounded px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm flex items-center gap-1"
+        className="absolute -top-2 left-4 z-10 bg-white border border-gray-300 rounded px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm flex items-center gap-1"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -960,6 +1077,9 @@ function CategoryTreemapInline({
                 const innerWidth = (width || 0) - gap * 2;
                 const innerHeight = (height || 0) - gap * 2;
                 
+                // level2는 전부 하얀색 글씨
+                const textColor = '#fff';
+                
                 if (innerWidth < 80 || innerHeight < 60) {
                   return (
                     <g>
@@ -968,8 +1088,8 @@ function CategoryTreemapInline({
                       <text 
                         x={innerX + 12} 
                         y={innerY + 20} 
-                        fill="#000" 
-                        fontSize={14} 
+                        fill={textColor} 
+                        fontSize={16} 
                         fontWeight="normal"
                         stroke="none"
                         style={{ fontFamily: 'inherit' }}
@@ -981,10 +1101,22 @@ function CategoryTreemapInline({
                 }
                 
                 const formatK = (v: number) => Math.round(v / 1000).toLocaleString();
-                const formatYoy = (v: number | null | undefined) => v ? `${(v * 100).toFixed(1)}%` : '-';
                 
-                const lineHeight = 18;
+                // 카테고리 판매액 YOY 계산
+                const categoryYoy = cySalesAmt && pySalesAmt && pySalesAmt > 0
+                  ? Math.round((cySalesAmt / pySalesAmt) * 100)
+                  : null;
+                
+                const lineHeight = 20;
                 const startY = innerY + 16;
+                const contentStartY = startY + lineHeight;
+                
+                // 작은 박스 처리: 폰트 크기 조정 (level1 T0 정도로)
+                const baseFontSize = innerWidth < 120 ? 8 : innerWidth < 150 ? 9 : 10;
+                const fontSize = `${Math.round(baseFontSize * 1.2)}px`;
+                const titleFontSize = innerWidth < 120 ? 16 : innerWidth < 150 ? 16 : 16; // level1 T0와 동일한 크기
+                
+                // textColor는 이미 위에서 계산됨
                 
                 return (
                   <g style={{ cursor: 'pointer' }}>
@@ -992,10 +1124,10 @@ function CategoryTreemapInline({
                           fill={color || '#8884d8'} stroke="#fff" strokeWidth={1} rx={0} />
                     
                     <text 
-                      x={innerX + 12} 
+                      x={innerX + 8} 
                       y={startY} 
-                      fill="#000" 
-                      fontSize={16} 
+                      fill={textColor} 
+                      fontSize={titleFontSize} 
                       fontWeight="normal"
                       stroke="none"
                       style={{ fontFamily: 'inherit' }}
@@ -1003,18 +1135,14 @@ function CategoryTreemapInline({
                       {displayName}
                     </text>
                     
-                    <text x={innerX + 12} y={startY + lineHeight} fill="#000" fontSize={12}>
-                      당년: {formatK(cySalesAmt || 0)}K ({percentage || '0.0'}%)
-                    </text>
-                    
-                    <text x={innerX + 12} y={startY + lineHeight * 2} fill="#000" fontSize={12}>
-                      전년: {formatK(pySalesAmt || 0)}K
-                    </text>
-                    
-                    {innerHeight > 80 && (
-                      <text x={innerX + 12} y={startY + lineHeight * 3} fill="#000" fontSize={11}>
-                        YOY : <tspan fill="#B9F18C">{formatYoy(yoy)}</tspan>
-                      </text>
+                    {innerHeight > 60 && (
+                      <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
+                        {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
+                        <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#fff', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
+                          <div>실판 {formatK(cySalesAmt || 0)}K (전년 {formatK(pySalesAmt || 0)}K, {categoryYoy !== null ? `${categoryYoy}%` : '-'})</div>
+                          <div>비중 {percentage || '0.0'}%</div>
+                        </div>
+                      </foreignObject>
                     )}
                   </g>
                 );
@@ -1082,20 +1210,72 @@ function CategoryTreemapModal({
   
   const displayName = labelKo ? `${labelKo}(${keyName})` : keyName;
   
-  // 카테고리별 색상 (영문 키와 한글 키 모두 지원)
-  const categoryColors: Record<string, string> = {
-    'Shoes': '#8B5CF6',
-    'Headwear': '#EC4899',
-    'Bag': '#F59E0B',
-    'Acc_etc': '#10B981',
-    '의류 당시즌': '#3B82F6',
-    '의류 차시즌': '#8B5CF6',
-    '의류 과시즌': '#6B7280',
-    // 한글 키도 지원 (API에서 한글로 올 수 있음)
-    '신발': '#8B5CF6',
-    '모자': '#EC4899',
-    '가방': '#F59E0B',
-    '기타악세': '#10B981',
+  // 파스텔 변환 함수
+  const toPastel = (r: number, g: number, b: number): [number, number, number] => {
+    return [
+      Math.floor(r * 0.7 + 255 * 0.3),
+      Math.floor(g * 0.7 + 255 * 0.3),
+      Math.floor(b * 0.7 + 255 * 0.3)
+    ];
+  };
+  
+  // YOY 기반 그라데이션 색상 계산 (7단계, 파스텔 톤)
+  const getYoyColor = (yoy: number | null | undefined): string => {
+    if (!yoy || yoy === 0) return '#8884d8'; // 기본색
+    
+    const yoyPercent = yoy * 100; // 100% 기준
+    
+    // 색상 범위 정의 (원본 색상 보간 후 파스텔 변환)
+    let r, g, b;
+    
+    if (yoyPercent >= 110) {
+      // 110% 이상: 네이비
+      [r, g, b] = toPastel(30, 58, 138);
+    } else if (yoyPercent >= 105) {
+      // 105% ~ 110%: 파랑 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 105) / 5; // 0~1
+      const r1 = 59 + (30 - 59) * ratio;
+      const g1 = 130 + (58 - 130) * ratio;
+      const b1 = 246 + (138 - 246) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 100) {
+      // 100% ~ 105%: 민트 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 100) / 5; // 0~1
+      const r1 = 16 + (59 - 16) * ratio;
+      const g1 = 185 + (130 - 185) * ratio;
+      const b1 = 129 + (246 - 129) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 95) {
+      // 95% ~ 100%: 연한 노랑 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 95) / 5; // 0~1
+      const r1 = 254 + (16 - 254) * ratio;
+      const g1 = 240 + (185 - 240) * ratio;
+      const b1 = 138 + (129 - 138) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 90) {
+      // 90% ~ 95%: 연한 오렌지 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 90) / 5; // 0~1
+      const r1 = 255 + (254 - 255) * ratio;
+      const g1 = 183 + (240 - 183) * ratio;
+      const b1 = 107 + (138 - 107) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 85) {
+      // 85% ~ 90%: 오렌지 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 85) / 5; // 0~1
+      const r1 = 251 + (255 - 251) * ratio;
+      const g1 = 146 + (183 - 146) * ratio;
+      const b1 = 60 + (107 - 60) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else {
+      // 85% 미만: 빨강 계열 (낮을수록 진한 빨강)
+      const ratio = Math.min(yoyPercent / 85, 1); // 0~1
+      const r1 = 239 + (220 - 239) * ratio;
+      const g1 = 68 - 68 * ratio;
+      const b1 = 68 - 68 * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    }
+    
+    return `rgb(${r}, ${g}, ${b})`;
   };
   
   // 영문 키와 한글 키 매핑
@@ -1123,15 +1303,19 @@ function CategoryTreemapModal({
     if (!cat) return null;
     const categoryKey = categoryKeyMap[cat.category] || cat.category;
     const percentage = totalSales > 0 ? ((cat.cySalesAmt || 0) / totalSales * 100).toFixed(1) : '0.0';
+    // YOY 계산 (판매액 기준)
+    const categoryYoy = cat.pySalesAmt && cat.pySalesAmt > 0 
+      ? (cat.cySalesAmt || 0) / cat.pySalesAmt 
+      : null;
     return {
       name: categoryKey,
       displayName: cat.category, // 원본 카테고리명 표시
       size: cat.cySalesAmt || 0,
       cySalesAmt: cat.cySalesAmt || 0,
       pySalesAmt: cat.pySalesAmt || 0,
-      yoy: cat.yoy,
+      yoy: categoryYoy,
       percentage,
-      color: categoryColors[cat.category] || categoryColors[categoryKey] || '#6B7280',
+      color: getYoyColor(categoryYoy), // YOY 기반 그라데이션 색상
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
   
@@ -1174,6 +1358,9 @@ function CategoryTreemapModal({
                       const innerWidth = (width || 0) - gap * 2;
                       const innerHeight = (height || 0) - gap * 2;
                       
+                      // level2는 전부 하얀색 글씨
+                      const textColor = '#fff';
+                      
                       // 작은 타일 처리
                       if (innerWidth < 80 || innerHeight < 60) {
                         return (
@@ -1183,8 +1370,8 @@ function CategoryTreemapModal({
                             <text 
                               x={innerX + 12} 
                               y={innerY + 20} 
-                              fill="#000" 
-                              fontSize={14} 
+                              fill={textColor} 
+                              fontSize={16} 
                               fontWeight="normal"
                               stroke="none"
                               style={{ fontFamily: 'inherit' }}
@@ -1196,11 +1383,21 @@ function CategoryTreemapModal({
                       }
                       
                       const formatK = (v: number) => Math.round(v / 1000).toLocaleString();
-                      const formatYoy = (v: number | null | undefined) => v ? `${(v * 100).toFixed(1)}%` : '-';
+                      
+                      // 카테고리 판매액 YOY 계산
+                      const categoryYoy = cySalesAmt && pySalesAmt && pySalesAmt > 0
+                        ? Math.round((cySalesAmt / pySalesAmt) * 100)
+                        : null;
                       
                       // 라인 높이
-                      const lineHeight = 18;
+                      const lineHeight = 20;
                       const startY = innerY + 16;
+                      const contentStartY = startY + lineHeight;
+                      
+                      // 작은 박스 처리: 폰트 크기 조정 (level1 T0 정도로)
+                      const baseFontSize = innerWidth < 120 ? 8 : innerWidth < 150 ? 9 : 10;
+                      const fontSize = `${Math.round(baseFontSize * 1.2)}px`;
+                      const titleFontSize = innerWidth < 120 ? 16 : innerWidth < 150 ? 16 : 16; // level1 T0와 동일한 크기
                       
                       return (
                         <g style={{ cursor: 'pointer' }}>
@@ -1210,10 +1407,10 @@ function CategoryTreemapModal({
                           
                           {/* 1줄: 카테고리명 (속 채움 스타일 - 일반 텍스트) */}
                           <text 
-                            x={innerX + 12} 
+                            x={innerX + 8} 
                             y={startY} 
-                            fill="#000" 
-                            fontSize={16} 
+                            fill={textColor} 
+                            fontSize={titleFontSize} 
                             fontWeight="normal"
                             stroke="none"
                             style={{ fontFamily: 'inherit' }}
@@ -1221,21 +1418,15 @@ function CategoryTreemapModal({
                             {displayName}
                           </text>
                           
-                          {/* 2줄: 당년 판매액 + 비중 */}
-                          <text x={innerX + 12} y={startY + lineHeight} fill="#000" fontSize={12}>
-                            당년: {formatK(cySalesAmt || 0)}K ({percentage || '0.0'}%)
-                          </text>
-                          
-                          {/* 3줄: 전년 판매액 */}
-                          <text x={innerX + 12} y={startY + lineHeight * 2} fill="#000" fontSize={12}>
-                            전년: {formatK(pySalesAmt || 0)}K
-                          </text>
-                          
-                          {/* 4줄: YOY */}
-                          {innerHeight > 80 && (
-                            <text x={innerX + 12} y={startY + lineHeight * 3} fill="#000" fontSize={11}>
-                              YOY : <tspan fill="#B9F18C">{formatYoy(yoy)}</tspan>
-                            </text>
+                          {/* 간단한 텍스트 형식으로 표시 */}
+                          {innerHeight > 60 && (
+                            <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
+                              {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
+                              <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#fff', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
+                                <div>실판 {formatK(cySalesAmt || 0)}K (전년 {formatK(pySalesAmt || 0)}K, {categoryYoy !== null ? `${categoryYoy}%` : '-'})</div>
+                                <div>비중 {percentage || '0.0'}%</div>
+                              </div>
+                            </foreignObject>
                           )}
                         </g>
                       );
@@ -1419,30 +1610,78 @@ function TierRegionTreemap({
   ym: string; 
   lastDt: string;
 }) {
-  const [drilldownLevel, setDrilldownLevel] = useState<'level1' | 'level2'>('level1');
-  const [selectedTierOrRegion, setSelectedTierOrRegion] = useState<{ type: 'tier' | 'region'; key: string; labelKo?: string } | null>(null);
+  const [selectedTier, setSelectedTier] = useState<{ key: string; labelKo?: string } | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<{ key: string; labelKo?: string } | null>(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategoryType, setSelectedCategoryType] = useState<'tier' | 'region' | null>(null);
   
-  // 티어별 고정 색상 (T0~T5)
-  const tierColorMap: Record<string, string> = {
-    'T0': '#60A5FA',  // 하늘색
-    'T1': '#34D399',  // 민트색
-    'T2': '#F472B6',  // 핑크색
-    'T3': '#FBBF24',  // 노랑색
-    'T4': '#A78BFA',  // 보라색
-    'T5': '#FB923C',  // 주황색
+  // 파스텔 색상 변환 함수
+  const toPastel = (r: number, g: number, b: number): [number, number, number] => {
+    return [
+      Math.floor(r * 0.7 + 255 * 0.3),
+      Math.floor(g * 0.7 + 255 * 0.3),
+      Math.floor(b * 0.7 + 255 * 0.3)
+    ];
   };
   
-  // 지역별 고정 색상
-  const regionColorMap: Record<string, string> = {
-    '西北': '#60A5FA',  // 하늘색
-    '华东': '#34D399',  // 민트색
-    '华南': '#F472B6',  // 핑크색
-    '华北': '#FBBF24',  // 노랑색
-    '华中': '#A78BFA',  // 보라색
-    '东北': '#FB923C',  // 주황색
-    '西南': '#F87171',  // 빨간색 계열
+  // YOY 기반 그라데이션 색상 계산 (7단계, 파스텔 톤)
+  const getYoyColor = (yoy: number | undefined): string => {
+    if (!yoy || yoy === 0) return '#8884d8'; // 기본색
+    
+    const yoyPercent = yoy * 100; // 100% 기준
+    
+    // 색상 범위 정의 (원본 색상 보간 후 파스텔 변환)
+    let r, g, b;
+    
+    if (yoyPercent >= 110) {
+      // 110% 이상: 네이비
+      [r, g, b] = toPastel(30, 58, 138);
+    } else if (yoyPercent >= 105) {
+      // 105% ~ 110%: 파랑 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 105) / 5; // 0~1
+      const r1 = 59 + (30 - 59) * ratio;
+      const g1 = 130 + (58 - 130) * ratio;
+      const b1 = 246 + (138 - 246) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 100) {
+      // 100% ~ 105%: 민트 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 100) / 5; // 0~1
+      const r1 = 34 + (59 - 34) * ratio;
+      const g1 = 211 + (130 - 211) * ratio;
+      const b1 = 153 + (246 - 153) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 95) {
+      // 95% ~ 100%: 연한 노랑 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 95) / 5; // 0~1
+      const r1 = 252 + (34 - 252) * ratio;
+      const g1 = 211 + (211 - 211) * ratio;
+      const b1 = 77 + (153 - 77) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 90) {
+      // 90% ~ 95%: 연한 오렌지 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 90) / 5; // 0~1
+      const r1 = 251 + (252 - 251) * ratio;
+      const g1 = 146 + (211 - 146) * ratio;
+      const b1 = 60 + (77 - 60) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else if (yoyPercent >= 85) {
+      // 85% ~ 90%: 오렌지 (경계에서 그라데이션)
+      const ratio = (yoyPercent - 85) / 5; // 0~1
+      const r1 = 249 + (251 - 249) * ratio;
+      const g1 = 115 + (146 - 115) * ratio;
+      const b1 = 22 + (60 - 22) * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    } else {
+      // 85% 미만: 빨강 계열 (낮을수록 진한 빨강)
+      const ratio = Math.min(yoyPercent / 85, 1); // 0~1
+      const r1 = 239 + (220 - 239) * ratio;
+      const g1 = 68 - 68 * ratio;
+      const b1 = 68 - 68 * ratio;
+      [r, g, b] = toPastel(Math.floor(r1), Math.floor(g1), Math.floor(b1));
+    }
+    
+    return `rgb(${r}, ${g}, ${b})`;
   };
   
   // 안전한 데이터 배열 (null 체크)
@@ -1452,58 +1691,75 @@ function TierRegionTreemap({
   // 티어 데이터 변환
   const tierTreemapData = safeTiers.map((tier) => {
     if (!tier) return null;
+    const yoy = (tier.prevSalesPerShop || 0) > 0 ? (tier.salesPerShop || 0) / tier.prevSalesPerShop : undefined;
     return {
       name: tier.key,
       displayName: tier.key,
-      size: tier.salesPerShop || 0,
+      size: tier.salesAmt || 0, // 실판 기준으로 박스 크기 결정
       salesPerShop: tier.salesPerShop || 0,
       salesK: Math.round((tier.salesAmt || 0) / 1000).toLocaleString(),
       shopCnt: tier.shopCnt || 0,
       prevSalesPerShop: tier.prevSalesPerShop || 0,
       prevSalesK: Math.round((tier.prevSalesAmt || 0) / 1000).toLocaleString(),
       prevShopCnt: tier.prevShopCnt || 0,
-      yoy: (tier.prevSalesPerShop || 0) > 0 ? (tier.salesPerShop || 0) / tier.prevSalesPerShop : undefined,
-      color: tierColorMap[tier.key] || '#8884d8', // 기본값
+      yoy,
+      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상
       labelKo: tier.labelKo,
     };
-  }).filter((item): item is NonNullable<typeof item> => item !== null);
+  }).filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((a, b) => {
+      // 실판 기준으로 정렬 (salesAmt)
+      const aSalesAmt = parseFloat(a.salesK?.replace(/,/g, '') || '0') * 1000;
+      const bSalesAmt = parseFloat(b.salesK?.replace(/,/g, '') || '0') * 1000;
+      return bSalesAmt - aSalesAmt;
+    }); // 당월 실판 기준 내림차순 정렬
   
   // 지역 데이터 변환 (한국어(중국어) 형식)
   const regionTreemapData = safeRegions.map((region) => {
     if (!region) return null;
+    const yoy = (region.prevSalesPerShop || 0) > 0 ? (region.salesPerShop || 0) / region.prevSalesPerShop : undefined;
     return {
       name: region.key,
       displayName: region.labelKo ? `${region.labelKo}(${region.key})` : region.key,
-      size: region.salesPerShop || 0,
+      size: region.salesAmt || 0, // 실판 기준으로 박스 크기 결정
       salesPerShop: region.salesPerShop || 0,
       salesK: Math.round((region.salesAmt || 0) / 1000).toLocaleString(),
       shopCnt: region.shopCnt || 0,
       prevSalesPerShop: region.prevSalesPerShop || 0,
       prevSalesK: Math.round((region.prevSalesAmt || 0) / 1000).toLocaleString(),
       prevShopCnt: region.prevShopCnt || 0,
-      yoy: (region.prevSalesPerShop || 0) > 0 ? (region.salesPerShop || 0) / region.prevSalesPerShop : undefined,
-      color: regionColorMap[region.key] || '#8884d8', // 기본값
+      yoy,
+      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상
+      cities: region.cities,
       labelKo: region.labelKo,
     };
-  }).filter((item): item is NonNullable<typeof item> => item !== null);
+  }).filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((a, b) => {
+      // 실판 기준으로 정렬 (salesAmt)
+      const aSalesAmt = parseFloat(a.salesK?.replace(/,/g, '') || '0') * 1000;
+      const bSalesAmt = parseFloat(b.salesK?.replace(/,/g, '') || '0') * 1000;
+      return bSalesAmt - aSalesAmt;
+    }); // 당월 실판 기준 내림차순 정렬
   
   const handleTierClick = (data: { name: string; labelKo?: string }) => {
-    setSelectedTierOrRegion({ type: 'tier', key: data.name, labelKo: data.labelKo });
-    setDrilldownLevel('level2');
+    setSelectedTier({ key: data.name, labelKo: data.labelKo });
   };
   
   const handleRegionClick = (data: { name: string; labelKo?: string }) => {
-    setSelectedTierOrRegion({ type: 'region', key: data.name, labelKo: data.labelKo });
-    setDrilldownLevel('level2');
+    setSelectedRegion({ key: data.name, labelKo: data.labelKo });
   };
   
-  const handleBackClick = () => {
-    setDrilldownLevel('level1');
-    setSelectedTierOrRegion(null);
+  const handleTierBack = () => {
+    setSelectedTier(null);
   };
   
-  const handleCategoryClick = (categoryName: string) => {
+  const handleRegionBack = () => {
+    setSelectedRegion(null);
+  };
+  
+  const handleCategoryClick = (categoryName: string, type: 'tier' | 'region') => {
     setSelectedCategory(categoryName);
+    setSelectedCategoryType(type);
     setCategoryModalOpen(true);
   };
   
@@ -1518,17 +1774,28 @@ function TierRegionTreemap({
   
   return (
     <div className="bg-white rounded-none border border-gray-300 shadow-none overflow-hidden">
-      {drilldownLevel === 'level1' ? (
-        <div className="p-2">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* 티어별 트리맵 */}
-            <div>
-              <div className="mb-2 text-center">
-                <h4 className="text-sm font-semibold text-gray-700">티어별 점당매출</h4>
-                <p className="text-xs text-gray-500 mt-1">
-                  당해 기간: {formatPeriod()}
-                </p>
-              </div>
+      <div className="p-2">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* 티어별 트리맵 */}
+          <div>
+            <div className="mb-2 text-center">
+              <h4 className="text-sm font-semibold text-gray-700">대리상 Tier별 점당매출</h4>
+              <p className="text-xs text-gray-500 mt-1">
+                당해 기간: {formatPeriod()}
+              </p>
+            </div>
+            {selectedTier ? (
+              <CategoryTreemapInline
+                type="tier"
+                keyName={selectedTier.key}
+                labelKo={selectedTier.labelKo}
+                brandCode={brandCode}
+                ym={ym}
+                lastDt={lastDt}
+                onBack={handleTierBack}
+                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'tier')}
+              />
+            ) : (
               <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <Treemap
@@ -1541,16 +1808,29 @@ function TierRegionTreemap({
                   />
                 </ResponsiveContainer>
               </div>
+            )}
+          </div>
+          
+          {/* 지역별 트리맵 */}
+          <div>
+            <div className="mb-2 text-center">
+              <h4 className="text-sm font-semibold text-gray-700">대리상 지역별 점당매출</h4>
+              <p className="text-xs text-gray-500 mt-1">
+                당해 기간: {formatPeriod()}
+              </p>
             </div>
-            
-            {/* 지역별 트리맵 */}
-            <div>
-              <div className="mb-2 text-center">
-                <h4 className="text-sm font-semibold text-gray-700">지역별 점당매출</h4>
-                <p className="text-xs text-gray-500 mt-1">
-                  당해 기간: {formatPeriod()}
-                </p>
-              </div>
+            {selectedRegion ? (
+              <CategoryTreemapInline
+                type="region"
+                keyName={selectedRegion.key}
+                labelKo={selectedRegion.labelKo}
+                brandCode={brandCode}
+                ym={ym}
+                lastDt={lastDt}
+                onBack={handleRegionBack}
+                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'region')}
+              />
+            ) : (
               <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <Treemap
@@ -1563,34 +1843,22 @@ function TierRegionTreemap({
                   />
                 </ResponsiveContainer>
               </div>
-            </div>
+            )}
           </div>
         </div>
-      ) : (
-        selectedTierOrRegion && (
-          <CategoryTreemapInline
-            type={selectedTierOrRegion.type}
-            keyName={selectedTierOrRegion.key}
-            labelKo={selectedTierOrRegion.labelKo}
-            brandCode={brandCode}
-            ym={ym}
-            lastDt={lastDt}
-            onBack={handleBackClick}
-            onCategoryClick={handleCategoryClick}
-          />
-        )
-      )}
+      </div>
       
       {/* 상품별 내역 모달 (2단계에서 클릭 시) */}
-      {selectedCategory && selectedTierOrRegion && (
+      {selectedCategory && selectedCategoryType && (
         <ProductSalesModal
           isOpen={categoryModalOpen}
           onClose={() => {
             setCategoryModalOpen(false);
             setSelectedCategory(null);
+            setSelectedCategoryType(null);
           }}
-          type={selectedTierOrRegion.type}
-          keyName={selectedTierOrRegion.key}
+          type={selectedCategoryType}
+          keyName={selectedCategoryType === 'tier' ? selectedTier?.key || '' : selectedRegion?.key || ''}
           categoryName={selectedCategory}
           brandCode={brandCode}
           ym={ym}
@@ -2028,30 +2296,33 @@ export default function BrandPlForecastPage() {
       <tr
         key={line.id}
         className={`
-          border-b border-gray-200 
-          ${line.isCalculated ? 'bg-white font-semibold' : 'hover:bg-gray-50'}
+          transition-colors duration-150
+          ${line.isCalculated ? 'bg-white' : 'hover:bg-gray-50/50'}
           ${hasButterBackground ? butterBgClass : ''}
           ${depth === 0 ? '' : 'text-xs'}
+          ${hasButterBackground ? 'border-l-4 border-l-yellow-300' : ''}
         `}
       >
         {/* 라벨 */}
-        <td className={`py-2 px-3 sticky left-0 ${butterBgClass} z-10 text-xs`}>
+        <td className={`py-3 px-4 sticky left-0 ${butterBgClass} z-10 text-xs border-r border-gray-100`}>
           <div className="flex items-center" style={{ paddingLeft: `${indent}px` }}>
             {hasChildren && (
               <button
                 onClick={() => toggleRow(line.id)}
-                className="w-4 h-4 mr-1 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors text-xs"
+                className="w-2 h-2 mr-0.5 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-all text-[8px]"
               >
                 {isExpanded ? '▼' : '▶'}
               </button>
             )}
-            {!hasChildren && <span className="w-4 mr-1" />}
+            {!hasChildren && <span className="w-2 mr-0.5" />}
             <span className={
-              line.id === 'cogs-sum' || line.id === 'gross-profit' || line.id === 'direct-cost-sum' || line.id === 'direct-profit' || line.id === 'opex-sum' || line.id === 'operating-profit'
+              line.id === 'gross-profit' || line.id === 'direct-profit' || line.id === 'operating-profit'
                 ? 'text-black' 
-                : line.isCalculated 
-                  ? 'text-amber-600' 
-                  : 'text-gray-800'
+                : line.id === 'cogs-sum' || line.id === 'direct-cost-sum' || line.id === 'opex-sum'
+                  ? 'text-black'
+                  : line.isCalculated 
+                    ? 'text-amber-600' 
+                    : 'text-gray-800'
             }>
               {line.label}
             </span>
@@ -2059,39 +2330,39 @@ export default function BrandPlForecastPage() {
         </td>
 
         {/* 전년 */}
-        <td className={`py-2 px-2 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
           {formatK(line.prevYear)}
         </td>
 
         {/* 목표 */}
-        <td className={`py-2 px-2 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
           {formatK(line.target)}
         </td>
 
         {/* 누적 */}
         {showAccum && (
-          <td className={`py-2 px-2 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
+          <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
             {formatK(line.accum)}
           </td>
         )}
 
         {/* 월말예상 */}
-        <td className={`py-2 px-2 text-right font-mono text-emerald-600 font-semibold text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-3 text-right font-mono text-emerald-600 text-xs ${butterBgClass}`}>
           {formatK(line.forecast)}
         </td>
 
         {/* 전년비 */}
-        <td className={`py-2 px-2 text-right font-mono text-xs ${butterBgClass} ${
+        <td className={`py-3 px-3 text-right font-mono text-xs ${butterBgClass} ${
           line.yoyRate !== null && line.yoyRate >= 0 ? 'text-emerald-600' : 'text-rose-600'
         }`}>
-          {formatPercent(line.yoyRate !== null ? line.yoyRate + 1 : null)}
+          {formatPercentNoDecimal(line.yoyRate !== null ? line.yoyRate + 1 : null)}
         </td>
 
         {/* 달성율 */}
-        <td className={`py-2 px-2 text-right font-mono text-xs ${butterBgClass} ${
+        <td className={`py-3 px-3 text-right font-mono text-xs ${butterBgClass} ${
           line.achvRate !== null && line.achvRate >= 1 ? 'text-emerald-600' : 'text-amber-600'
         }`}>
-          {formatPercent(line.achvRate)}
+          {formatPercentNoDecimal(line.achvRate)}
         </td>
       </tr>
     );
@@ -2380,9 +2651,10 @@ export default function BrandPlForecastPage() {
             {/* 우측 1/4 - 손익표 */}
             <div className="w-1/4">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
+                {/* 헤더 개선 */}
+                <div className="bg-gradient-to-r from-slate-50 via-gray-50 to-slate-50 px-4 py-3 border-b border-gray-200 shadow-sm">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       {/* 바 차트 아이콘 (제목과 동일) */}
                       <svg width="20" height="20" viewBox="0 0 32 32" className="drop-shadow-sm">
                         <defs>
@@ -2414,16 +2686,16 @@ export default function BrandPlForecastPage() {
                         {/* 막대 3 (오른쪽, 파랑, 중간 높이) */}
                         <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl)" />
                       </svg>
-                      <h3 className="text-sm font-semibold text-gray-700">{brandLabel} 손익계산서</h3>
+                      <h3 className="text-base text-gray-800 tracking-tight">{brandLabel} 손익계산서</h3>
                     </div>
-                    {/* 누적 토글 버튼 */}
+                    {/* 누적 토글 버튼 개선 */}
                     <button
                       onClick={() => setShowAccum(!showAccum)}
                       className={`
-                        px-3 py-1 rounded-md text-xs font-medium transition-all
+                        px-4 py-1.5 rounded-lg text-xs transition-all shadow-sm
                         ${showAccum
-                          ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
-                          : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                          ? 'bg-gradient-to-r from-cyan-500 to-cyan-600 text-white hover:from-cyan-600 hover:to-cyan-700 shadow-cyan-200'
+                          : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-300 shadow-sm'
                         }
                       `}
                     >
@@ -2431,29 +2703,30 @@ export default function BrandPlForecastPage() {
                     </button>
                   </div>
                 </div>
+                {/* 테이블 개선 */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead className="bg-gray-50 sticky top-0">
+                    <thead className="bg-gradient-to-b from-gray-100 to-gray-50 sticky top-0 z-20 shadow-sm">
                       <tr className="text-gray-700">
-                        <th className="py-2 px-3 text-left font-semibold sticky left-0 bg-gray-50 z-10">
+                        <th className="py-3 px-4 text-left text-gray-800 sticky left-0 bg-gradient-to-b from-gray-100 to-gray-50 z-20 border-r border-gray-200">
                           구분
                         </th>
-                        <th className="py-2 px-2 text-right font-semibold">전년</th>
-                        <th className="py-2 px-2 text-right font-semibold">목표</th>
+                        <th className="py-3 px-3 text-right text-gray-800">전년</th>
+                        <th className="py-3 px-3 text-right text-gray-800">목표</th>
                         {showAccum && (
-                          <th className="py-2 px-2 text-right font-semibold">누적</th>
+                          <th className="py-3 px-3 text-right text-gray-800">누적</th>
                         )}
-                        <th className="py-2 px-2 text-right font-semibold">월말예상</th>
-                        <th className="py-2 px-2 text-right font-semibold">전년비</th>
-                        <th className="py-2 px-2 text-right font-semibold">달성율</th>
+                        <th className="py-3 px-3 text-right text-gray-800">월말예상</th>
+                        <th className="py-3 px-3 text-right text-gray-800">전년비</th>
+                        <th className="py-3 px-3 text-right text-gray-800">달성율</th>
                       </tr>
                     </thead>
-                    <tbody className="bg-white">
+                    <tbody className="bg-white divide-y divide-gray-100">
                       {data.lines && data.lines.length > 0 ? (
                         data.lines.map((line) => renderRow(line))
                       ) : (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-gray-400">
+                          <td colSpan={7} className="py-12 text-center text-gray-400">
                             데이터가 없습니다.
                           </td>
                         </tr>
@@ -2463,35 +2736,71 @@ export default function BrandPlForecastPage() {
                 </div>
               </div>
 
-              {/* 범례 - 손익표 아래 */}
-              <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-500">
-                <div className="font-medium text-gray-600 mb-2">월말예상 계산 방식</div>
-                <div className="space-y-2">
-                  <div>
-                    <div className="font-medium text-gray-700 mb-1">직접비 (고정비)</div>
-                    <ul className="space-y-0.5 ml-2 text-gray-600">
-                      <li>• 지급수수료, 대리상지원금, 포장비, 감가상각비, 진열소모품, 기타지급수수료</li>
-                      <li>계산식: 월말예상 = 목표 비용</li>
+              {/* 범례 - 손익표 아래 개선 */}
+              <div className="mt-4 p-4 bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 shadow-sm text-xs">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-5 bg-gradient-to-b from-indigo-500 to-indigo-600 rounded"></div>
+                  <div className="font-bold text-gray-800">월말예상 계산 방식</div>
+                </div>
+                <div className="space-y-3 pl-3">
+                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+                    <div className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      직접비 (고정비)
+                    </div>
+                    <ul className="space-y-1 ml-4 text-gray-600">
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span>지급수수료, 대리상지원금, 포장비, 감가상각비, 진열소모품, 기타지급수수료</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span className="font-medium text-gray-700">계산식: 월말예상 = 목표 비용</span>
+                      </li>
                     </ul>
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-700 mb-1">직접비 (변동비)</div>
-                    <ul className="space-y-0.5 ml-2 text-gray-600">
-                      <li>• 오프라인 직영 기준: 급여, 복리후생비, 매장임차료</li>
-                      <li>• 온라인 직영 기준: 플랫폼수수료, TP수수료, 직접광고비</li>
-                      <li>• 전체 기준: 물류비</li>
-                      <li>계산식: 월말예상 = 목표 비용 ÷ 목표 실판(V-) × 월말예상 실판(V-)</li>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+                    <div className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                      직접비 (변동비)
+                    </div>
+                    <ul className="space-y-1 ml-4 text-gray-600">
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span>오프라인 직영 기준: 급여, 복리후생비, 매장임차료</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span>온라인 직영 기준: 플랫폼수수료, TP수수료, 직접광고비</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span>전체 기준: 물류비</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span className="font-medium text-gray-700">계산식: 월말예상 = 목표 비용 ÷ 목표 실판(V-) × 월말예상 실판(V-)</span>
+                      </li>
                     </ul>
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-700 mb-1">영업비 (모두 고정비)</div>
-                    <ul className="space-y-0.5 ml-2 text-gray-600">
-                      <li>• 급여, 복리후생비, 광고비, 수주회, 지급수수료, 임차료, 감가상각비, 세금과공과, 기타지급수수료</li>
-                      <li>계산식: 월말예상 = 목표 비용</li>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+                    <div className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                      영업비 (모두 고정비)
+                    </div>
+                    <ul className="space-y-1 ml-4 text-gray-600">
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span>급여, 복리후생비, 광고비, 수주회, 지급수수료, 임차료, 감가상각비, 세금과공과, 기타지급수수료</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-gray-400 mt-1">•</span>
+                        <span className="font-medium text-gray-700">계산식: 월말예상 = 목표 비용</span>
+                      </li>
                     </ul>
                   </div>
-                  <div className="mt-2 pt-2 border-t border-gray-300">
-                    <div className="text-gray-600">달성율: 월말예상 ÷ 목표 × 100%</div>
+                  <div className="mt-3 pt-3 border-t border-gray-200 bg-white rounded-lg p-3 border-x border-b border-gray-100 shadow-sm">
+                    <div className="font-semibold text-gray-800">달성율: 월말예상 ÷ 목표 × 100%</div>
                   </div>
                 </div>
               </div>

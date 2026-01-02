@@ -221,6 +221,7 @@ export interface ShopSalesDetail {
 export interface TierRegionSalesRow {
   key: string;          // 티어명 또는 지역명 (중국어)
   labelKo?: string;     // 지역 한국어 번역 (지역만)
+  cities?: string[];    // 주요 도시 목록 (중국어)
   salesAmt: number;     // 당년 매출 합계
   shopCnt: number;      // 당년 매장수
   salesPerShop: number; // 당년 점당매출
