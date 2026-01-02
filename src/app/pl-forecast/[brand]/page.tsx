@@ -1861,7 +1861,7 @@ export default function BrandPlForecastPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [showAccum, setShowAccum] = useState(true);
+  const [showAccum, setShowAccum] = useState(false);
   
   // 매장별 상세 모달 상태
   const [showShopModal, setShowShopModal] = useState(false);
@@ -2008,9 +2008,19 @@ export default function BrandPlForecastPage() {
 
   // 행 렌더링 (재귀)
   const renderRow = (line: PlLine, depth: number = 0): React.ReactNode[] => {
+    // 실판(V-) 숨김 처리
+    if (line.id === 'act-sale-vat-exc') {
+      return [];
+    }
+    
     const isExpanded = expandedRows.has(line.id);
     const hasChildren = line.children && line.children.length > 0;
     const indent = depth * 16;
+
+    // 버터색 배경 적용 대상 라인 ID
+    const butterBackgroundLines = ['act-sale-vat-inc', 'gross-profit', 'direct-profit', 'operating-profit'];
+    const hasButterBackground = butterBackgroundLines.includes(line.id);
+    const butterBgClass = hasButterBackground ? 'bg-yellow-50' : 'bg-white';
 
     const rows: React.ReactNode[] = [];
 
@@ -2019,12 +2029,13 @@ export default function BrandPlForecastPage() {
         key={line.id}
         className={`
           border-b border-gray-200 
-          ${line.isCalculated ? 'bg-gray-100 font-semibold' : 'hover:bg-gray-50'}
+          ${line.isCalculated ? 'bg-white font-semibold' : 'hover:bg-gray-50'}
+          ${hasButterBackground ? butterBgClass : ''}
           ${depth === 0 ? '' : 'text-xs'}
         `}
       >
         {/* 라벨 */}
-        <td className="py-2 px-3 sticky left-0 bg-white z-10 text-xs">
+        <td className={`py-2 px-3 sticky left-0 ${butterBgClass} z-10 text-xs`}>
           <div className="flex items-center" style={{ paddingLeft: `${indent}px` }}>
             {hasChildren && (
               <button
@@ -2036,8 +2047,8 @@ export default function BrandPlForecastPage() {
             )}
             {!hasChildren && <span className="w-4 mr-1" />}
             <span className={
-              line.id === 'cogs-sum' || line.id === 'gross-profit' || line.id === 'direct-cost-sum' || line.id === 'opex-sum' || line.id === 'operating-profit'
-                ? 'text-indigo-600' 
+              line.id === 'cogs-sum' || line.id === 'gross-profit' || line.id === 'direct-cost-sum' || line.id === 'direct-profit' || line.id === 'opex-sum' || line.id === 'operating-profit'
+                ? 'text-black' 
                 : line.isCalculated 
                   ? 'text-amber-600' 
                   : 'text-gray-800'
@@ -2048,36 +2059,36 @@ export default function BrandPlForecastPage() {
         </td>
 
         {/* 전년 */}
-        <td className="py-2 px-2 text-right font-mono text-gray-700 text-xs">
+        <td className={`py-2 px-2 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
           {formatK(line.prevYear)}
         </td>
 
         {/* 목표 */}
-        <td className="py-2 px-2 text-right font-mono text-gray-700 text-xs">
+        <td className={`py-2 px-2 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
           {formatK(line.target)}
         </td>
 
         {/* 누적 */}
         {showAccum && (
-          <td className="py-2 px-2 text-right font-mono text-cyan-600 text-xs">
+          <td className={`py-2 px-2 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
             {formatK(line.accum)}
           </td>
         )}
 
         {/* 월말예상 */}
-        <td className="py-2 px-2 text-right font-mono text-emerald-600 font-semibold text-xs">
+        <td className={`py-2 px-2 text-right font-mono text-emerald-600 font-semibold text-xs ${butterBgClass}`}>
           {formatK(line.forecast)}
         </td>
 
         {/* 전년비 */}
-        <td className={`py-2 px-2 text-right font-mono text-xs ${
+        <td className={`py-2 px-2 text-right font-mono text-xs ${butterBgClass} ${
           line.yoyRate !== null && line.yoyRate >= 0 ? 'text-emerald-600' : 'text-rose-600'
         }`}>
-          {formatPercent(line.yoyRate)}
+          {formatPercent(line.yoyRate !== null ? line.yoyRate + 1 : null)}
         </td>
 
         {/* 달성율 */}
-        <td className={`py-2 px-2 text-right font-mono text-xs ${
+        <td className={`py-2 px-2 text-right font-mono text-xs ${butterBgClass} ${
           line.achvRate !== null && line.achvRate >= 1 ? 'text-emerald-600' : 'text-amber-600'
         }`}>
           {formatPercent(line.achvRate)}
@@ -2205,20 +2216,6 @@ export default function BrandPlForecastPage() {
               <span className="text-gray-500">당월일수</span>
               <span className="text-gray-900 font-mono">{data.monthDays}일</span>
             </div>
-            
-            {/* 누적 토글 버튼 */}
-            <button
-              onClick={() => setShowAccum(!showAccum)}
-              className={`
-                px-3 py-1 rounded-md text-xs font-medium transition-all
-                ${showAccum
-                  ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
-                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                }
-              `}
-            >
-              누적 {showAccum ? '숨기기' : '보기'}
-            </button>
             
             <div className="ml-auto text-gray-500 text-xs">
               단위: CNY K (천 위안)
@@ -2384,39 +2381,54 @@ export default function BrandPlForecastPage() {
             <div className="w-1/4">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
-                  <div className="flex items-center gap-2">
-                    {/* 바 차트 아이콘 (제목과 동일) */}
-                    <svg width="20" height="20" viewBox="0 0 32 32" className="drop-shadow-sm">
-                      <defs>
-                        <pattern id="grid-icon-pl" width="4" height="4" patternUnits="userSpaceOnUse">
-                          <path d="M 4 0 L 0 0 0 4" fill="none" stroke="#E5E7EB" strokeWidth="0.5"/>
-                        </pattern>
-                        <linearGradient id="greenGradient-pl" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#059669" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#047857" stopOpacity="1" />
-                        </linearGradient>
-                        <linearGradient id="pinkGradient-pl" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#DB2777" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#BE185D" stopOpacity="1" />
-                        </linearGradient>
-                        <linearGradient id="blueGradient-pl" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#2563EB" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#1D4ED8" stopOpacity="1" />
-                        </linearGradient>
-                      </defs>
-                      {/* 배경 사각형 */}
-                      <rect x="2" y="2" width="28" height="28" fill="#F3F4F6" rx="2" />
-                      <rect x="2" y="2" width="28" height="28" fill="url(#grid-icon-pl)" rx="2" />
-                      {/* x축 선 */}
-                      <line x1="6" y1="24" x2="26" y2="24" stroke="#1D4ED8" strokeWidth="1.5" />
-                      {/* 막대 1 (왼쪽, 초록, 가장 높음) */}
-                      <rect x="6" y="8" width="5" height="16" rx="1" fill="url(#greenGradient-pl)" />
-                      {/* 막대 2 (중간, 분홍, 가장 짧음) */}
-                      <rect x="13" y="20" width="5" height="4" rx="1" fill="url(#pinkGradient-pl)" />
-                      {/* 막대 3 (오른쪽, 파랑, 중간 높이) */}
-                      <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl)" />
-                    </svg>
-                    <h3 className="text-sm font-semibold text-gray-700">{brandLabel} 손익계산서</h3>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {/* 바 차트 아이콘 (제목과 동일) */}
+                      <svg width="20" height="20" viewBox="0 0 32 32" className="drop-shadow-sm">
+                        <defs>
+                          <pattern id="grid-icon-pl" width="4" height="4" patternUnits="userSpaceOnUse">
+                            <path d="M 4 0 L 0 0 0 4" fill="none" stroke="#E5E7EB" strokeWidth="0.5"/>
+                          </pattern>
+                          <linearGradient id="greenGradient-pl" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#059669" stopOpacity="1" />
+                            <stop offset="100%" stopColor="#047857" stopOpacity="1" />
+                          </linearGradient>
+                          <linearGradient id="pinkGradient-pl" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#DB2777" stopOpacity="1" />
+                            <stop offset="100%" stopColor="#BE185D" stopOpacity="1" />
+                          </linearGradient>
+                          <linearGradient id="blueGradient-pl" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#2563EB" stopOpacity="1" />
+                            <stop offset="100%" stopColor="#1D4ED8" stopOpacity="1" />
+                          </linearGradient>
+                        </defs>
+                        {/* 배경 사각형 */}
+                        <rect x="2" y="2" width="28" height="28" fill="#F3F4F6" rx="2" />
+                        <rect x="2" y="2" width="28" height="28" fill="url(#grid-icon-pl)" rx="2" />
+                        {/* x축 선 */}
+                        <line x1="6" y1="24" x2="26" y2="24" stroke="#1D4ED8" strokeWidth="1.5" />
+                        {/* 막대 1 (왼쪽, 초록, 가장 높음) */}
+                        <rect x="6" y="8" width="5" height="16" rx="1" fill="url(#greenGradient-pl)" />
+                        {/* 막대 2 (중간, 분홍, 가장 짧음) */}
+                        <rect x="13" y="20" width="5" height="4" rx="1" fill="url(#pinkGradient-pl)" />
+                        {/* 막대 3 (오른쪽, 파랑, 중간 높이) */}
+                        <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl)" />
+                      </svg>
+                      <h3 className="text-sm font-semibold text-gray-700">{brandLabel} 손익계산서</h3>
+                    </div>
+                    {/* 누적 토글 버튼 */}
+                    <button
+                      onClick={() => setShowAccum(!showAccum)}
+                      className={`
+                        px-3 py-1 rounded-md text-xs font-medium transition-all
+                        ${showAccum
+                          ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
+                          : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                        }
+                      `}
+                    >
+                      누적 {showAccum ? '숨기기' : '보기'}
+                    </button>
                   </div>
                 </div>
                 <div className="overflow-x-auto">

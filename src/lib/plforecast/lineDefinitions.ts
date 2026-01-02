@@ -22,7 +22,7 @@ export const lineDefinitions: LineDefinition[] = [
     level: 0,
     isParent: true,
     isCalculated: false,
-    defaultExpanded: false,
+    defaultExpanded: true,
     level1: '실판(V+)',
     children: [
       {
@@ -60,17 +60,7 @@ export const lineDefinitions: LineDefinition[] = [
     ],
   },
 
-  // 3) 실판(V-) - VAT_EXC_ACT_SALE_AMT 단일 컬럼 사용
-  {
-    id: 'act-sale-vat-exc',
-    label: '실판(V-)',
-    level: 0,
-    isParent: false,
-    isCalculated: false,
-    type: 'vatExcluded',
-  },
-
-  // 4) 매출원가 합계 (부모행, 토글 가능)
+  // 3) 매출원가 합계 (부모행, 토글 가능)
   {
     id: 'cogs-sum',
     label: '매출원가 합계',
@@ -109,7 +99,7 @@ export const lineDefinitions: LineDefinition[] = [
     ],
   },
 
-  // 5) 매출총이익 (계산행)
+  // 4) 매출총이익 (계산행)
   {
     id: 'gross-profit',
     label: '매출총이익',
@@ -119,7 +109,7 @@ export const lineDefinitions: LineDefinition[] = [
     type: 'grossProfit',
   },
 
-  // 6) 직접비 합계 (부모행, 토글 가능)
+  // 5) 직접비 합계 (부모행, 토글 가능)
   {
     id: 'direct-cost-sum',
     label: '직접비 합계',
@@ -323,6 +313,16 @@ export const lineDefinitions: LineDefinition[] = [
         ],
       },
     ],
+  },
+
+  // 6) 직접이익 (계산행)
+  {
+    id: 'direct-profit',
+    label: '직접이익',
+    level: 0,
+    isParent: false,
+    isCalculated: true,
+    type: 'directProfit',
   },
 
   // 7) 영업비 합계 (부모행, 토글 가능)

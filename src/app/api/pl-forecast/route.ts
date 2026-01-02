@@ -309,6 +309,34 @@ function buildPlLine(
       context.grossProfitForecast = forecast;
       break;
 
+    case 'directProfit':
+      // 직접이익 = 매출총이익 - 직접비합계
+      // 전년, 누적 계산
+      const vatExcDPPY = data.prevYear[vatExcludedItem] || 0;
+      const vatExcDPAcc = data.accum[vatExcludedItem] || 0;
+      
+      const cogsDPPY = sumByLevel(data.prevYear, mappings, '매출원가')
+        + sumByLevel(data.prevYear, mappings, '평가감');
+      const cogsDPAcc = sumByLevel(data.accum, mappings, '매출원가')
+        + sumByLevel(data.accum, mappings, '평가감');
+      
+      const directDPPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      const directDPAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      
+      prevYear = (vatExcDPPY - cogsDPPY) - directDPPY;
+      accum = (vatExcDPAcc - cogsDPAcc) - directDPAcc;
+      
+      // 목표 계산
+      const vatExcDPTgt = getTarget('실판(V-)', '실판(V-)', '실판(V-)') || 0;
+      const cogsDPTgt = (getTarget('매출원가', '매출원가', '매출원가') || 0)
+        + (getTarget('평가감') || 0);
+      const directDPTgt = getTarget('직접비') || 0;
+      target = (vatExcDPTgt - cogsDPTgt) - directDPTgt;
+      
+      // 월말예상 = 매출총이익 월말예상 - 직접비 월말예상
+      forecast = context.grossProfitForecast - context.directCostSumForecast;
+      break;
+
     case 'operatingProfit':
       // 영업이익 = 매출총이익 - 직접비합계 - 영업비합계
       // 전년, 누적도 동일한 로직으로 계산

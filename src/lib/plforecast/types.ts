@@ -302,7 +302,7 @@ export interface LineDefinition {
   level2?: string;
   level3?: string;
   // 특수 처리 타입
-  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'opexSum' | 'dealerSupport' | 'operatingProfit' | 'channelVatInc';
+  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'directProfit' | 'opexSum' | 'dealerSupport' | 'operatingProfit' | 'channelVatInc';
   // 직접비/영업비 분류 (월말예상 계산 방식 결정)
   costCategory?: 'direct' | 'opex';
   children?: LineDefinition[];
