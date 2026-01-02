@@ -2417,7 +2417,7 @@ export default function BrandPlForecastPage() {
                   <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-brand)" />
                 </svg>
                 <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                  월중 손익예측 대시보드
+                  F&F CHINA 월중 손익예측 대시보드
                 </h1>
                 {isValid && (
                   <span className={`px-3 py-1 rounded-full text-sm font-semibold text-white bg-gradient-to-r ${getBrandColor(brandSlug)}`}>

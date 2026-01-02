@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ApiResponse, PlLine, ChartData } from '@/lib/plforecast/types';
 import { brandTabs } from '@/lib/plforecast/brand';
-import { formatK, formatPercent, formatDateShort } from '@/lib/plforecast/format';
+import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import {
   BarChart,
   Bar,
@@ -215,7 +215,7 @@ export default function PlForecastPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [showAccum, setShowAccum] = useState(true);
+  const [showAccum, setShowAccum] = useState(false);
   const [trendTab, setTrendTab] = useState<'weekly' | 'daily'>('weekly');
 
   // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
@@ -306,69 +306,84 @@ export default function PlForecastPage() {
     const hasChildren = line.children && line.children.length > 0;
     const indent = depth * 16;
 
+    // 버터색 배경 적용 대상 라인 ID
+    const butterBackgroundLines = ['act-sale-vat-inc', 'gross-profit', 'direct-profit', 'operating-profit'];
+    const hasButterBackground = butterBackgroundLines.includes(line.id);
+    const butterBgClass = hasButterBackground ? 'bg-yellow-50' : 'bg-white';
+
     const rows: React.ReactNode[] = [];
 
     rows.push(
       <tr
         key={line.id}
         className={`
-          border-b border-gray-200 
-          ${line.isCalculated ? 'bg-gray-100 font-semibold' : 'hover:bg-gray-50'}
+          transition-colors duration-150
+          ${line.isCalculated ? 'bg-white' : 'hover:bg-gray-50/50'}
+          ${hasButterBackground ? butterBgClass : ''}
           ${depth === 0 ? '' : 'text-xs'}
+          ${hasButterBackground ? 'border-l-4 border-l-yellow-300' : ''}
         `}
       >
         {/* 라벨 */}
-        <td className="py-2 px-3 sticky left-0 bg-white z-10 text-xs">
+        <td className={`py-3 px-4 sticky left-0 ${butterBgClass} z-10 text-xs border-r border-gray-100`}>
           <div className="flex items-center" style={{ paddingLeft: `${indent}px` }}>
             {hasChildren && (
               <button
                 onClick={() => toggleRow(line.id)}
-                className="w-4 h-4 mr-1 flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors text-xs"
+                className="w-2 h-2 mr-0.5 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-all text-[8px]"
               >
                 {isExpanded ? '▼' : '▶'}
               </button>
             )}
-            {!hasChildren && <span className="w-4 mr-1" />}
-            <span className={line.isCalculated ? 'text-amber-600' : 'text-gray-800'}>
+            {!hasChildren && <span className="w-2 mr-0.5" />}
+            <span className={
+              line.id === 'gross-profit' || line.id === 'direct-profit' || line.id === 'operating-profit'
+                ? 'text-black' 
+                : line.id === 'cogs-sum' || line.id === 'direct-cost-sum' || line.id === 'opex-sum'
+                  ? 'text-black'
+                  : line.isCalculated 
+                    ? 'text-amber-600' 
+                    : 'text-gray-800'
+            }>
               {line.label}
             </span>
           </div>
         </td>
 
         {/* 전년 */}
-        <td className="py-2 px-2 text-right font-mono text-gray-700 text-xs">
+        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
           {formatK(line.prevYear)}
         </td>
 
         {/* 목표 */}
-        <td className="py-2 px-2 text-right font-mono text-gray-700 text-xs">
+        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
           {formatK(line.target)}
         </td>
 
         {/* 누적 */}
         {showAccum && (
-          <td className="py-2 px-2 text-right font-mono text-cyan-600 text-xs">
+          <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
             {formatK(line.accum)}
           </td>
         )}
 
         {/* 월말예상 */}
-        <td className="py-2 px-2 text-right font-mono text-emerald-600 font-semibold text-xs">
+        <td className={`py-3 px-3 text-right font-mono text-emerald-600 text-xs ${butterBgClass}`}>
           {formatK(line.forecast)}
         </td>
 
         {/* 전년비 */}
-        <td className={`py-2 px-2 text-right font-mono text-xs ${
+        <td className={`py-3 px-3 text-right font-mono text-xs ${butterBgClass} ${
           line.yoyRate !== null && line.yoyRate >= 0 ? 'text-emerald-600' : 'text-rose-600'
         }`}>
-          {formatPercent(line.yoyRate)}
+          {formatPercentNoDecimal(line.yoyRate !== null ? line.yoyRate + 1 : null)}
         </td>
 
         {/* 달성율 */}
-        <td className={`py-2 px-2 text-right font-mono text-xs ${
+        <td className={`py-3 px-3 text-right font-mono text-xs ${butterBgClass} ${
           line.achvRate !== null && line.achvRate >= 1 ? 'text-emerald-600' : 'text-amber-600'
         }`}>
-          {formatPercent(line.achvRate)}
+          {formatPercentNoDecimal(line.achvRate)}
         </td>
       </tr>
     );
@@ -425,7 +440,7 @@ export default function PlForecastPage() {
                   <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient)" />
                 </svg>
                 <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                  월중 손익예측 대시보드
+                  F&F CHINA 월중 손익예측 대시보드
                 </h1>
               </div>
               <p className="text-sm text-gray-500 mt-1">
@@ -484,19 +499,6 @@ export default function PlForecastPage() {
               <span className="text-gray-900 font-mono">{data.monthDays}일</span>
             </div>
             
-            {/* 누적 토글 버튼 */}
-            <button
-              onClick={() => setShowAccum(!showAccum)}
-              className={`
-                px-3 py-1 rounded-md text-xs font-medium transition-all
-                ${showAccum
-                  ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
-                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                }
-              `}
-            >
-              누적 {showAccum ? '숨기기' : '보기'}
-            </button>
             
             <div className="ml-auto text-gray-500 text-xs">
               단위: CNY K (천 위안)
@@ -752,65 +754,82 @@ export default function PlForecastPage() {
             {/* 우측 1/4 - 손익표 */}
             <div className="w-1/4">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
-                  <div className="flex items-center gap-2">
-                    {/* 바 차트 아이콘 (제목과 동일) */}
-                    <svg width="20" height="20" viewBox="0 0 32 32" className="drop-shadow-sm">
-                      <defs>
-                        <pattern id="grid-icon-pl-all" width="4" height="4" patternUnits="userSpaceOnUse">
-                          <path d="M 4 0 L 0 0 0 4" fill="none" stroke="#E5E7EB" strokeWidth="0.5"/>
-                        </pattern>
-                        <linearGradient id="greenGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#059669" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#047857" stopOpacity="1" />
-                        </linearGradient>
-                        <linearGradient id="pinkGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#DB2777" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#BE185D" stopOpacity="1" />
-                        </linearGradient>
-                        <linearGradient id="blueGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#2563EB" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#1D4ED8" stopOpacity="1" />
-                        </linearGradient>
-                      </defs>
-                      {/* 배경 사각형 */}
-                      <rect x="2" y="2" width="28" height="28" fill="#F3F4F6" rx="2" />
-                      <rect x="2" y="2" width="28" height="28" fill="url(#grid-icon-pl-all)" rx="2" />
-                      {/* x축 선 */}
-                      <line x1="6" y1="24" x2="26" y2="24" stroke="#1D4ED8" strokeWidth="1.5" />
-                      {/* 막대 1 (왼쪽, 초록, 가장 높음) */}
-                      <rect x="6" y="8" width="5" height="16" rx="1" fill="url(#greenGradient-pl-all)" />
-                      {/* 막대 2 (중간, 분홍, 가장 짧음) */}
-                      <rect x="13" y="20" width="5" height="4" rx="1" fill="url(#pinkGradient-pl-all)" />
-                      {/* 막대 3 (오른쪽, 파랑, 중간 높이) */}
-                      <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl-all)" />
-                    </svg>
-                    <h3 className="text-sm font-semibold text-gray-700">전체 손익계산서</h3>
+                {/* 헤더 개선 */}
+                <div className="bg-gradient-to-r from-slate-50 via-gray-50 to-slate-50 px-4 py-3 border-b border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {/* 바 차트 아이콘 (제목과 동일) */}
+                      <svg width="20" height="20" viewBox="0 0 32 32" className="drop-shadow-sm">
+                        <defs>
+                          <pattern id="grid-icon-pl-all" width="4" height="4" patternUnits="userSpaceOnUse">
+                            <path d="M 4 0 L 0 0 0 4" fill="none" stroke="#E5E7EB" strokeWidth="0.5"/>
+                          </pattern>
+                          <linearGradient id="greenGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#059669" stopOpacity="1" />
+                            <stop offset="100%" stopColor="#047857" stopOpacity="1" />
+                          </linearGradient>
+                          <linearGradient id="pinkGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#DB2777" stopOpacity="1" />
+                            <stop offset="100%" stopColor="#BE185D" stopOpacity="1" />
+                          </linearGradient>
+                          <linearGradient id="blueGradient-pl-all" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#2563EB" stopOpacity="1" />
+                            <stop offset="100%" stopColor="#1D4ED8" stopOpacity="1" />
+                          </linearGradient>
+                        </defs>
+                        {/* 배경 사각형 */}
+                        <rect x="2" y="2" width="28" height="28" fill="#F3F4F6" rx="2" />
+                        <rect x="2" y="2" width="28" height="28" fill="url(#grid-icon-pl-all)" rx="2" />
+                        {/* x축 선 */}
+                        <line x1="6" y1="24" x2="26" y2="24" stroke="#1D4ED8" strokeWidth="1.5" />
+                        {/* 막대 1 (왼쪽, 초록, 가장 높음) */}
+                        <rect x="6" y="8" width="5" height="16" rx="1" fill="url(#greenGradient-pl-all)" />
+                        {/* 막대 2 (중간, 분홍, 가장 짧음) */}
+                        <rect x="13" y="20" width="5" height="4" rx="1" fill="url(#pinkGradient-pl-all)" />
+                        {/* 막대 3 (오른쪽, 파랑, 중간 높이) */}
+                        <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl-all)" />
+                      </svg>
+                      <h3 className="text-base text-gray-800 tracking-tight">전체 손익계산서</h3>
+                    </div>
+                    {/* 누적 토글 버튼 개선 */}
+                    <button
+                      onClick={() => setShowAccum(!showAccum)}
+                      className={`
+                        px-4 py-1.5 rounded-lg text-xs transition-all shadow-sm
+                        ${showAccum
+                          ? 'bg-gradient-to-r from-cyan-500 to-cyan-600 text-white hover:from-cyan-600 hover:to-cyan-700 shadow-cyan-200'
+                          : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-300 shadow-sm'
+                        }
+                      `}
+                    >
+                      누적 {showAccum ? '숨기기' : '보기'}
+                    </button>
                   </div>
                 </div>
-                <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                {/* 테이블 개선 */}
+                <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead className="bg-gray-50 sticky top-0">
+                    <thead className="bg-gradient-to-b from-gray-100 to-gray-50 sticky top-0 z-20 shadow-sm">
                       <tr className="text-gray-700">
-                        <th className="py-2 px-3 text-left font-semibold sticky left-0 bg-gray-50 z-10">
+                        <th className="py-3 px-4 text-left text-gray-800 sticky left-0 bg-gradient-to-b from-gray-100 to-gray-50 z-20 border-r border-gray-200">
                           구분
                         </th>
-                        <th className="py-2 px-2 text-right font-semibold">전년</th>
-                        <th className="py-2 px-2 text-right font-semibold">목표</th>
+                        <th className="py-3 px-3 text-right text-gray-800">전년</th>
+                        <th className="py-3 px-3 text-right text-gray-800">목표</th>
                         {showAccum && (
-                          <th className="py-2 px-2 text-right font-semibold">누적</th>
+                          <th className="py-3 px-3 text-right text-gray-800">누적</th>
                         )}
-                        <th className="py-2 px-2 text-right font-semibold">월말예상</th>
-                        <th className="py-2 px-2 text-right font-semibold">전년비</th>
-                        <th className="py-2 px-2 text-right font-semibold">달성율</th>
+                        <th className="py-3 px-3 text-right text-gray-800">월말예상</th>
+                        <th className="py-3 px-3 text-right text-gray-800">전년비</th>
+                        <th className="py-3 px-3 text-right text-gray-800">달성율</th>
                       </tr>
                     </thead>
-                    <tbody className="bg-white">
+                    <tbody className="bg-white divide-y divide-gray-100">
                       {data.lines && data.lines.length > 0 ? (
                         data.lines.map((line) => renderRow(line))
                       ) : (
                         <tr>
-                          <td colSpan={7} className="py-8 text-center text-gray-400">
+                          <td colSpan={7} className="py-12 text-center text-gray-400">
                             데이터가 없습니다.
                           </td>
                         </tr>
@@ -820,35 +839,48 @@ export default function PlForecastPage() {
                 </div>
               </div>
 
-              {/* 범례 - 손익표 아래 */}
-              <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-500">
-                <div className="font-medium text-gray-600 mb-2">월말예상 계산 방식</div>
-                <div className="space-y-2">
-                  <div>
-                    <div className="font-medium text-gray-700 mb-1">직접비 (고정비)</div>
-                    <ul className="space-y-0.5 ml-2 text-gray-600">
+              {/* 범례 - 손익표 아래 개선 */}
+              <div className="mt-4 p-4 bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 shadow-sm text-xs">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-5 bg-gradient-to-b from-indigo-500 to-indigo-600 rounded"></div>
+                  <div className="font-bold text-gray-800">월말예상 계산 방식</div>
+                </div>
+                <div className="space-y-3 pl-3">
+                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+                    <div className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      직접비 (고정비)
+                    </div>
+                    <ul className="space-y-1 text-gray-600">
                       <li>• 지급수수료, 대리상지원금, 포장비, 감가상각비, 진열소모품, 기타지급수수료</li>
-                      <li>계산식: 월말예상 = 목표 비용</li>
+                      <li className="text-gray-500 italic">계산식: 월말예상 = 목표 비용</li>
                     </ul>
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-700 mb-1">직접비 (변동비)</div>
-                    <ul className="space-y-0.5 ml-2 text-gray-600">
+                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+                    <div className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                      직접비 (변동비)
+                    </div>
+                    <ul className="space-y-1 text-gray-600">
                       <li>• 오프라인 직영 기준: 급여, 복리후생비, 매장임차료</li>
                       <li>• 온라인 직영 기준: 플랫폼수수료, TP수수료, 직접광고비</li>
                       <li>• 전체 기준: 물류비</li>
-                      <li>계산식: 월말예상 = 목표 비용 ÷ 목표 실판(V-) × 월말예상 실판(V-)</li>
+                      <li className="text-gray-500 italic">계산식: 월말예상 = 목표 비용 ÷ 목표 실판(V-) × 월말예상 실판(V-)</li>
                     </ul>
                   </div>
-                  <div>
-                    <div className="font-medium text-gray-700 mb-1">영업비 (모두 고정비)</div>
-                    <ul className="space-y-0.5 ml-2 text-gray-600">
+                  <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
+                    <div className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                      영업비 (모두 고정비)
+                    </div>
+                    <ul className="space-y-1 text-gray-600">
                       <li>• 급여, 복리후생비, 광고비, 수주회, 지급수수료, 임차료, 감가상각비, 세금과공과, 기타지급수수료</li>
-                      <li>계산식: 월말예상 = 목표 비용</li>
+                      <li className="text-gray-500 italic">계산식: 월말예상 = 목표 비용</li>
                     </ul>
                   </div>
-                  <div className="mt-2 pt-2 border-t border-gray-300">
-                    <div className="text-gray-600">달성율: 월말예상 ÷ 목표 × 100%</div>
+                  <div className="mt-3 pt-3 border-t border-gray-200 bg-white rounded-lg p-3 border-l-4 border-l-indigo-500">
+                    <div className="font-semibold text-gray-800 mb-1">달성율</div>
+                    <div className="text-gray-600">월말예상 ÷ 목표 × 100%</div>
                   </div>
                 </div>
               </div>
