@@ -506,6 +506,54 @@ export interface RetailSalesActuals {
 }
 
 /**
+ * 점당매출 최신 날짜 조회
+ * - Snowflake에서 실제 데이터가 있는 최신 날짜를 조회
+ */
+export async function getRetailSalesLastDt(
+  brandCode: string,
+  ym: string
+): Promise<string> {
+  const connection = await getConnection();
+  try {
+    const [year, month] = ym.split('-').map(Number);
+    const sql = `
+      SELECT MAX(s.sale_dt) AS LAST_DT
+      FROM CHN.dw_sale s
+      INNER JOIN (
+        SELECT DISTINCT d.shop_id
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE d.anlys_shop_type_nm IN ('FO', 'FP')
+          AND d.fr_or_cls = 'FR'
+          AND m.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ) vs ON s.shop_id = vs.shop_id
+      WHERE s.brd_cd = ?
+        AND s.sale_dt >= DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01')
+        AND s.sale_dt < DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01') + INTERVAL '1 MONTH'
+    `;
+    
+    const rows = await executeQuery<{ LAST_DT: string }>(connection, sql, [brandCode]);
+    
+    if (rows.length === 0 || !rows[0]?.LAST_DT) {
+      return '';
+    }
+    
+    const lastDt = rows[0].LAST_DT;
+    // 날짜 형식 변환 (YYYY-MM-DD)
+    if (typeof lastDt === 'string') {
+      return lastDt.split('T')[0]; // ISO 형식에서 날짜만 추출
+    }
+    return '';
+  } catch (error) {
+    console.error('[getRetailSalesLastDt] 에러 발생:', error);
+    return '';
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+/**
  * 대리상 오프라인 점당매출 데이터 조회
  * - 매출: 대리상 오프라인 매장 + 상품 브랜드 필터 (매장 브랜드 무관)
  * - 매장수: 대리상 오프라인 매장 + 상품 브랜드 필터 + 매장 브랜드 필터
@@ -1636,6 +1684,48 @@ interface ClothingSalesDbRow {
   PY_PO_QTY: number;
   PY_PO_AMT: number;
   PY_SALES_AMT: number;
+}
+
+/**
+ * 의류 판매율 최신 날짜 조회
+ * - Snowflake에서 실제 데이터가 있는 최신 날짜를 조회
+ */
+export async function getClothingSalesLastDt(
+  brdCd: string,
+  ym: string
+): Promise<string> {
+  const connection = await getConnection();
+  try {
+    const [year, month] = ym.split('-').map(Number);
+    const sql = `
+      SELECT MAX(s.sale_dt) AS LAST_DT
+      FROM chn.dw_sale s
+      JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
+      WHERE s.brd_cd = ?
+        AND prdt.parent_prdt_kind_cd = 'L'
+        AND LEFT(s.sesn, 2) IN ('25', '24')
+        AND s.sale_dt >= DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01')
+        AND s.sale_dt < DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01') + INTERVAL '1 MONTH'
+    `;
+    
+    const rows = await executeQuery<{ LAST_DT: string }>(connection, sql, [brdCd]);
+    
+    if (rows.length === 0 || !rows[0]?.LAST_DT) {
+      return '';
+    }
+    
+    const lastDt = rows[0].LAST_DT;
+    // 날짜 형식 변환 (YYYY-MM-DD)
+    if (typeof lastDt === 'string') {
+      return lastDt.split('T')[0]; // ISO 형식에서 날짜만 추출
+    }
+    return '';
+  } catch (error) {
+    console.error('[getClothingSalesLastDt] 에러 발생:', error);
+    return '';
+  } finally {
+    await destroyConnection(connection);
+  }
 }
 
 /**

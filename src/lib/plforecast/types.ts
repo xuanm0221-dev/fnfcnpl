@@ -96,6 +96,7 @@ export interface ApiResponse {
   retailLastDt?: string; // 점당매출 기준일 (전일)
   tierRegionData?: TierRegionSalesData; // 티어별/지역별 점당매출 (MLB, MLB KIDS, DISCOVERY만)
   clothingSales?: ClothingSalesData; // 의류 판매율 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
+  clothingLastDt?: string; // 의류 판매율 기준일 (Snowflake 최신 날짜)
   error?: string;
 }
 

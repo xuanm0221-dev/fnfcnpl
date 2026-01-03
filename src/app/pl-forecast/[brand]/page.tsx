@@ -1793,6 +1793,20 @@ function TierRegionTreemap({
     return `${year}년 ${month}월 01일 ~ ${year}년 ${month}월 ${day}일`;
   };
   
+  // 전년 기간 포맷팅
+  const formatPrevPeriod = () => {
+    if (!ym || !lastDt) return '';
+    const year = parseInt(ym.substring(0, 4)) - 1;
+    const month = ym.substring(5, 7);
+    const day = lastDt.substring(8, 10);
+    return `${year}년 ${month}월 01일 ~ ${year}년 ${month}월 ${day}일`;
+  };
+  
+  // 색상 범례용 색상 계산 (각 범위의 대표 색상)
+  const getLegendColor = (yoyPercent: number): string => {
+    return getYoyColor(yoyPercent / 100);
+  };
+  
   return (
     <div className="bg-white rounded-none border border-gray-300 shadow-none overflow-hidden">
       <div className="p-2">
@@ -1801,9 +1815,10 @@ function TierRegionTreemap({
           <div>
             <div className="mb-2 text-center">
               <h4 className="text-sm font-semibold text-gray-700">대리상 Tier별 점당매출</h4>
-              <p className="text-xs text-gray-500 mt-1">
-                당해 기간: {formatPeriod()}
-              </p>
+              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
+                <span>당해 기간: {formatPeriod()}</span>
+                <span>전년 기간: {formatPrevPeriod()}</span>
+              </div>
             </div>
             {selectedTier ? (
               <CategoryTreemapInline
@@ -1836,9 +1851,10 @@ function TierRegionTreemap({
           <div>
             <div className="mb-2 text-center">
               <h4 className="text-sm font-semibold text-gray-700">대리상 지역별 점당매출</h4>
-              <p className="text-xs text-gray-500 mt-1">
-                당해 기간: {formatPeriod()}
-              </p>
+              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
+                <span>당해 기간: {formatPeriod()}</span>
+                <span>전년 기간: {formatPrevPeriod()}</span>
+              </div>
             </div>
             {selectedRegion ? (
               <CategoryTreemapInline
@@ -1865,6 +1881,49 @@ function TierRegionTreemap({
                 </ResponsiveContainer>
               </div>
             )}
+          </div>
+        </div>
+        
+        {/* 범례 */}
+        <div className="mt-4 pt-3 border-t border-gray-200">
+          <div className="flex flex-col gap-2">
+            {/* 순서 설명 */}
+            <div className="text-xs text-gray-600 text-center">
+              ※ 트리맵 순서: 당월 실판 기준 내림차순 정렬
+            </div>
+            
+            {/* 색상 기준 범례 */}
+            <div className="flex justify-center items-center gap-3 flex-wrap">
+              <span className="text-xs text-gray-600">※ 색상 기준 (YOY):</span>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded" style={{ backgroundColor: getLegendColor(110) }}></div>
+                <span className="text-xs text-gray-600">110% 이상</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded" style={{ backgroundColor: getLegendColor(107.5) }}></div>
+                <span className="text-xs text-gray-600">105% ~ 110%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded" style={{ backgroundColor: getLegendColor(102.5) }}></div>
+                <span className="text-xs text-gray-600">100% ~ 105%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded" style={{ backgroundColor: getLegendColor(97.5) }}></div>
+                <span className="text-xs text-gray-600">95% ~ 100%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded" style={{ backgroundColor: getLegendColor(92.5) }}></div>
+                <span className="text-xs text-gray-600">90% ~ 95%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded" style={{ backgroundColor: getLegendColor(87.5) }}></div>
+                <span className="text-xs text-gray-600">85% ~ 90%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-4 rounded" style={{ backgroundColor: getLegendColor(70) }}></div>
+                <span className="text-xs text-gray-600">85% 미만</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1904,23 +1963,139 @@ function ClothingSalesSection({
   const [itemDetails, setItemDetails] = useState<ClothingItemDetail[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // 정렬된 아이템 목록 (누적판매 기준 내림차순)
+  // 메인 테이블 정렬 상태
+  const [mainSortColumn, setMainSortColumn] = useState<'cySalesAmt' | 'cyRate' | 'pySalesAmt' | 'pyRate' | 'salesYoy' | 'rateYoy' | 'poQtyYoy' | null>('cySalesAmt');
+  const [mainSortDirection, setMainSortDirection] = useState<'asc' | 'desc'>('desc');
+  
+  // 상세 테이블 정렬 상태
+  const [detailSortColumn, setDetailSortColumn] = useState<'cyRate' | 'cySalesQty' | 'cyStockQty' | 'poQty' | null>('cySalesQty');
+  const [detailSortDirection, setDetailSortDirection] = useState<'asc' | 'desc'>('desc');
+  
+  // 정렬된 아이템 목록
   const sortedItems = React.useMemo(() => {
     if (!data || !data.items || !Array.isArray(data.items)) {
       return [];
     }
     const items = [...data.items];
-    return items.sort((a, b) => b.cySalesAmt - a.cySalesAmt);
-  }, [data]);
+    
+    if (!mainSortColumn) {
+      return items.sort((a, b) => b.cySalesAmt - a.cySalesAmt);
+    }
+    
+    return items.sort((a, b) => {
+      let aValue: number | null = null;
+      let bValue: number | null = null;
+      
+      switch (mainSortColumn) {
+        case 'cySalesAmt':
+          aValue = a.cySalesAmt;
+          bValue = b.cySalesAmt;
+          break;
+        case 'cyRate':
+          aValue = a.cyRate;
+          bValue = b.cyRate;
+          break;
+        case 'pySalesAmt':
+          aValue = a.pySalesAmt;
+          bValue = b.pySalesAmt;
+          break;
+        case 'pyRate':
+          aValue = a.pyRate;
+          bValue = b.pyRate;
+          break;
+        case 'salesYoy':
+          aValue = calcSalesYoy(a.cySalesAmt, a.pySalesAmt);
+          bValue = calcSalesYoy(b.cySalesAmt, b.pySalesAmt);
+          break;
+        case 'rateYoy':
+          aValue = a.yoy;
+          bValue = b.yoy;
+          break;
+        case 'poQtyYoy':
+          aValue = calcPoQtyYoy(a.cyPoQty, a.pyPoQty);
+          bValue = calcPoQtyYoy(b.cyPoQty, b.pyPoQty);
+          break;
+      }
+      
+      // null 값 처리: null은 항상 마지막에
+      if (aValue === null && bValue === null) return 0;
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+      
+      const diff = aValue - bValue;
+      return mainSortDirection === 'asc' ? diff : -diff;
+    });
+  }, [data, mainSortColumn, mainSortDirection]);
   
-  // 아이템 상세 정렬 (당시즌 판매수량 내림차순)
+  // 아이템 상세 정렬
   const sortedItemDetails = React.useMemo(() => {
     if (!itemDetails || !Array.isArray(itemDetails)) {
       return [];
     }
     const details = [...itemDetails];
-    return details.sort((a, b) => b.cySalesQty - a.cySalesQty);
-  }, [itemDetails]);
+    
+    if (!detailSortColumn) {
+      return details.sort((a, b) => b.cySalesQty - a.cySalesQty);
+    }
+    
+    return details.sort((a, b) => {
+      let aValue: number | null = null;
+      let bValue: number | null = null;
+      
+      switch (detailSortColumn) {
+        case 'cyRate':
+          aValue = a.cyRate;
+          bValue = b.cyRate;
+          break;
+        case 'cySalesQty':
+          aValue = a.cySalesQty;
+          bValue = b.cySalesQty;
+          break;
+        case 'cyStockQty':
+          aValue = a.cyStockQty;
+          bValue = b.cyStockQty;
+          break;
+        case 'poQty':
+          aValue = a.poQty;
+          bValue = b.poQty;
+          break;
+      }
+      
+      // null 값 처리: null은 항상 마지막에
+      if (aValue === null && bValue === null) return 0;
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+      
+      const diff = aValue - bValue;
+      return detailSortDirection === 'asc' ? diff : -diff;
+    });
+  }, [itemDetails, detailSortColumn, detailSortDirection]);
+  
+  // 메인 테이블 헤더 클릭 핸들러
+  const handleMainSort = (column: 'cySalesAmt' | 'cyRate' | 'pySalesAmt' | 'pyRate' | 'salesYoy' | 'rateYoy' | 'poQtyYoy') => {
+    if (mainSortColumn === column) {
+      setMainSortDirection(mainSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setMainSortColumn(column);
+      setMainSortDirection('desc');
+    }
+  };
+  
+  // 상세 테이블 헤더 클릭 핸들러
+  const handleDetailSort = (column: 'cyRate' | 'cySalesQty' | 'cyStockQty' | 'poQty') => {
+    if (detailSortColumn === column) {
+      setDetailSortDirection(detailSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setDetailSortColumn(column);
+      setDetailSortDirection('desc');
+    }
+  };
+  
+  // 정렬 방향 아이콘
+  const SortIcon = ({ column, currentColumn, direction }: { column: string; currentColumn: string | null; direction: 'asc' | 'desc' }) => {
+    if (currentColumn !== column) return <span className="text-gray-400 ml-1">↕</span>;
+    return <span className="text-blue-600 ml-1 font-bold">{direction === 'asc' ? '↑' : '↓'}</span>;
+  };
   
   // 아이템 클릭 핸들러
   const handleItemClick = async (itemCd: string) => {
@@ -1959,7 +2134,7 @@ function ClothingSalesSection({
       <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
         <h3 className="text-sm font-semibold text-gray-700">의류 판매율 ({formatDateShort(lastDt)} 까지)</h3>
         <p className="text-xs text-gray-400">
-          ※ 판매율 = 누적 판매 TAG 금액 / (PO 수량 × TAG 단가) × 100
+          ※ 판매율 = 누적 판매 TAG 금액 ÷ (PO 수량 × TAG 단가) × 100
         </p>
       </div>
       
@@ -1975,13 +2150,55 @@ function ClothingSalesSection({
                   <tr className="border-b border-gray-200">
                     <th className="py-2 px-3 text-left font-semibold text-gray-700">아이템코드</th>
                     <th className="py-2 px-3 text-left font-semibold text-gray-700">아이템 명칭</th>
-                    <th className="py-2 px-2 text-right font-semibold text-gray-700">Tag누적판매(25시즌)</th>
-                    <th className="py-2 px-2 text-right font-semibold text-gray-700">당시즌 판매율</th>
-                    <th className="py-2 px-2 text-right font-semibold text-gray-700">Tag 누적판매(24시즌)</th>
-                    <th className="py-2 px-2 text-right font-semibold text-gray-700">전년시즌 판매율</th>
-                    <th className="py-2 px-2 text-right font-semibold text-gray-700">누적 판매금액 YOY</th>
-                    <th className="py-2 px-2 text-right font-semibold text-gray-700">판매율 YOY</th>
-                    <th className="py-2 px-2 text-right font-semibold text-gray-700">발주수량 YOY</th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('cySalesAmt')}
+                    >
+                      Tag누적판매(25시즌)
+                      <SortIcon column="cySalesAmt" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('cyRate')}
+                    >
+                      당시즌 판매율
+                      <SortIcon column="cyRate" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('pySalesAmt')}
+                    >
+                      Tag 누적판매(24시즌)
+                      <SortIcon column="pySalesAmt" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('pyRate')}
+                    >
+                      전년시즌 판매율
+                      <SortIcon column="pyRate" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('salesYoy')}
+                    >
+                      누적 판매금액 YOY
+                      <SortIcon column="salesYoy" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('rateYoy')}
+                    >
+                      판매율 YOY
+                      <SortIcon column="rateYoy" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('poQtyYoy')}
+                    >
+                      발주수량 YOY
+                      <SortIcon column="poQtyYoy" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2050,9 +2267,20 @@ function ClothingSalesSection({
             <div className="lg:col-span-1">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-full">
                 <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                  <h3 className="text-sm font-semibold text-gray-700">
-                    아이템 상세: {data?.items?.find(i => i.itemCd === selectedItem)?.itemNm || ''}
-                  </h3>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      아이템 상세: {data?.items?.find(i => i.itemCd === selectedItem)?.itemNm || ''}
+                    </h3>
+                    <span className="text-xs text-gray-500">
+                      총 {sortedItemDetails.length}개 상품 | {
+                        detailSortColumn === 'cyRate' ? '당시즌 판매율' :
+                        detailSortColumn === 'cySalesQty' ? '당시즌 판매수량' :
+                        detailSortColumn === 'cyStockQty' ? '당시즌 기말 재고수량' :
+                        detailSortColumn === 'poQty' ? '발주수량' :
+                        '당시즌 판매수량'
+                      } 기준 {detailSortDirection === 'asc' ? '오름차순' : '내림차순'}
+                    </span>
+                  </div>
                   <button 
                     onClick={() => setSelectedItem(null)} 
                     className="text-gray-500 hover:text-gray-700 text-xl font-bold"
@@ -2071,10 +2299,34 @@ function ClothingSalesSection({
                           <tr>
                             <th className="py-2 px-3 text-left font-semibold text-gray-700 border-b-2">상품코드</th>
                             <th className="py-2 px-3 text-left font-semibold text-gray-700 border-b-2">상품명</th>
-                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">당시즌 판매율</th>
-                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">당시즌 판매수량</th>
-                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">당시즌 기말 재고수량</th>
-                            <th className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2">발주수량</th>
+                            <th 
+                              className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2 cursor-pointer hover:bg-gray-200 select-none"
+                              onClick={() => handleDetailSort('cyRate')}
+                            >
+                              당시즌 판매율
+                              <SortIcon column="cyRate" currentColumn={detailSortColumn} direction={detailSortDirection} />
+                            </th>
+                            <th 
+                              className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2 cursor-pointer hover:bg-gray-200 select-none"
+                              onClick={() => handleDetailSort('cySalesQty')}
+                            >
+                              당시즌 판매수량
+                              <SortIcon column="cySalesQty" currentColumn={detailSortColumn} direction={detailSortDirection} />
+                            </th>
+                            <th 
+                              className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2 cursor-pointer hover:bg-gray-200 select-none"
+                              onClick={() => handleDetailSort('cyStockQty')}
+                            >
+                              당시즌 기말 재고수량
+                              <SortIcon column="cyStockQty" currentColumn={detailSortColumn} direction={detailSortDirection} />
+                            </th>
+                            <th 
+                              className="py-2 px-3 text-right font-semibold text-gray-700 border-b-2 cursor-pointer hover:bg-gray-200 select-none"
+                              onClick={() => handleDetailSort('poQty')}
+                            >
+                              발주수량
+                              <SortIcon column="poQty" currentColumn={detailSortColumn} direction={detailSortDirection} />
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2097,10 +2349,6 @@ function ClothingSalesSection({
                       </table>
                     </div>
                   )}
-                </div>
-                
-                <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-500">
-                  총 {sortedItemDetails.length}개 상품 | 당시즌 판매수량 기준 내림차순
                 </div>
               </div>
             </div>
@@ -2616,12 +2864,12 @@ export default function BrandPlForecastPage() {
                   <ClothingSalesSection 
                     data={data.clothingSales} 
                     brandCode={data.brand} 
-                    lastDt={data.lastDt}
+                    lastDt={data.clothingLastDt || data.lastDt}
                   />
                 </div>
               ) : data && ['M', 'I', 'X', 'V', 'W'].includes(data.brand) ? (
                 <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">의류 판매율 {data?.lastDt ? `(${formatDateShort(data.lastDt)} 까지)` : ''}</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">의류 판매율 {(data?.clothingLastDt || data?.lastDt) ? `(${formatDateShort(data.clothingLastDt || data.lastDt)} 까지)` : ''}</h3>
                   <p className="text-sm text-gray-500">의류 판매율 데이터를 조회 중이거나 데이터가 없습니다.</p>
                   <p className="text-xs text-gray-400 mt-2">브랜드: {data?.brand || ''}, 기준일: {data?.lastDt || ''}</p>
                 </div>

@@ -27,9 +27,11 @@ import {
   getChannelActuals,
   getPrevYearChannelActuals,
   getRetailSalesData,
+  getRetailSalesLastDt,
   getTierSalesData,
   getRegionSalesData,
   getClothingSalesData,
+  getClothingSalesLastDt,
 } from '@/lib/plforecast/snowflake';
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
@@ -829,7 +831,7 @@ function getMonthEndDate(ym: string): string {
 }
 
 // 점당매출 테이블 데이터 빌드 (MLB, MLB KIDS, DISCOVERY만)
-// 주의: 점당매출은 전일 기준으로 자동 업데이트됨 (기존 PL의 lastDt와 다름)
+// 주의: 점당매출은 Snowflake에서 실제 최신 날짜를 조회하여 사용 (CSV와 독립적)
 async function buildRetailSalesTable(
   ym: string,
   brandCode: BrandCode
@@ -840,8 +842,12 @@ async function buildRetailSalesTable(
   const shopBrandName = brandCodeToShopName[brandCode];
   if (!shopBrandName) return null;
   
-  // 점당매출용 마지막 날짜 (진행중인 월: 전일, 마감된 월: 월말)
-  const retailLastDt = getMonthEndDate(ym);
+  // Snowflake에서 실제 최신 날짜 조회 (CSV와 독립적)
+  let retailLastDt = await getRetailSalesLastDt(brandCode, ym);
+  // 조회 실패 시 fallback: 월말만 사용 (CSV 날짜 사용 안 함)
+  if (!retailLastDt) {
+    retailLastDt = getMonthEndDate(ym);
+  }
   
   // 1. 계획 데이터 로드
   const plan = getRetailPlan(ym, brandCode);
@@ -1288,7 +1294,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     }
     
     // 점당매출 테이블 데이터 (MLB, MLB KIDS, DISCOVERY만)
-    // 주의: 점당매출은 전일 기준 (기존 PL의 lastDt와 다름)
+    // 주의: 점당매출은 Snowflake에서 직접 최신 날짜를 조회 (CSV와 독립적)
     let retailSalesTable: RetailSalesTableData | undefined;
     let retailLastDt: string | undefined;
     let tierRegionData: TierRegionSalesData | undefined;
@@ -1310,11 +1316,16 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     // 의류 판매율 데이터 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
     const clothingBrands = ['M', 'I', 'X', 'V', 'W'];
     let clothingSales: { items: any[]; total: any } | undefined;
+    let clothingLastDt: string | undefined;
     
     if (brand !== 'all' && clothingBrands.includes(brand)) {
       try {
-        // 의류 판매율도 기준월 마감 시점까지 사용
-        const clothingLastDt = getMonthEndDate(ym);
+        // Snowflake에서 실제 최신 날짜 조회 (CSV와 독립적)
+        clothingLastDt = await getClothingSalesLastDt(brand, ym);
+        // 조회 실패 시 fallback: 월말만 사용 (CSV 날짜 사용 안 함)
+        if (!clothingLastDt) {
+          clothingLastDt = getMonthEndDate(ym);
+        }
         console.log('[DEBUG] 의류 판매율 조회 시작:', { brand, clothingLastDt });
         const clothingData = await getClothingSalesData(brand, clothingLastDt);
         console.log('[DEBUG] 의류 판매율 조회 완료:', {
@@ -1390,6 +1401,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       retailLastDt,
       tierRegionData,
       clothingSales,
+      clothingLastDt,
     });
   } catch (error) {
     console.error('API Error:', error);
