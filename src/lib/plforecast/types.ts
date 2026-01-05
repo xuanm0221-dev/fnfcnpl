@@ -6,6 +6,8 @@ export interface PlLine {
   isParent: boolean; // 토글 가능한 부모 행 여부
   isCalculated: boolean; // 계산행 여부 (매출총이익 등)
   prevYear: number | null; // 전년
+  prevYearAccum?: number | null; // 전년 누적 (D일까지)
+  prevYearProgressRate?: number | null; // 전년 진척률 (전년 누적 / 전년 월전체)
   target: number | null; // 목표
   accum: number | null; // 누적
   forecast: number | null; // 월말예상
@@ -239,6 +241,12 @@ export interface TierRegionSalesRow {
 export interface TierRegionSalesData {
   tiers: TierRegionSalesRow[];   // 티어별
   regions: TierRegionSalesRow[]; // 지역별
+  // 전년 합계 데이터 (대리상 오프라인 점당매출과 일치)
+  prevTotalSalesAmt?: number;      // 전년 월전체 매출 합계
+  prevTotalShopCnt?: number;       // 전년 월전체 매장수 합계
+  prevTotalSalesPerShop?: number;  // 전년 월전체 점당매출 합계
+  prevTotalCumSalesAmt?: number;  // 전년 누적 매출 합계 (월환산 계산용)
+  prevTotalCumShopCnt?: number;   // 전년 누적 매장수 합계 (월환산 계산용)
 }
 
 // 의류 판매율 (item 단위)
@@ -309,7 +317,7 @@ export interface LineDefinition {
   level2?: string;
   level3?: string;
   // 특수 처리 타입
-  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'directProfit' | 'opexSum' | 'dealerSupport' | 'operatingProfit' | 'channelVatInc';
+  type?: 'vatExcluded' | 'cogsSum' | 'grossProfit' | 'directCostSum' | 'directProfit' | 'opexSum' | 'dealerSupport' | 'operatingProfit' | 'channelVatInc' | 'channelTagSale' | 'channelCogs';
   // 직접비/영업비 분류 (월말예상 계산 방식 결정)
   costCategory?: 'direct' | 'opex';
   children?: LineDefinition[];

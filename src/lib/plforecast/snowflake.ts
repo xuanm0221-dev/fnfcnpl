@@ -237,6 +237,319 @@ export async function getPrevYearChannelActuals(
   }
 }
 
+// 전년도 채널별 Tag매출 조회
+export async function getPrevYearChannelTagSale(
+  prevYm: string,
+  brandCode: BrandCode
+): Promise<{ onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number }> {
+  const connection = await getConnection();
+  try {
+    const sql = `
+      SELECT 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END as CHANNEL,
+        COALESCE(SUM(TAG_SALE_AMT), 0) as TAG_SALE
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND brd_cd = ?
+      GROUP BY 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END
+    `;
+    
+    interface ChannelResult {
+      CHANNEL: string;
+      TAG_SALE: number;
+    }
+    
+    const rows = await executeQuery<ChannelResult>(connection, sql, [prevYm, brandCode]);
+    
+    const result = {
+      onlineDirect: 0,
+      onlineDealer: 0,
+      offlineDirect: 0,
+      offlineDealer: 0,
+    };
+    
+    for (const row of rows) {
+      if (row.CHANNEL === 'onlineDirect') {
+        result.onlineDirect = Number(row.TAG_SALE) || 0;
+      } else if (row.CHANNEL === 'onlineDealer') {
+        result.onlineDealer = Number(row.TAG_SALE) || 0;
+      } else if (row.CHANNEL === 'offlineDirect') {
+        result.offlineDirect = Number(row.TAG_SALE) || 0;
+      } else if (row.CHANNEL === 'offlineDealer') {
+        result.offlineDealer = Number(row.TAG_SALE) || 0;
+      }
+    }
+    
+    return result;
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// 전년도 채널별 매출원가 조회
+export async function getPrevYearChannelCogs(
+  prevYm: string,
+  brandCode: BrandCode
+): Promise<{ onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number }> {
+  const connection = await getConnection();
+  try {
+    const sql = `
+      SELECT 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END as CHANNEL,
+        COALESCE(SUM(ACT_COGS), 0) as ACT_COGS
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND brd_cd = ?
+      GROUP BY 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END
+    `;
+    
+    interface ChannelResult {
+      CHANNEL: string;
+      ACT_COGS: number;
+    }
+    
+    const rows = await executeQuery<ChannelResult>(connection, sql, [prevYm, brandCode]);
+    
+    const result = {
+      onlineDirect: 0,
+      onlineDealer: 0,
+      offlineDirect: 0,
+      offlineDealer: 0,
+    };
+    
+    for (const row of rows) {
+      if (row.CHANNEL === 'onlineDirect') {
+        result.onlineDirect = Number(row.ACT_COGS) || 0;
+      } else if (row.CHANNEL === 'onlineDealer') {
+        result.onlineDealer = Number(row.ACT_COGS) || 0;
+      } else if (row.CHANNEL === 'offlineDirect') {
+        result.offlineDirect = Number(row.ACT_COGS) || 0;
+      } else if (row.CHANNEL === 'offlineDealer') {
+        result.offlineDealer = Number(row.ACT_COGS) || 0;
+      }
+    }
+    
+    return result;
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// 전년도 채널별 D일까지 누적 조회 (Tag매출, 실판(V+), 실판(V-), 매출원가)
+export async function getPrevYearChannelAccum(
+  prevYm: string,
+  lastDt: string,
+  brandCode: BrandCode
+): Promise<{ tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData }> {
+  const connection = await getConnection();
+  try {
+    // lastDt에서 일자 추출 (예: 2026-01-04 -> 04)
+    // 전년도 동일 월의 동일 일자 사용 (월의 마지막 일자 초과 시 마지막 일자로 제한)
+    const dayOfMonth = parseInt(lastDt.split('-')[2], 10);
+    const prevYear = parseInt(prevYm.split('-')[0], 10);
+    const prevMonth = parseInt(prevYm.split('-')[1], 10);
+    const lastDayOfPrevMonth = new Date(prevYear, prevMonth, 0).getDate();
+    const actualDay = Math.min(dayOfMonth, lastDayOfPrevMonth);
+    const prevLastDt = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(actualDay).padStart(2, '0')}`;
+    
+    const sql = `
+      SELECT 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END as CHANNEL,
+        COALESCE(SUM(TAG_SALE_AMT), 0) as TAG_SALE,
+        COALESCE(SUM(ACT_SALE_AMT), 0) as ACT_SALE_VAT_INC,
+        COALESCE(SUM(VAT_EXC_ACT_SALE_AMT), 0) as ACT_SALE_VAT_EXC,
+        COALESCE(SUM(ACT_COGS), 0) as ACT_COGS
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND brd_cd = ?
+        AND pst_dt <= ?::DATE
+      GROUP BY 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END
+    `;
+    
+    interface ChannelResult {
+      CHANNEL: string;
+      TAG_SALE: number;
+      ACT_SALE_VAT_INC: number;
+      ACT_SALE_VAT_EXC: number;
+      ACT_COGS: number;
+    }
+    
+    const rows = await executeQuery<ChannelResult>(connection, sql, [prevYm, brandCode, prevLastDt]);
+    
+    const tagSale: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const actSaleVatInc: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const actSaleVatExc: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const cogs: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    
+    for (const row of rows) {
+      const tagValue = Number(row.TAG_SALE) || 0;
+      const vatIncValue = Number(row.ACT_SALE_VAT_INC) || 0;
+      const vatExcValue = Number(row.ACT_SALE_VAT_EXC) || 0;
+      const cogsValue = Number(row.ACT_COGS) || 0;
+      
+      if (row.CHANNEL === 'onlineDirect') {
+        tagSale.onlineDirect = tagValue;
+        actSaleVatInc.onlineDirect = vatIncValue;
+        actSaleVatExc.onlineDirect = vatExcValue;
+        cogs.onlineDirect = cogsValue;
+      } else if (row.CHANNEL === 'onlineDealer') {
+        tagSale.onlineDealer = tagValue;
+        actSaleVatInc.onlineDealer = vatIncValue;
+        actSaleVatExc.onlineDealer = vatExcValue;
+        cogs.onlineDealer = cogsValue;
+      } else if (row.CHANNEL === 'offlineDirect') {
+        tagSale.offlineDirect = tagValue;
+        actSaleVatInc.offlineDirect = vatIncValue;
+        actSaleVatExc.offlineDirect = vatExcValue;
+        cogs.offlineDirect = cogsValue;
+      } else if (row.CHANNEL === 'offlineDealer') {
+        tagSale.offlineDealer = tagValue;
+        actSaleVatInc.offlineDealer = vatIncValue;
+        actSaleVatExc.offlineDealer = vatExcValue;
+        cogs.offlineDealer = cogsValue;
+      }
+    }
+    
+    // total 계산
+    tagSale.total = (tagSale.onlineDirect ?? 0) + (tagSale.onlineDealer ?? 0) + (tagSale.offlineDirect ?? 0) + (tagSale.offlineDealer ?? 0);
+    actSaleVatInc.total = (actSaleVatInc.onlineDirect ?? 0) + (actSaleVatInc.onlineDealer ?? 0) + (actSaleVatInc.offlineDirect ?? 0) + (actSaleVatInc.offlineDealer ?? 0);
+    actSaleVatExc.total = (actSaleVatExc.onlineDirect ?? 0) + (actSaleVatExc.onlineDealer ?? 0) + (actSaleVatExc.offlineDirect ?? 0) + (actSaleVatExc.offlineDealer ?? 0);
+    cogs.total = (cogs.onlineDirect ?? 0) + (cogs.onlineDealer ?? 0) + (cogs.offlineDirect ?? 0) + (cogs.offlineDealer ?? 0);
+    
+    return { tagSale, actSaleVatInc, actSaleVatExc, cogs };
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// 전년도 채널별 월전체 합계 조회 (Tag매출, 실판(V+), 실판(V-), 매출원가)
+export async function getPrevYearChannelFullMonth(
+  prevYm: string,
+  brandCode: BrandCode
+): Promise<{ tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData }> {
+  const connection = await getConnection();
+  try {
+    const sql = `
+      SELECT 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END as CHANNEL,
+        COALESCE(SUM(TAG_SALE_AMT), 0) as TAG_SALE,
+        COALESCE(SUM(ACT_SALE_AMT), 0) as ACT_SALE_VAT_INC,
+        COALESCE(SUM(VAT_EXC_ACT_SALE_AMT), 0) as ACT_SALE_VAT_EXC,
+        COALESCE(SUM(ACT_COGS), 0) as ACT_COGS
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND brd_cd = ?
+      GROUP BY 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END
+    `;
+    
+    interface ChannelResult {
+      CHANNEL: string;
+      TAG_SALE: number;
+      ACT_SALE_VAT_INC: number;
+      ACT_SALE_VAT_EXC: number;
+      ACT_COGS: number;
+    }
+    
+    const rows = await executeQuery<ChannelResult>(connection, sql, [prevYm, brandCode]);
+    
+    const tagSale: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const actSaleVatInc: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const actSaleVatExc: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const cogs: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    
+    for (const row of rows) {
+      const tagValue = Number(row.TAG_SALE) || 0;
+      const vatIncValue = Number(row.ACT_SALE_VAT_INC) || 0;
+      const vatExcValue = Number(row.ACT_SALE_VAT_EXC) || 0;
+      const cogsValue = Number(row.ACT_COGS) || 0;
+      
+      if (row.CHANNEL === 'onlineDirect') {
+        tagSale.onlineDirect = tagValue;
+        actSaleVatInc.onlineDirect = vatIncValue;
+        actSaleVatExc.onlineDirect = vatExcValue;
+        cogs.onlineDirect = cogsValue;
+      } else if (row.CHANNEL === 'onlineDealer') {
+        tagSale.onlineDealer = tagValue;
+        actSaleVatInc.onlineDealer = vatIncValue;
+        actSaleVatExc.onlineDealer = vatExcValue;
+        cogs.onlineDealer = cogsValue;
+      } else if (row.CHANNEL === 'offlineDirect') {
+        tagSale.offlineDirect = tagValue;
+        actSaleVatInc.offlineDirect = vatIncValue;
+        actSaleVatExc.offlineDirect = vatExcValue;
+        cogs.offlineDirect = cogsValue;
+      } else if (row.CHANNEL === 'offlineDealer') {
+        tagSale.offlineDealer = tagValue;
+        actSaleVatInc.offlineDealer = vatIncValue;
+        actSaleVatExc.offlineDealer = vatExcValue;
+        cogs.offlineDealer = cogsValue;
+      }
+    }
+    
+    // total 계산
+    tagSale.total = (tagSale.onlineDirect ?? 0) + (tagSale.onlineDealer ?? 0) + (tagSale.offlineDirect ?? 0) + (tagSale.offlineDealer ?? 0);
+    actSaleVatInc.total = (actSaleVatInc.onlineDirect ?? 0) + (actSaleVatInc.onlineDealer ?? 0) + (actSaleVatInc.offlineDirect ?? 0) + (actSaleVatInc.offlineDealer ?? 0);
+    actSaleVatExc.total = (actSaleVatExc.onlineDirect ?? 0) + (actSaleVatExc.onlineDealer ?? 0) + (actSaleVatExc.offlineDirect ?? 0) + (actSaleVatExc.offlineDealer ?? 0);
+    cogs.total = (cogs.onlineDirect ?? 0) + (cogs.onlineDealer ?? 0) + (cogs.offlineDirect ?? 0) + (cogs.offlineDealer ?? 0);
+    
+    return { tagSale, actSaleVatInc, actSaleVatExc, cogs };
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
 // 대리상지원금 전용 조회 (OUTSRC_PROC_CST + SMPL_BUY_CST - MILE_SALE_AMT)
 // 주의: 누적(accum)은 CSV에서 데이터가 없으므로 항상 0 반환
 export async function getDealerSupportActuals(
@@ -1092,14 +1405,14 @@ export async function getRegionSalesData(
       -- 지역별 도시 정보 (매장수 기준 상위 4개)
       region_cities AS (
         SELECT 
-          vs.sale_region_nm,
+          COALESCE(vs.sale_region_nm, '기타') as sale_region_nm,
           m.city_nm,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
         JOIN FNF.CHN.MST_SHOP_ALL m ON css.shop_id = m.shop_id
         WHERE m.city_nm IS NOT NULL AND TRIM(m.city_nm) != ''
-        GROUP BY vs.sale_region_nm, m.city_nm
+        GROUP BY COALESCE(vs.sale_region_nm, '기타'), m.city_nm
       ),
       region_top_cities AS (
         SELECT 
@@ -1115,12 +1428,12 @@ export async function getRegionSalesData(
       ),
       cy_region AS (
         SELECT 
-          vs.sale_region_nm as GROUP_KEY,
+          COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
-        GROUP BY vs.sale_region_nm
+        GROUP BY COALESCE(vs.sale_region_nm, '기타')
       ),
       -- 전년 지역별 매출 (판매액 > 0인 매장만)
       ly_shop_sales AS (
@@ -1137,12 +1450,12 @@ export async function getRegionSalesData(
       ),
       ly_region AS (
         SELECT 
-          vs.sale_region_nm as GROUP_KEY,
+          COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
           COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
-        GROUP BY vs.sale_region_nm
+        GROUP BY COALESCE(vs.sale_region_nm, '기타')
       ),
       -- 전년 월전체 지역별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
@@ -1159,12 +1472,12 @@ export async function getRegionSalesData(
       ),
       ly_full_region AS (
         SELECT 
-          vs.sale_region_nm as GROUP_KEY,
+          COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
-        GROUP BY vs.sale_region_nm
+        GROUP BY COALESCE(vs.sale_region_nm, '기타')
       )
       SELECT 
         'CY' as PERIOD, 
@@ -1692,23 +2005,27 @@ interface ClothingSalesDbRow {
  */
 export async function getClothingSalesLastDt(
   brdCd: string,
-  ym: string
+  ym: string,
+  cySeason?: string,
+  pySeason?: string
 ): Promise<string> {
   const connection = await getConnection();
   try {
     const [year, month] = ym.split('-').map(Number);
+    // 시즌 파라미터가 없으면 기본값 사용 (25F, 24F)
+    const seasons = cySeason && pySeason ? [cySeason, pySeason] : ['25F', '24F'];
     const sql = `
       SELECT MAX(s.sale_dt) AS LAST_DT
       FROM chn.dw_sale s
       JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
       WHERE s.brd_cd = ?
         AND prdt.parent_prdt_kind_cd = 'L'
-        AND LEFT(s.sesn, 2) IN ('25', '24')
+        AND s.sesn IN (?, ?)
         AND s.sale_dt >= DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01')
         AND s.sale_dt < DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01') + INTERVAL '1 MONTH'
     `;
     
-    const rows = await executeQuery<{ LAST_DT: string }>(connection, sql, [brdCd]);
+    const rows = await executeQuery<{ LAST_DT: string }>(connection, sql, [brdCd, seasons[0], seasons[1]]);
     
     if (rows.length === 0 || !rows[0]?.LAST_DT) {
       return '';
@@ -1730,10 +2047,14 @@ export async function getClothingSalesLastDt(
 
 /**
  * 브랜드별 의류 판매율 조회 (item 단위)
+ * @param cySeason 당해 시즌 (예: '25F')
+ * @param pySeason 전년 시즌 (예: '24F')
  */
 export async function getClothingSalesData(
   brdCd: string,
-  lastDt: string
+  lastDt: string,
+  cySeason: string = '25F',
+  pySeason: string = '24F'
 ): Promise<{
   itemCd: string;
   itemNm: string;
@@ -1757,30 +2078,30 @@ export async function getClothingSalesData(
       WITH po_data AS (
         SELECT 
           ord.item AS item_cd,
-          LEFT(ord.sesn, 2) AS sesn_year,
+          ord.sesn AS sesn_year,
           SUM(ord.ord_qty) AS po_qty,
           SUM(ord.ord_qty * COALESCE(prdt.tag_price_rmb, 0)) AS po_amt
         FROM prcs.dw_ord ord
         LEFT JOIN chn.mst_prdt prdt ON ord.prdt_cd = prdt.prdt_cd
         WHERE ord.po_cntry = '5'
           AND ord.brd_cd = ?
-          AND LEFT(ord.sesn, 2) IN ('25', '24')
+          AND ord.sesn IN (?, ?)
           AND prdt.parent_prdt_kind_cd = 'L'
         GROUP BY ord.item, sesn_year
       ),
       sales_data AS (
         SELECT 
           prdt.item_cd,
-          LEFT(s.sesn, 2) AS sesn_year,
+          s.sesn AS sesn_year,
           SUM(s.tag_amt) AS sales_amt
         FROM chn.dw_sale s
         JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
         WHERE s.brd_cd = ?
-          AND LEFT(s.sesn, 2) IN ('25', '24')
+          AND s.sesn IN (?, ?)
           AND prdt.parent_prdt_kind_cd = 'L'
           AND (
-            (LEFT(s.sesn, 2) = '25' AND s.sale_dt <= DATE '${lastDt}')
-            OR (LEFT(s.sesn, 2) = '24' AND s.sale_dt <= DATE '${pyLastDt}')
+            (s.sesn = ? AND s.sale_dt <= DATE '${lastDt}')
+            OR (s.sesn = ? AND s.sale_dt <= DATE '${pyLastDt}')
           )
         GROUP BY prdt.item_cd, sesn_year
       ),
@@ -1792,25 +2113,31 @@ export async function getClothingSalesData(
       SELECT 
         il.item_cd AS ITEM_CD,
         COALESCE(itm.item_nm, il.item_cd) AS ITEM_NM,
-        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_qty ELSE 0 END) AS CY_PO_QTY,
-        SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) AS CY_PO_AMT,
-        SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) AS CY_SALES_AMT,
-        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_qty ELSE 0 END) AS PY_PO_QTY,
-        SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
-        SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
+        SUM(CASE WHEN po.sesn_year = ? THEN po.po_qty ELSE 0 END) AS CY_PO_QTY,
+        SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) AS CY_PO_AMT,
+        SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) AS CY_SALES_AMT,
+        SUM(CASE WHEN po.sesn_year = ? THEN po.po_qty ELSE 0 END) AS PY_PO_QTY,
+        SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
+        SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
       FROM item_list il
       LEFT JOIN po_data po ON il.item_cd = po.item_cd
       LEFT JOIN sales_data s ON il.item_cd = s.item_cd
       LEFT JOIN prcs.dw_item itm ON il.item_cd = itm.item
       GROUP BY il.item_cd, itm.item_nm
-      HAVING SUM(CASE WHEN po.sesn_year = '25' THEN po.po_amt ELSE 0 END) > 0 
-          OR SUM(CASE WHEN po.sesn_year = '24' THEN po.po_amt ELSE 0 END) > 0
-          OR SUM(CASE WHEN s.sesn_year = '25' THEN s.sales_amt ELSE 0 END) > 0
-          OR SUM(CASE WHEN s.sesn_year = '24' THEN s.sales_amt ELSE 0 END) > 0
+      HAVING SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) > 0 
+          OR SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) > 0
+          OR SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) > 0
+          OR SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) > 0
       ORDER BY CY_SALES_AMT DESC
     `;
     
-    const rows = await executeQuery<ClothingSalesDbRow>(connection, sql, [brdCd, brdCd]);
+    const rows = await executeQuery<ClothingSalesDbRow>(connection, sql, [
+      brdCd, cySeason, pySeason, // po_data
+      brdCd, cySeason, pySeason, cySeason, pySeason, // sales_data
+      cySeason, cySeason, cySeason, // SELECT CY
+      pySeason, pySeason, pySeason, // SELECT PY
+      cySeason, pySeason, cySeason, pySeason // HAVING
+    ]);
     
     // null 또는 undefined 체크
     if (!rows || !Array.isArray(rows)) {
@@ -1862,11 +2189,13 @@ interface ClothingItemDetailDbRow {
 
 /**
  * 의류 아이템별 상품 상세 조회
+ * @param season 조회할 시즌 (예: '25F')
  */
 export async function getClothingItemDetails(
   brdCd: string,
   itemCd: string,
-  lastDt: string
+  lastDt: string,
+  season: string = '25F'
 ): Promise<{
   prdtCd: string;
   prdtNm: string;
@@ -1898,7 +2227,7 @@ export async function getClothingItemDetails(
         INNER JOIN chn.mst_prdt prdt ON s.prdt_cd = prdt.prdt_cd
         WHERE s.brd_cd = ?
           AND prdt.item_cd = ?
-          AND LEFT(s.sesn, 2) = '25'
+          AND s.sesn = ?
           AND prdt.parent_prdt_kind_cd = 'L'
           AND s.sale_dt <= DATE '${lastDt}'
         GROUP BY s.prdt_cd
@@ -1914,7 +2243,7 @@ export async function getClothingItemDetails(
         WHERE ord.po_cntry = '5'
           AND ord.brd_cd = ?
           AND ord.item = ?
-          AND LEFT(ord.sesn, 2) = '25'
+          AND ord.sesn = ?
           AND prdt.parent_prdt_kind_cd = 'L'
         GROUP BY ord.prdt_cd
       ) po ON sd.prdt_cd = po.prdt_cd
@@ -1931,7 +2260,7 @@ export async function getClothingItemDetails(
       LIMIT 1000
     `;
     
-    const rows = await executeQuery<ClothingItemDetailDbRow>(connection, sql, [brdCd, itemCd, brdCd, itemCd]);
+    const rows = await executeQuery<ClothingItemDetailDbRow>(connection, sql, [brdCd, itemCd, season, brdCd, itemCd, season]);
     
     return rows.map(row => ({
       prdtCd: row.PRDT_CD || '',
