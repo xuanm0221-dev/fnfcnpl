@@ -26,6 +26,10 @@ import {
   getWeeklyAccumSales,
   getChannelActuals,
   getPrevYearChannelActuals,
+  getPrevYearChannelTagSale,
+  getPrevYearChannelCogs,
+  getPrevYearChannelAccum,
+  getPrevYearChannelFullMonth,
   getRetailSalesData,
   getRetailSalesLastDt,
   getTierSalesData,
@@ -136,6 +140,14 @@ function buildPlLine(
     accumChannel?: ChannelRowData;
     targetChannelVatExc?: ChannelRowData;
     accumChannelVatExc?: ChannelRowData;
+    prevYearChannelTagSale?: { onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number };
+    targetChannelTagSale?: ChannelRowData;
+    accumChannelTagSale?: ChannelRowData;
+    prevYearChannelCogs?: { onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number };
+    targetChannelCogs?: ChannelRowData;
+    accumChannelCogs?: ChannelRowData;
+    prevYearChannelAccum?: { tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData };
+    prevYearChannelFullMonth?: { tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData };
   }
 ): PlLine {
   const getTarget = brandCode === 'all'
@@ -143,6 +155,8 @@ function buildPlLine(
     : (l1?: string, l2?: string, l3?: string) => getTargetValue(targets, brandCode, l1, l2, l3);
 
   let prevYear: number | null = null;
+  let prevYearAccum: number | null = null;
+  let prevYearProgressRate: number | null = null;
   let accum: number | null = null;
   let target: number | null = null;
   let forecast: number | null = null;
@@ -166,9 +180,123 @@ function buildPlLine(
         
         if (channel) {
           prevYear = channelData.prevYearChannel?.[channel] || 0;
+          prevYearAccum = channelData.prevYearChannelAccum?.actSaleVatInc[channel] ?? null;
+          const prevYearFullMonth = channelData.prevYearChannelFullMonth?.actSaleVatInc[channel] ?? null;
+          prevYearProgressRate = prevYearFullMonth !== null && prevYearFullMonth !== 0 && prevYearAccum !== null
+            ? prevYearAccum / prevYearFullMonth
+            : null;
           accum = channelData.accumChannel?.[channel] || null;
           target = channelData.targetChannel?.[channel] || null;
-          forecast = data.accumDays > 0 && accum !== null && accum !== 0 ? (accum / data.accumDays) * data.monthDays : null;
+          
+          // 월말예상 계산: 대리상은 목표 그대로, 직영은 전년 진척률 기반
+          if (channel === 'onlineDealer' || channel === 'offlineDealer') {
+            forecast = target;
+          } else {
+            // 직영: 누적 / 전년 진척률
+            if (prevYearProgressRate !== null && prevYearProgressRate !== 0 && accum !== null) {
+              forecast = accum / prevYearProgressRate;
+            } else {
+              forecast = null;
+            }
+          }
+        }
+      }
+      break;
+
+    case 'channelTagSale':
+      // 채널별 Tag매출
+      if (channelData) {
+        // id 형식: 'tag-sale-online-direct'
+        const channelMap: Record<string, 'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer'> = {
+          'tag-sale-online-direct': 'onlineDirect',
+          'tag-sale-online-dealer': 'onlineDealer',
+          'tag-sale-offline-direct': 'offlineDirect',
+          'tag-sale-offline-dealer': 'offlineDealer',
+        };
+        const channel = channelMap[def.id];
+        
+        if (channel) {
+          prevYear = channelData.prevYearChannelTagSale?.[channel] || 0;
+          prevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
+          const prevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
+          prevYearProgressRate = prevYearFullMonth !== null && prevYearFullMonth !== 0 && prevYearAccum !== null
+            ? prevYearAccum / prevYearFullMonth
+            : null;
+          accum = channelData.accumChannelTagSale?.[channel] || null;
+          target = channelData.targetChannelTagSale?.[channel] || null;
+          
+          // 월말예상 계산: 대리상은 목표 그대로, 직영은 전년 진척률 기반
+          if (channel === 'onlineDealer' || channel === 'offlineDealer') {
+            forecast = target;
+          } else {
+            // 직영: 누적 / 전년 진척률
+            if (prevYearProgressRate !== null && prevYearProgressRate !== 0 && accum !== null) {
+              forecast = accum / prevYearProgressRate;
+            } else {
+              forecast = null;
+            }
+          }
+        }
+      }
+      break;
+
+    case 'channelCogs':
+      // 채널별 매출원가
+      if (channelData) {
+        // id 형식: 'cogs-online-direct'
+        const channelMap: Record<string, 'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer'> = {
+          'cogs-online-direct': 'onlineDirect',
+          'cogs-online-dealer': 'onlineDealer',
+          'cogs-offline-direct': 'offlineDirect',
+          'cogs-offline-dealer': 'offlineDealer',
+        };
+        const channel = channelMap[def.id];
+        
+        if (channel) {
+          prevYear = channelData.prevYearChannelCogs?.[channel] || 0;
+          prevYearAccum = channelData.prevYearChannelAccum?.cogs[channel] ?? null;
+          const prevYearFullMonth = channelData.prevYearChannelFullMonth?.cogs[channel] ?? null;
+          prevYearProgressRate = prevYearFullMonth !== null && prevYearFullMonth !== 0 && prevYearAccum !== null
+            ? prevYearAccum / prevYearFullMonth
+            : null;
+          accum = channelData.accumChannelCogs?.[channel] || null;
+          target = channelData.targetChannelCogs?.[channel] || null;
+          
+          // 월말예상 계산: 대리상은 목표 그대로, 직영은 Tag대비 원가율 기반
+          if (channel === 'onlineDealer' || channel === 'offlineDealer') {
+            forecast = target;
+          } else {
+            // 직영: Tag대비 원가율 기반
+            const tagSaleAccum = channelData.accumChannelTagSale?.[channel] ?? null;
+            const tagSaleForecast = (() => {
+              // Tag매출 월말예상 계산 (직영 로직)
+              const tagPrevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
+              const tagPrevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
+              const tagPrevYearProgressRate = tagPrevYearFullMonth !== null && tagPrevYearFullMonth !== 0 && tagPrevYearAccum !== null
+                ? tagPrevYearAccum / tagPrevYearFullMonth
+                : null;
+              if (tagPrevYearProgressRate !== null && tagPrevYearProgressRate !== 0 && tagSaleAccum !== null) {
+                return tagSaleAccum / tagPrevYearProgressRate;
+              }
+              return null;
+            })();
+            
+            if (tagSaleForecast === null || tagSaleAccum === null || tagSaleAccum === 0) {
+              forecast = null;
+            } else {
+              // Tag대비 원가율 = (누적 매출원가 × 1.13) / 누적 Tag매출
+              const tagBasedCostRate = (accum !== null && accum !== 0 && tagSaleAccum !== 0)
+                ? (accum * 1.13) / tagSaleAccum
+                : null;
+              
+              if (tagBasedCostRate !== null) {
+                // 월말예상 매출원가 = (Tag대비 원가율 × 월말예상 Tag매출) / 1.13
+                forecast = (tagBasedCostRate * tagSaleForecast) / 1.13;
+              } else {
+                forecast = null;
+              }
+            }
+          }
         }
       }
       break;
@@ -196,9 +324,24 @@ function buildPlLine(
           buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
-        accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
-        target = childLines.reduce((sum, c) => sum + (c.target || 0), 0);
-        forecast = childLines.reduce((sum, c) => sum + (c.forecast || 0), 0);
+        // prevYearAccum: 하위 합산 (null은 0으로 처리)
+        prevYearAccum = childLines.reduce((sum, c) => sum + (c.prevYearAccum ?? 0), 0);
+        // prevYearProgressRate: 하위 평균 또는 합산 로직 (일단 합산으로 처리)
+        const prevYearAccumSum = childLines.reduce((sum, c) => sum + (c.prevYearAccum ?? 0), 0);
+        const prevYearFullMonthSum = childLines.reduce((sum, c) => {
+          if (c.prevYearProgressRate !== null && c.prevYearProgressRate !== undefined && c.prevYearAccum !== null && c.prevYearAccum !== undefined && c.prevYearProgressRate !== 0) {
+            return sum + (c.prevYearAccum / c.prevYearProgressRate);
+          }
+          return sum;
+        }, 0);
+        prevYearProgressRate = prevYearFullMonthSum !== 0 && prevYearAccumSum !== 0
+          ? prevYearAccumSum / prevYearFullMonthSum
+          : null;
+        accum = childLines.reduce((sum, c) => sum + (c.accum ?? 0), 0);
+        target = childLines.reduce((sum, c) => sum + (c.target ?? 0), 0);
+        // forecast: 하위 합산 (null은 0으로 처리하지 않고 합산 가능한 것만 합산)
+        const forecastValues = childLines.map(c => c.forecast).filter(v => v !== null) as number[];
+        forecast = forecastValues.length > 0 ? forecastValues.reduce((sum, v) => sum + v, 0) : null;
 
         return {
           id: def.id,
@@ -207,6 +350,8 @@ function buildPlLine(
           isParent: def.isParent,
           isCalculated: def.isCalculated,
           prevYear,
+          prevYearAccum: prevYearAccum !== 0 ? prevYearAccum : null,
+          prevYearProgressRate,
           target,
           accum,
           forecast,
@@ -427,12 +572,27 @@ function buildPlLine(
       buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
     );
     
-    // 실판(V+) 부모 행의 경우 자식들의 합계로 계산 (기존 level1 로직보다 우선)
-    if (def.id === 'act-sale-vat-inc' && children.length > 0) {
+    // Tag매출, 실판(V+), 매출원가 부모 행의 경우 자식들의 합계로 계산
+    if ((def.id === 'tag-sale' || def.id === 'act-sale-vat-inc' || def.id === 'cogs') && children.length > 0) {
       prevYear = children.reduce((sum, c) => sum + (c.prevYear || 0), 0);
-      accum = children.reduce((sum, c) => sum + (c.accum || 0), 0);
-      target = children.reduce((sum, c) => sum + (c.target || 0), 0);
-      forecast = children.reduce((sum, c) => sum + (c.forecast || 0), 0);
+      // prevYearAccum: 하위 합산 (null은 0으로 처리)
+      const prevYearAccumSum = children.reduce((sum, c) => sum + (c.prevYearAccum ?? 0), 0);
+      prevYearAccum = prevYearAccumSum !== 0 ? prevYearAccumSum : null;
+      // prevYearProgressRate: 하위 합산 기반 계산
+      const prevYearFullMonthSum = children.reduce((sum, c) => {
+        if (c.prevYearProgressRate !== null && c.prevYearProgressRate !== undefined && c.prevYearAccum !== null && c.prevYearAccum !== undefined && c.prevYearProgressRate !== 0) {
+          return sum + (c.prevYearAccum / c.prevYearProgressRate);
+        }
+        return sum;
+      }, 0);
+      prevYearProgressRate = prevYearFullMonthSum !== 0 && prevYearAccumSum !== 0
+        ? prevYearAccumSum / prevYearFullMonthSum
+        : null;
+      accum = children.reduce((sum, c) => sum + (c.accum ?? 0), 0);
+      target = children.reduce((sum, c) => sum + (c.target ?? 0), 0);
+      // forecast: 하위 합산 (null은 제외하고 합산 가능한 것만 합산)
+      const forecastValues = children.map(c => c.forecast).filter(v => v !== null) as number[];
+      forecast = forecastValues.length > 0 ? forecastValues.reduce((sum, v) => sum + v, 0) : null;
     }
   }
 
@@ -443,6 +603,8 @@ function buildPlLine(
     isParent: def.isParent,
     isCalculated: def.isCalculated,
     prevYear,
+    prevYearAccum,
+    prevYearProgressRate,
     target,
     accum,
     forecast,
@@ -830,6 +992,27 @@ function getMonthEndDate(ym: string): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
 
+// 기본 의류 시즌 선택 (현재 월 기준)
+function getDefaultClothingSeason(ym: string): string {
+  const [year, month] = ym.split('-').map(Number);
+  const yearShort = String(year).slice(-2);
+  // 1-6월: 이전년도 F, 7-12월: 당해년도 S
+  if (month <= 6) {
+    const prevYear = String(year - 1).slice(-2);
+    return `${prevYear}F`;
+  } else {
+    return `${yearShort}S`;
+  }
+}
+
+// 전년 시즌 계산 (선택한 시즌이 당해, 1년 전 같은 시즌이 전년)
+function getPreviousClothingSeason(season: string): string {
+  const year = parseInt(season.substring(0, 2));
+  const suffix = season.substring(2); // 'S' or 'F'
+  const prevYear = String(year - 1).padStart(2, '0');
+  return `${prevYear}${suffix}`;
+}
+
 // 점당매출 테이블 데이터 빌드 (MLB, MLB KIDS, DISCOVERY만)
 // 주의: 점당매출은 Snowflake에서 실제 최신 날짜를 조회하여 사용 (CSV와 독립적)
 async function buildRetailSalesTable(
@@ -986,16 +1169,18 @@ async function buildTierRegionData(
       const monthlyPerShop = row.shopCnt > 0 ? monthlyTotalAmt / row.shopCnt : 0;
       // 전년(점당 월전체) = 전년 전체 매출 / 전년 전체 매장수
       const prevFullPerShop = prevFullShopCnt > 0 ? prevFullSalesAmt / prevFullShopCnt : 0;
+      // 전년 D일까지 누적 점당매출 계산 (YOY 비교용)
+      const prevCumPerShop = prevCumShopCnt > 0 ? prevCumSalesAmt / prevCumShopCnt : 0;
       
       const result = {
         ...row,
-        prevSalesAmt: prevFullSalesAmt, // 전년도 월전체 매출로 변경
-        prevShopCnt: prevFullShopCnt, // 전년도 월전체 매장수로 변경
-        prevSalesPerShop: prevFullPerShop, // 전년도 월전체 점당매출로 변경
+        prevSalesAmt: prevFullSalesAmt, // 전년 월전체 매출 (표시용)
+        prevShopCnt: prevFullShopCnt, // 전년 월전체 매장수 (표시용)
+        prevSalesPerShop: prevFullPerShop, // 전년 월전체 점당매출 (표시용)
         prevFullSalesAmt,
         prevFullShopCnt,
-        prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용)
-        prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용)
+        prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용, 트리맵용)
+        prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용, 트리맵용)
         salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
       };
       // 디버깅: cities 필드 및 전년도 데이터 확인
@@ -1039,15 +1224,18 @@ async function buildTierRegionData(
       // 전년(점당 월전체) = 전년 전체 매출 / 전년 전체 매장수
       const prevFullPerShop = prevFullShopCnt > 0 ? prevFullSalesAmt / prevFullShopCnt : 0;
       
+      // 전년 D일까지 누적 점당매출 계산 (YOY 비교용)
+      const prevCumPerShop = prevCumShopCnt > 0 ? prevCumSalesAmt / prevCumShopCnt : 0;
+      
       const result = {
         ...row,
-        prevSalesAmt: prevFullSalesAmt, // 전년도 월전체 매출로 변경
-        prevShopCnt: prevFullShopCnt, // 전년도 월전체 매장수로 변경
-        prevSalesPerShop: prevFullPerShop, // 전년도 월전체 점당매출로 변경
+        prevSalesAmt: prevFullSalesAmt, // 전년 월전체 매출 (표시용)
+        prevShopCnt: prevFullShopCnt, // 전년 월전체 매장수 (표시용)
+        prevSalesPerShop: prevFullPerShop, // 전년 월전체 점당매출 (표시용)
         prevFullSalesAmt,
         prevFullShopCnt,
-        prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용)
-        prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용)
+        prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용, 트리맵용)
+        prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용, 트리맵용)
         salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
       };
       // 디버깅: cities 필드 확인
@@ -1249,6 +1437,14 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       accumChannel?: ChannelRowData;
       targetChannelVatExc?: ChannelRowData;
       accumChannelVatExc?: ChannelRowData;
+      prevYearChannelTagSale?: { onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number };
+      targetChannelTagSale?: ChannelRowData;
+      accumChannelTagSale?: ChannelRowData;
+      prevYearChannelCogs?: { onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number };
+      targetChannelCogs?: ChannelRowData;
+      accumChannelCogs?: ChannelRowData;
+      prevYearChannelAccum?: { tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData };
+      prevYearChannelFullMonth?: { tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData };
     } | undefined;
     
     if (brand !== 'all' && lastDt) {
@@ -1256,9 +1452,13 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       const brandCode = brand as BrandCode;
       
       // 채널별 데이터 병렬 조회
-      const [prevYearChannel, channelActuals] = await Promise.all([
+      const [prevYearChannel, prevYearChannelTagSale, prevYearChannelCogs, channelActuals, prevYearChannelAccum, prevYearChannelFullMonth] = await Promise.all([
         getPrevYearChannelActuals(prevYm, brandCode),
+        getPrevYearChannelTagSale(prevYm, brandCode),
+        getPrevYearChannelCogs(prevYm, brandCode),
         getChannelActuals(ym, lastDt, brandCode),
+        getPrevYearChannelAccum(prevYm, lastDt, brandCode),
+        getPrevYearChannelFullMonth(prevYm, brandCode),
       ]);
       
       // 목표 데이터는 parseChannelPlanData 사용
@@ -1270,6 +1470,14 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         accumChannel: channelActuals.actSaleVatInc,
         targetChannelVatExc: channelPlan.actSaleVatExc,
         accumChannelVatExc: channelActuals.actSaleVatExc,
+        prevYearChannelTagSale,
+        targetChannelTagSale: channelPlan.tagSale,
+        accumChannelTagSale: channelActuals.tagSale,
+        prevYearChannelCogs,
+        targetChannelCogs: channelPlan.cogs,
+        accumChannelCogs: channelActuals.cogs,
+        prevYearChannelAccum,
+        prevYearChannelFullMonth,
       };
     }
 
@@ -1320,14 +1528,18 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     
     if (brand !== 'all' && clothingBrands.includes(brand)) {
       try {
+        // 시즌 파라미터 받기 (기본값: 현재 월 기준)
+        const cySeason = searchParams.get('cySeason') || getDefaultClothingSeason(ym);
+        const pySeason = getPreviousClothingSeason(cySeason);
+        
         // Snowflake에서 실제 최신 날짜 조회 (CSV와 독립적)
-        clothingLastDt = await getClothingSalesLastDt(brand, ym);
+        clothingLastDt = await getClothingSalesLastDt(brand, ym, cySeason, pySeason);
         // 조회 실패 시 fallback: 월말만 사용 (CSV 날짜 사용 안 함)
         if (!clothingLastDt) {
           clothingLastDt = getMonthEndDate(ym);
         }
-        console.log('[DEBUG] 의류 판매율 조회 시작:', { brand, clothingLastDt });
-        const clothingData = await getClothingSalesData(brand, clothingLastDt);
+        console.log('[DEBUG] 의류 판매율 조회 시작:', { brand, clothingLastDt, cySeason, pySeason });
+        const clothingData = await getClothingSalesData(brand, clothingLastDt, cySeason, pySeason);
         console.log('[DEBUG] 의류 판매율 조회 완료:', {
           dataLength: clothingData?.length,
           hasData: clothingData && Array.isArray(clothingData) && clothingData.length > 0,
