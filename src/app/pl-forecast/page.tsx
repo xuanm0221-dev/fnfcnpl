@@ -357,17 +357,15 @@ export default function PlForecastPage() {
 
         {/* (전년)누적 */}
         {showAccum && (
-          <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
-            {formatK(line.prevYearAccum ?? 0)}
+          <td className={`py-3 px-3 text-right font-mono text-gray-600 text-xs ${butterBgClass}`}>
+            {formatK(line.prevYearAccum ?? null)}
           </td>
         )}
 
         {/* (전년)진척률 */}
         {showAccum && (
-          <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
-            {line.prevYearProgressRate !== null && line.prevYearProgressRate !== undefined
-              ? `${(line.prevYearProgressRate * 100).toFixed(1)}%`
-              : '-'}
+          <td className={`py-3 px-3 text-right font-mono text-gray-600 text-xs ${butterBgClass}`}>
+            {line.prevYearProgressRate != null ? `${(line.prevYearProgressRate * 100).toFixed(1)}%` : '-'}
           </td>
         )}
 
@@ -851,7 +849,7 @@ export default function PlForecastPage() {
                         data.lines.map((line) => renderRow(line))
                       ) : (
                         <tr>
-                          <td colSpan={showAccum ? 9 : 6} className="py-12 text-center text-gray-400">
+                          <td colSpan={showAccum ? 9 : 7} className="py-12 text-center text-gray-400">
                             데이터가 없습니다.
                           </td>
                         </tr>
@@ -874,10 +872,10 @@ export default function PlForecastPage() {
                       Tag매출, 실판(V+), 실판(V-) 채널별 계산
                     </div>
                     <ul className="space-y-1 text-gray-600">
-                      <li>• 대리상 (온라인 대리상, 오프라인 대리상): 월말예상 = 목표</li>
-                      <li>• 직영 (온라인 직영, 오프라인 직영): 월말예상 = 누적 ÷ 전년 진척률</li>
-                      <li className="text-gray-500 italic text-xs">전년 진척률 = (전년 D일까지 누적) ÷ (전년 월전체)</li>
-                      <li className="text-gray-500 italic text-xs">전년 데이터가 없거나 분모가 0이면 "-"</li>
+                      <li>• <strong>대리상</strong> (온라인 대리상, 오프라인 대리상): 월말예상 = 목표</li>
+                      <li>• <strong>직영</strong> (온라인 직영, 오프라인 직영): 월말예상 = 누적 ÷ 전년 진척률</li>
+                      <li className="text-gray-500 italic">전년 진척률 = (전년 D일까지 누적) ÷ (전년 월전체)</li>
+                      <li className="text-gray-500 italic">전년 데이터가 없거나 분모가 0이면 "-"</li>
                     </ul>
                   </div>
                   <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
@@ -886,11 +884,11 @@ export default function PlForecastPage() {
                       매출원가 채널별 계산
                     </div>
                     <ul className="space-y-1 text-gray-600">
-                      <li>• 대리상 (온라인 대리상, 오프라인 대리상): 월말예상 = 목표</li>
-                      <li>• 직영 (온라인 직영, 오프라인 직영): Tag대비 원가율 기반 계산</li>
-                      <li className="text-gray-500 italic text-xs">Tag대비 원가율 = (누적 매출원가 × 1.13) ÷ 누적 Tag매출</li>
-                      <li className="text-gray-500 italic text-xs">월말예상 매출원가 = (Tag대비 원가율 × 월말예상 Tag매출) ÷ 1.13</li>
-                      <li className="text-gray-500 italic text-xs">예외: Tag매출 누적이 0이거나 월말예상 Tag매출이 "-"이면 "-"</li>
+                      <li>• <strong>대리상</strong> (온라인 대리상, 오프라인 대리상): 월말예상 = 목표</li>
+                      <li>• <strong>직영</strong> (온라인 직영, 오프라인 직영):</li>
+                      <li className="ml-4">- Tag대비 원가율 = (누적 매출원가 × 1.13) ÷ 누적 Tag매출</li>
+                      <li className="ml-4">- 월말예상 매출원가 = (Tag대비 원가율 × 월말예상 Tag매출) ÷ 1.13</li>
+                      <li className="text-gray-500 italic">예외: Tag매출 누적이 0이거나 월말예상 Tag매출이 "-"이면 "-"</li>
                     </ul>
                   </div>
                   <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
