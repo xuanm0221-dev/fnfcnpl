@@ -5,16 +5,17 @@
  *   npm run update-csv
  * 
  * CSV 파일 경로:
- *   - 예상손익: D:\dashboard\월중손익\예상손익\YY.MM.csv
- *   - 목표판매매출: D:\dashboard\월중손익\목표판매매출\YY.MM.csv
+ *   - 예상손익: D:\로컬파일\월중손익\예상손익\YYYY-MM.csv
+ *   - 목표retail: D:\로컬파일\월중손익\목표retail\YYYY-MM.csv
+ *   - 실적: D:\로컬파일\월중손익\실적\YYYY-MM\YYYY-MM-DD.csv
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
-const TARGET_DIR = 'D:\\dashboard\\월중손익\\예상손익';
-const RETAIL_PLAN_DIR = 'D:\\dashboard\\월중손익\\목표판매매출';
-const ACTUALS_DIR = 'D:\\dashboard\\월중손익\\실적';
+const TARGET_DIR = 'D:\\로컬파일\\월중손익\\예상손익';
+const RETAIL_PLAN_DIR = 'D:\\로컬파일\\월중손익\\목표retail';
+const ACTUALS_DIR = 'D:\\로컬파일\\월중손익\\실적';
 
 // 프로젝트 루트 경로 (process.cwd() 사용)
 const PROJECT_ROOT = process.cwd();
@@ -35,21 +36,10 @@ function convertYmToFullYear(yyMm: string): string {
 }
 
 /**
- * YY.MM.DD 형식을 YYYY-MM-DD 형식으로 변환
- * 예: 25.12.31 -> 2025-12-31
+ * 변수명 생성 (예: target_2025_12, retailPlan_2025_12, actuals_2025_12_31)
  */
-function convertYmdToFullYear(yyMmDd: string): string {
-  const [yy, mm, dd] = yyMmDd.split('.');
-  const year = parseInt(yy, 10);
-  const fullYear = year < 50 ? 2000 + year : 1900 + year;
-  return `${fullYear}-${mm}-${dd}`;
-}
-
-/**
- * 변수명 생성 (예: target_25_12, retailPlan_25_12, actuals_25_12_31)
- */
-function getVariableName(yyMm: string, prefix: string): string {
-  return `${prefix}_${yyMm.replace(/\./g, '_')}`;
+function getVariableName(dateStr: string, prefix: string): string {
+  return `${prefix}_${dateStr.replace(/-/g, '_')}`;
 }
 
 /**
@@ -76,7 +66,7 @@ function generateTargetsFile(): void {
   }
 
   const files = fs.readdirSync(TARGET_DIR);
-  const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{2}\.\d{2}\.csv$/.test(f));
+  const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{4}-\d{2}\.csv$/.test(f));
   
   if (csvFiles.length === 0) {
     console.warn(`[예상손익] CSV 파일을 찾을 수 없습니다: ${TARGET_DIR}`);
@@ -85,18 +75,17 @@ function generateTargetsFile(): void {
 
   console.log(`[예상손익] 발견된 CSV 파일: ${csvFiles.length}개`);
 
-  const csvMap: Array<{ yyMm: string; fullYm: string; variableName: string; content: string }> = [];
+  const csvMap: Array<{ fullYm: string; variableName: string; content: string }> = [];
 
   for (const file of csvFiles.sort()) {
-    const yyMm = file.replace('.csv', '');
-    const fullYm = convertYmToFullYear(yyMm);
-    const variableName = getVariableName(yyMm, 'target');
+    const fullYm = file.replace('.csv', ''); // 2025-12
+    const variableName = getVariableName(fullYm, 'target'); // target_2025_12
     const filePath = path.join(TARGET_DIR, file);
     
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       const escapedContent = escapeCsvContent(content);
-      csvMap.push({ yyMm, fullYm, variableName, content: escapedContent });
+      csvMap.push({ fullYm, variableName, content: escapedContent });
       console.log(`[예상손익] 읽음: ${file} -> ${fullYm}`);
     } catch (error) {
       console.error(`[예상손익] 파일 읽기 실패: ${file}`, error);
@@ -119,10 +108,10 @@ function generateTargetsFile(): void {
  * ========================================
  * CSV 파일 경로: ${TARGET_DIR}
  * 생성 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
- * 포함된 월: ${csvMap.map(({ yyMm, fullYm }) => `${yyMm}.csv (${fullYm})`).join(', ')}
+ * 포함된 월: ${csvMap.map(({ fullYm }) => `${fullYm}.csv`).join(', ')}
  * 총 파일 수: ${csvMap.length}개
  * 
- * 파일명 형식: YY.MM.csv (예: 25.12.csv, 26.01.csv)
+ * 파일명 형식: YYYY-MM.csv (예: 2025-12.csv, 2026-01.csv)
  * 업데이트 방법: CSV 파일 추가 후 npm run update-csv 실행
  * ========================================
  */`;
@@ -167,7 +156,7 @@ function generateRetailPlanFile(): void {
   }
 
   const files = fs.readdirSync(RETAIL_PLAN_DIR);
-  const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{2}\.\d{2}\.csv$/.test(f));
+  const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{4}-\d{2}\.csv$/.test(f));
   
   if (csvFiles.length === 0) {
     console.warn(`[목표판매매출] CSV 파일을 찾을 수 없습니다: ${RETAIL_PLAN_DIR}`);
@@ -176,18 +165,17 @@ function generateRetailPlanFile(): void {
 
   console.log(`[목표판매매출] 발견된 CSV 파일: ${csvFiles.length}개`);
 
-  const csvMap: Array<{ yyMm: string; fullYm: string; variableName: string; content: string }> = [];
+  const csvMap: Array<{ fullYm: string; variableName: string; content: string }> = [];
 
   for (const file of csvFiles.sort()) {
-    const yyMm = file.replace('.csv', '');
-    const fullYm = convertYmToFullYear(yyMm);
-    const variableName = getVariableName(yyMm, 'retailPlan');
+    const fullYm = file.replace('.csv', ''); // 2025-12
+    const variableName = getVariableName(fullYm, 'retailPlan'); // retailPlan_2025_12
     const filePath = path.join(RETAIL_PLAN_DIR, file);
     
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       const escapedContent = escapeCsvContent(content);
-      csvMap.push({ yyMm, fullYm, variableName, content: escapedContent });
+      csvMap.push({ fullYm, variableName, content: escapedContent });
       console.log(`[목표판매매출] 읽음: ${file} -> ${fullYm}`);
     } catch (error) {
       console.error(`[목표판매매출] 파일 읽기 실패: ${file}`, error);
@@ -210,10 +198,10 @@ function generateRetailPlanFile(): void {
  * ========================================
  * CSV 파일 경로: ${RETAIL_PLAN_DIR}
  * 생성 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
- * 포함된 월: ${csvMap.map(({ yyMm, fullYm }) => `${yyMm}.csv (${fullYm})`).join(', ')}
+ * 포함된 월: ${csvMap.map(({ fullYm }) => `${fullYm}.csv`).join(', ')}
  * 총 파일 수: ${csvMap.length}개
  * 
- * 파일명 형식: YY.MM.csv (예: 25.12.csv, 26.01.csv)
+ * 파일명 형식: YYYY-MM.csv (예: 2025-12.csv, 2026-01.csv)
  * 업데이트 방법: CSV 파일 추가 후 npm run update-csv 실행
  * ========================================
  */`;
@@ -326,9 +314,9 @@ function generateActualsFile(): void {
     return;
   }
 
-  // 월별 폴더 스캔 (YY.MM 형식)
+  // 월별 폴더 스캔 (YYYY-MM 형식) - 동적으로 모든 폴더 스캔
   const monthFolders = fs.readdirSync(ACTUALS_DIR, { withFileTypes: true })
-    .filter(dirent => dirent.isDirectory() && /^\d{2}\.\d{2}$/.test(dirent.name))
+    .filter(dirent => dirent.isDirectory() && /^\d{4}-\d{2}$/.test(dirent.name))
     .map(dirent => dirent.name)
     .sort();
 
@@ -339,12 +327,13 @@ function generateActualsFile(): void {
 
   console.log(`[실적] 발견된 월별 폴더: ${monthFolders.length}개`);
 
-  const csvMap: Array<{ yyMm: string; yyMmDd: string; fullYm: string; fullYmd: string; variableName: string; content: string }> = [];
+  const csvMap: Array<{ fullYm: string; fullYmd: string; variableName: string; content: string }> = [];
 
   for (const monthFolder of monthFolders) {
     const folderPath = path.join(ACTUALS_DIR, monthFolder);
     const files = fs.readdirSync(folderPath);
-    const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{2}\.\d{2}\.\d{2}\.csv$/.test(f));
+    // 파일명은 YYYY-MM-DD.csv 형식
+    const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{4}-\d{2}-\d{2}\.csv$/.test(f));
     
     if (csvFiles.length === 0) {
       console.warn(`[실적] ${monthFolder} 폴더에 CSV 파일이 없습니다`);
@@ -353,16 +342,15 @@ function generateActualsFile(): void {
 
     // 가장 최근 파일 선택 (파일명 기준 정렬)
     const latestFile = csvFiles.sort().reverse()[0];
-    const yyMmDd = latestFile.replace('.csv', '');
-    const fullYmd = convertYmdToFullYear(yyMmDd);
-    const fullYm = convertYmToFullYear(monthFolder);
-    const variableName = getVariableName(yyMmDd, 'actuals');
+    const fullYmd = latestFile.replace('.csv', ''); // 2026-01-04
+    const fullYm = monthFolder; // 2026-01 (이미 YYYY-MM 형식)
+    const variableName = getVariableName(fullYmd, 'actuals'); // actuals_2026_01_04
     const filePath = path.join(folderPath, latestFile);
     
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       const escapedContent = escapeCsvContent(content);
-      csvMap.push({ yyMm: monthFolder, yyMmDd, fullYm, fullYmd, variableName, content: escapedContent });
+      csvMap.push({ fullYm, fullYmd, variableName, content: escapedContent });
       console.log(`[실적] 읽음: ${monthFolder}/${latestFile} -> ${fullYmd}`);
     } catch (error) {
       console.error(`[실적] 파일 읽기 실패: ${monthFolder}/${latestFile}`, error);
@@ -398,11 +386,12 @@ function generateActualsFile(): void {
  * ========================================
  * CSV 파일 경로: ${ACTUALS_DIR}
  * 생성 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
- * 포함된 파일: ${csvMap.map(({ yyMm, yyMmDd, fullYmd }) => `${yyMm}/${yyMmDd}.csv (${fullYmd})`).join(', ')}
+ * 포함된 파일: ${csvMap.map(({ fullYm, fullYmd }) => `${fullYm}/${fullYmd}.csv`).join(', ')}
  * 총 파일 수: ${csvMap.length}개
  * 
- * 파일명 형식: YY.MM.DD.csv (예: 25.12.31.csv)
- * 폴더 구조: [YY.MM]\\YY.MM.DD.csv (예: 25.12\\25.12.31.csv)
+ * 폴더명 형식: YYYY-MM (예: 2025-12, 2026-01)
+ * 파일명 형식: YYYY-MM-DD.csv (예: 2026-01-04.csv)
+ * 폴더 구조: [YYYY-MM]\\YYYY-MM-DD.csv (예: 2026-01\\2026-01-04.csv)
  * 업데이트 방법: CSV 파일 추가 후 npm run update-csv 실행
  * 참고: 같은 월 폴더에 여러 파일이 있으면 가장 최근 날짜 파일만 사용
  * ========================================

@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const brandCode = searchParams.get('brandCode');
   const itemCd = searchParams.get('itemCd');
   const lastDt = searchParams.get('lastDt');
+  const season = searchParams.get('season') || '25F'; // 기본값: 25F
 
   if (!brandCode || !itemCd || !lastDt) {
     return NextResponse.json({
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const details = await getClothingItemDetails(brandCode, itemCd, lastDt);
+    const details = await getClothingItemDetails(brandCode, itemCd, lastDt, season);
     return NextResponse.json({ details });
   } catch (error) {
     console.error('의류 아이템 상세 조회 오류:', error);

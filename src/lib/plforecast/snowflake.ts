@@ -138,16 +138,19 @@ export async function getAccumActuals(
 ): Promise<{ accum: Record<string, number>; accumDays: number }> {
   if (items.length === 0) return { accum: {}, accumDays: 0 };
   
+  // lastDt에서 일자 추출 (예: "2026-01-04" -> 4)
+  const accumDays = parseInt(lastDt.split('-')[2], 10) || 0;
+  
   // CSV 파일에서 데이터 읽기
   const { getActualsCsv } = await import('@/data/plforecast/actuals');
   const { parseAccumActualsCsv } = await import('./parseActualsCsv');
   
   const csvContent = getActualsCsv(ym, lastDt);
   if (!csvContent) {
-    // CSV 파일이 없으면 빈 데이터 반환
+    // CSV 파일이 없으면 빈 데이터 반환하되, accumDays는 lastDt에서 계산
     return {
       accum: Object.fromEntries(items.map((item) => [item, 0])),
-      accumDays: 0,
+      accumDays: accumDays,
     };
   }
   
