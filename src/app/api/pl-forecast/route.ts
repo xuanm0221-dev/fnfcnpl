@@ -1344,6 +1344,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         monthDays,
         lines: [],
         error: `유효하지 않은 브랜드: ${brand}`,
+      }, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
       });
     }
 
@@ -1424,6 +1430,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         monthDays,
         lines: [],
         error: '실적 데이터가 없습니다.',
+      }, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
       });
     }
 
@@ -1655,6 +1667,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       tierRegionData,
       clothingSales,
       clothingLastDt,
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
     });
   } catch (error) {
     console.error('API Error:', error);
@@ -1666,6 +1684,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       monthDays: 0,
       lines: [],
       error: error instanceof Error ? error.message : 'Unknown error',
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
     });
   }
 }

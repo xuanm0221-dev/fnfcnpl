@@ -15,18 +15,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       error: 'brandCode, itemCd, lastDt 파라미터가 필요합니다.',
       details: [],
-    }, { status: 400 });
+    }, { 
+      status: 400,
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
   }
 
   try {
     const details = await getClothingItemDetails(brandCode, itemCd, lastDt, season);
-    return NextResponse.json({ details });
+    return NextResponse.json({ details }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
   } catch (error) {
     console.error('의류 아이템 상세 조회 오류:', error);
     return NextResponse.json({
       error: '데이터 조회 중 오류가 발생했습니다.',
       details: [],
-    }, { status: 500 });
+    }, { 
+      status: 500,
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
   }
 }
 

@@ -29,6 +29,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ShopSalesR
         lastDt,
         shops: [],
         error: '필수 파라미터가 없습니다 (ym, brand, lastDt)',
+      }, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
       });
     }
 
@@ -40,6 +46,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ShopSalesR
         lastDt,
         shops: [],
         error: `지원하지 않는 브랜드입니다: ${brand}`,
+      }, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
       });
     }
 
@@ -50,6 +62,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ShopSalesR
       brand,
       lastDt,
       shops,
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
     });
   } catch (error) {
     console.error('Shop Sales API Error:', error);
@@ -59,6 +77,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ShopSalesR
       lastDt: '',
       shops: [],
       error: error instanceof Error ? error.message : 'Unknown error',
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
     });
   }
 }

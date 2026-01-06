@@ -16,7 +16,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       error: 'ym, lastDt, brandCode, type, key 파라미터가 필요합니다.',
       categories: [],
-    }, { status: 400 });
+    }, { 
+      status: 400,
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
   }
 
   // 요청 파라미터 로깅
@@ -30,7 +37,13 @@ export async function GET(request: NextRequest) {
       count: safeCategories.length, 
       categories: safeCategories.map(c => ({ category: c?.category, cySalesAmt: c?.cySalesAmt }))
     });
-    return NextResponse.json({ categories: safeCategories });
+    return NextResponse.json({ categories: safeCategories }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
   } catch (error) {
     console.error('[category-sales] 카테고리 판매 데이터 조회 오류:', error);
     console.error('[category-sales] 에러 상세:', error instanceof Error ? {
@@ -42,6 +55,13 @@ export async function GET(request: NextRequest) {
       error: '데이터 조회 중 오류가 발생했습니다.',
       errorDetail: error instanceof Error ? error.message : String(error),
       categories: [], // 빈 배열 반환
-    }, { status: 500 });
+    }, { 
+      status: 500,
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
   }
 }
