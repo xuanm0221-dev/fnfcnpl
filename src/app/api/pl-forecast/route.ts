@@ -1,4 +1,6 @@
 export const runtime = "nodejs";
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 import { NextRequest, NextResponse } from 'next/server';
 import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, TierRegionSalesData, TierRegionSalesRow } from '@/lib/plforecast/types';
