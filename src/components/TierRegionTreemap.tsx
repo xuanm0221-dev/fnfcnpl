@@ -61,7 +61,7 @@ function TreemapContent(props: TreemapContentProps) {
     <g onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
       <rect x={x} y={y} width={width} height={height} fill={color || '#4F46E5'} stroke="#fff" strokeWidth={3} rx={8} />
       <text x={x + 16} y={y + 28} fill="#fff" fontSize={18} fontWeight="bold">{name}</text>
-      <text x={x + 16} y={y + 52} fill="#fff" fontSize={15} fontWeight="600">점당: {formatNum(salesPerShop || 0)}</text>
+      <text x={x + 16} y={y + 52} fill="#fff" fontSize={15} fontWeight="600">월말예상 점당: {formatNum(salesPerShop || 0)}</text>
       <text x={x + 16} y={y + 72} fill="rgba(255,255,255,0.9)" fontSize={12}>[{formatNum(salesK || 0)}K, {shopCnt}개]</text>
       {height > 100 && (
         <>

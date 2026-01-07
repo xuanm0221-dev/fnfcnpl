@@ -1175,10 +1175,12 @@ async function buildTierRegionData(
       // 전년 누적 데이터 (진척률 계산용)
       const prevCumSalesAmt = prevRow?.salesAmt || 0;
       const prevCumShopCnt = prevRow?.shopCnt || 0;
+      const prevCumTagAmt = prevRow?.prevTagAmt || 0;
       
       // 전년 월전체 데이터 (표시 및 YOY 비교용)
       const prevFullSalesAmt = prevFullRow?.prevFullSalesAmt || 0;
       const prevFullShopCnt = prevFullRow?.prevFullShopCnt || 0;
+      const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
       // 월환산 점당매출 계산
       // 전년 진척률 = 전년 누적 / 전년 전체
@@ -1190,6 +1192,16 @@ async function buildTierRegionData(
       // 전년(점당 월전체) = 전년 전체 매출 / 전년 전체 매장수
       const prevFullPerShop = prevFullShopCnt > 0 ? prevFullSalesAmt / prevFullShopCnt : 0;
       
+      // 할인율 계산
+      // 당년 할인율 = (1 - 당년 실판 / 당년 Tag 가격) × 100
+      const discountRate = row.tagAmt > 0 ? (1 - row.salesAmt / row.tagAmt) * 100 : null;
+      // 전년 할인율 = (1 - 전년 누적 실판 / 전년 누적 Tag 가격) × 100
+      const prevDiscountRate = prevCumTagAmt > 0 ? (1 - prevCumSalesAmt / prevCumTagAmt) * 100 : null;
+      // 할인율 YOY = 당년 할인율 - 전년 할인율
+      const discountRateYoy = discountRate !== null && prevDiscountRate !== null 
+        ? discountRate - prevDiscountRate 
+        : null;
+      
       const result = {
         ...row,
         prevSalesAmt: prevFullSalesAmt, // 전년도 월전체 매출로 변경
@@ -1199,7 +1211,12 @@ async function buildTierRegionData(
         prevFullShopCnt,
         prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용)
         prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용)
+        prevTagAmt: prevCumTagAmt, // 전년 누적 Tag 가격
+        prevFullTagAmt, // 전년 월전체 Tag 가격
         salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
+        discountRate,
+        prevDiscountRate,
+        discountRateYoy,
       };
       // 디버깅: cities 필드 및 전년도 데이터 확인
       if (row.cities && row.cities.length > 0) {
@@ -1227,10 +1244,12 @@ async function buildTierRegionData(
       // 전년 누적 데이터 (진척률 계산용)
       const prevCumSalesAmt = prevRow?.salesAmt || 0;
       const prevCumShopCnt = prevRow?.shopCnt || 0;
+      const prevCumTagAmt = prevRow?.prevTagAmt || 0;
       
       // 전년 월전체 데이터 (표시 및 YOY 비교용)
       const prevFullSalesAmt = prevFullRow?.prevFullSalesAmt || 0;
       const prevFullShopCnt = prevFullRow?.prevFullShopCnt || 0;
+      const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
       // 월환산 점당매출 계산
       // 전년 진척률 = 전년 누적 / 전년 전체
@@ -1242,6 +1261,16 @@ async function buildTierRegionData(
       // 전년(점당 월전체) = 전년 전체 매출 / 전년 전체 매장수
       const prevFullPerShop = prevFullShopCnt > 0 ? prevFullSalesAmt / prevFullShopCnt : 0;
       
+      // 할인율 계산
+      // 당년 할인율 = (1 - 당년 실판 / 당년 Tag 가격) × 100
+      const discountRate = row.tagAmt > 0 ? (1 - row.salesAmt / row.tagAmt) * 100 : null;
+      // 전년 할인율 = (1 - 전년 누적 실판 / 전년 누적 Tag 가격) × 100
+      const prevDiscountRate = prevCumTagAmt > 0 ? (1 - prevCumSalesAmt / prevCumTagAmt) * 100 : null;
+      // 할인율 YOY = 당년 할인율 - 전년 할인율
+      const discountRateYoy = discountRate !== null && prevDiscountRate !== null 
+        ? discountRate - prevDiscountRate 
+        : null;
+      
       const result = {
         ...row,
         prevSalesAmt: prevFullSalesAmt, // 전년도 월전체 매출로 변경
@@ -1251,7 +1280,12 @@ async function buildTierRegionData(
         prevFullShopCnt,
         prevCumSalesAmt: prevCumSalesAmt, // 전년 누적 매출 (월환산 계산용)
         prevCumShopCnt: prevCumShopCnt, // 전년 누적 매장수 (월환산 계산용)
+        prevTagAmt: prevCumTagAmt, // 전년 누적 Tag 가격
+        prevFullTagAmt, // 전년 월전체 Tag 가격
         salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
+        discountRate,
+        prevDiscountRate,
+        discountRateYoy,
       };
       // 디버깅: cities 필드 확인
       if (row.cities && row.cities.length > 0) {

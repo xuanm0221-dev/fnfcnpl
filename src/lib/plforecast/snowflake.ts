@@ -1086,6 +1086,7 @@ export async function getShopSalesDetails(
 interface TierRegionResult {
   GROUP_KEY: string;
   SALES_AMT: number;
+  TAG_AMT: number;
   SHOP_CNT: number;
   CITIES?: string;
 }
@@ -1175,7 +1176,8 @@ export async function getTierSalesData(
         SELECT 
           sale.shop_id,
           vs.brd_nm,
-          SUM(sale.sale_amt) as shop_sales_amt
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
@@ -1211,6 +1213,7 @@ export async function getTierSalesData(
         SELECT 
           vs.city_tier_nm as GROUP_KEY,
           COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
@@ -1221,7 +1224,8 @@ export async function getTierSalesData(
         SELECT 
           sale.shop_id,
           vs.brd_nm,
-          SUM(sale.sale_amt) as shop_sales_amt
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
@@ -1233,6 +1237,7 @@ export async function getTierSalesData(
         SELECT 
           vs.city_tier_nm as GROUP_KEY,
           COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
@@ -1243,7 +1248,8 @@ export async function getTierSalesData(
         SELECT 
           sale.shop_id,
           vs.brd_nm,
-          SUM(sale.sale_amt) as shop_sales_amt
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
@@ -1255,6 +1261,7 @@ export async function getTierSalesData(
         SELECT 
           vs.city_tier_nm as GROUP_KEY,
           COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
@@ -1264,6 +1271,7 @@ export async function getTierSalesData(
         'CY' as PERIOD, 
         t.GROUP_KEY, 
         t.SALES_AMT, 
+        t.TAG_AMT,
         t.SHOP_CNT,
         COALESCE(tc.cities, '') as CITIES
       FROM cy_tier t
@@ -1273,6 +1281,7 @@ export async function getTierSalesData(
         'LY' as PERIOD, 
         GROUP_KEY, 
         SALES_AMT, 
+        TAG_AMT,
         SHOP_CNT,
         '' as CITIES
       FROM ly_tier
@@ -1281,6 +1290,7 @@ export async function getTierSalesData(
         'LY_FULL' as PERIOD, 
         GROUP_KEY, 
         SALES_AMT, 
+        TAG_AMT,
         SHOP_CNT,
         '' as CITIES
       FROM ly_full_tier
@@ -1332,6 +1342,12 @@ export async function getTierSalesData(
           prevFullShopCnt: 0,
           prevCumSalesAmt: 0,
           prevCumShopCnt: 0,
+          tagAmt: Number(r.TAG_AMT) || 0,
+          prevTagAmt: 0,
+          prevFullTagAmt: 0,
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
         };
       } else {
         // 전년도 데이터: 실제 전년도 값 사용
@@ -1348,6 +1364,12 @@ export async function getTierSalesData(
           prevFullShopCnt: isFull ? Number(r.SHOP_CNT) || 0 : 0,
           prevCumSalesAmt: !isFull ? Number(r.SALES_AMT) || 0 : 0, // 전년 누적 매출
           prevCumShopCnt: !isFull ? Number(r.SHOP_CNT) || 0 : 0, // 전년 누적 매장수
+          tagAmt: 0,
+          prevTagAmt: !isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 누적 Tag 가격
+          prevFullTagAmt: isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 월전체 Tag 가격
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
         };
       }
     };
@@ -1397,7 +1419,8 @@ export async function getRegionSalesData(
         SELECT 
           sale.shop_id,
           vs.brd_nm,
-          SUM(sale.sale_amt) as shop_sales_amt
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
@@ -1433,6 +1456,7 @@ export async function getRegionSalesData(
         SELECT 
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
@@ -1443,7 +1467,8 @@ export async function getRegionSalesData(
         SELECT 
           sale.shop_id,
           vs.brd_nm,
-          SUM(sale.sale_amt) as shop_sales_amt
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
@@ -1455,6 +1480,7 @@ export async function getRegionSalesData(
         SELECT 
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
@@ -1465,7 +1491,8 @@ export async function getRegionSalesData(
         SELECT 
           sale.shop_id,
           vs.brd_nm,
-          SUM(sale.sale_amt) as shop_sales_amt
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
@@ -1477,6 +1504,7 @@ export async function getRegionSalesData(
         SELECT 
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
@@ -1486,6 +1514,7 @@ export async function getRegionSalesData(
         'CY' as PERIOD, 
         r.GROUP_KEY, 
         r.SALES_AMT, 
+        r.TAG_AMT,
         r.SHOP_CNT,
         COALESCE(rc.cities, '') as CITIES
       FROM cy_region r
@@ -1495,6 +1524,7 @@ export async function getRegionSalesData(
         'LY' as PERIOD, 
         GROUP_KEY, 
         SALES_AMT, 
+        TAG_AMT,
         SHOP_CNT,
         '' as CITIES
       FROM ly_region
@@ -1503,6 +1533,7 @@ export async function getRegionSalesData(
         'LY_FULL' as PERIOD, 
         GROUP_KEY, 
         SALES_AMT, 
+        TAG_AMT,
         SHOP_CNT,
         '' as CITIES
       FROM ly_full_region
@@ -1555,6 +1586,12 @@ export async function getRegionSalesData(
           prevFullShopCnt: 0,
           prevCumSalesAmt: 0,
           prevCumShopCnt: 0,
+          tagAmt: Number(r.TAG_AMT) || 0,
+          prevTagAmt: 0,
+          prevFullTagAmt: 0,
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
         };
       } else {
         // 전년도 데이터: 실제 전년도 값 사용
@@ -1572,6 +1609,12 @@ export async function getRegionSalesData(
           prevFullShopCnt: isFull ? Number(r.SHOP_CNT) || 0 : 0,
           prevCumSalesAmt: !isFull ? Number(r.SALES_AMT) || 0 : 0, // 전년 누적 매출
           prevCumShopCnt: !isFull ? Number(r.SHOP_CNT) || 0 : 0, // 전년 누적 매장수
+          tagAmt: 0,
+          prevTagAmt: !isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 누적 Tag 가격
+          prevFullTagAmt: isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 월전체 Tag 가격
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
         };
       }
     };
@@ -1637,6 +1680,8 @@ interface CategorySalesDbRow {
   CATEGORY_KEY: string;
   CY_SALES_AMT: number;
   PY_SALES_AMT: number;
+  CY_TAG_AMT: number;
+  PY_TAG_AMT: number;
 }
 
 /**
@@ -1727,30 +1772,103 @@ export async function getCategorySalesData(
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) = 'BAG' THEN 'Bag'
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'ACC' AND UPPER(scs.prdt_kind_nm_en) NOT IN ('SHOES', 'HEADWEAR', 'BAG') THEN 'Acc_etc'
           -- 의류: sale_dt 기준으로 당해/전년 구분
-          -- 당해 데이터: 25=당시즌, 26=차시즌
+          -- S 시즌: 기존 로직 (연도 비교)
+          -- 당해 데이터 - S 시즌: 25=당시즌, 26=차시즌
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) = 'S'
             AND LEFT(s.sesn, 2) = '${nextYearShort}' THEN 'wear_next_cy'
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) = 'S'
             AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_current_cy'
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) = 'S'
             AND LEFT(s.sesn, 2) NOT IN ('${baseYearShort}', '${nextYearShort}') THEN 'wear_past_cy'
-          -- 전년 데이터: 24=당시즌, 25=차시즌
+          -- 당해 데이터 - F/N 시즌 (1-2월): 25=당시즌, 26=차시즌
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) <= 2
+            AND LEFT(s.sesn, 2) = '${nextYearShort}' THEN 'wear_next_cy'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) <= 2
+            AND LEFT(s.sesn, 2) = '${prevYearShort}' THEN 'wear_current_cy'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) <= 2
+            AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${nextYearShort}') THEN 'wear_past_cy'
+          -- 당해 데이터 - F/N 시즌 (3월 이상): 26=당시즌, 27=차시즌
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) >= 3
+            AND LEFT(s.sesn, 2) = '${nextYearShort}' THEN 'wear_next_cy'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) >= 3
+            AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_current_cy'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) >= 3
+            AND LEFT(s.sesn, 2) NOT IN ('${baseYearShort}', '${nextYearShort}') THEN 'wear_past_cy'
+          -- 전년 데이터 - S 시즌: 24=당시즌, 25=차시즌
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) = 'S'
             AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_next_py'
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) = 'S'
             AND LEFT(s.sesn, 2) = '${prevYearShort}' THEN 'wear_current_py'
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) = 'S'
+            AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${baseYearShort}') THEN 'wear_past_py'
+          -- 전년 데이터 - F/N 시즌 (1-2월): 24=당시즌, 25=차시즌
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) <= 2
+            AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_next_py'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) <= 2
+            AND LEFT(s.sesn, 2) = '${prevYearShort}' THEN 'wear_current_py'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) <= 2
+            AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${baseYearShort}') THEN 'wear_past_py'
+          -- 전년 데이터 - F/N 시즌 (3월 이상): 25=당시즌, 26=차시즌
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) >= 3
+            AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_next_py'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) >= 3
+            AND LEFT(s.sesn, 2) = '${prevYearShort}' THEN 'wear_current_py'
+          WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
+            AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
+            AND RIGHT(s.sesn, 1) IN ('F', 'N')
+            AND CAST('${month}' AS INTEGER) >= 3
             AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${baseYearShort}') THEN 'wear_past_py'
           ELSE 'others'
         END AS CATEGORY_KEY,
         SUM(CASE WHEN s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}' THEN s.sale_amt ELSE 0 END) AS CY_SALES_AMT,
-        SUM(CASE WHEN s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}' THEN s.sale_amt ELSE 0 END) AS PY_SALES_AMT
+        SUM(CASE WHEN s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}' THEN s.sale_amt ELSE 0 END) AS PY_SALES_AMT,
+        SUM(CASE WHEN s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}' THEN s.tag_amt ELSE 0 END) AS CY_TAG_AMT,
+        SUM(CASE WHEN s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}' THEN s.tag_amt ELSE 0 END) AS PY_TAG_AMT
       FROM CHN.dw_sale s
       INNER JOIN valid_shops vs ON s.shop_id = vs.shop_id
       LEFT JOIN FNF.CHN.MST_PRDT_SCS scs ON s.prdt_scs_cd = scs.prdt_scs_cd
@@ -1785,7 +1903,7 @@ export async function getCategorySalesData(
     }
     
     // 카테고리별로 당해/전년 데이터 합산
-    const categoryMap: Record<string, { category: string; cySalesAmt: number; pySalesAmt: number }> = {};
+    const categoryMap: Record<string, { category: string; cySalesAmt: number; pySalesAmt: number; cyTagAmt: number; pyTagAmt: number }> = {};
     
     rows.forEach(row => {
       if (!row) return;
@@ -1805,11 +1923,13 @@ export async function getCategorySalesData(
       }
       
       if (!categoryMap[category]) {
-        categoryMap[category] = { category, cySalesAmt: 0, pySalesAmt: 0 };
+        categoryMap[category] = { category, cySalesAmt: 0, pySalesAmt: 0, cyTagAmt: 0, pyTagAmt: 0 };
       }
       
       categoryMap[category].cySalesAmt += Number(row.CY_SALES_AMT) || 0;
       categoryMap[category].pySalesAmt += Number(row.PY_SALES_AMT) || 0;
+      categoryMap[category].cyTagAmt += Number(row.CY_TAG_AMT) || 0;
+      categoryMap[category].pyTagAmt += Number(row.PY_TAG_AMT) || 0;
     });
     
     const categoryNameMap: Record<string, string> = {
@@ -1822,12 +1942,29 @@ export async function getCategorySalesData(
       if (!item) return null;
       const cySalesAmt = item.cySalesAmt || 0;
       const pySalesAmt = item.pySalesAmt || 0;
+      const cyTagAmt = item.cyTagAmt || 0;
+      const pyTagAmt = item.pyTagAmt || 0;
       const yoy = pySalesAmt > 0 ? cySalesAmt / pySalesAmt : null;
+      
+      // 할인율 계산
+      // 당년 할인율 = (1 - 당년 실판누적 / 당년 Tag 누적) × 100
+      const discountRate = cyTagAmt > 0 ? (1 - cySalesAmt / cyTagAmt) * 100 : null;
+      // 전년 할인율 = (1 - 전년 실판누적 / 전년 Tag 누적) × 100
+      const prevDiscountRate = pyTagAmt > 0 ? (1 - pySalesAmt / pyTagAmt) * 100 : null;
+      // 할인율 YOY = 당년 할인율 - 전년 할인율
+      const discountRateYoy = discountRate !== null && prevDiscountRate !== null 
+        ? discountRate - prevDiscountRate 
+        : null;
       
       return {
         category: categoryNameMap[item.category] || item.category,
         cySalesAmt,
         pySalesAmt,
+        cyTagAmt,
+        pyTagAmt,
+        discountRate,
+        prevDiscountRate,
+        discountRateYoy,
         yoy
       };
     }).filter((item): item is NonNullable<typeof item> => item !== null);

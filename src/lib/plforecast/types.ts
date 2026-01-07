@@ -235,6 +235,12 @@ export interface TierRegionSalesRow {
   prevFullShopCnt: number;  // 전년 월전체 매장수
   prevCumSalesAmt: number; // 전년 누적 매출 합계 (월환산 계산용)
   prevCumShopCnt: number;  // 전년 누적 매장수 (월환산 계산용)
+  tagAmt: number;       // 당년 Tag 가격 합계
+  prevTagAmt: number;   // 전년 Tag 가격 합계 (누적)
+  prevFullTagAmt: number; // 전년 Tag 가격 합계 (월전체)
+  discountRate: number | null; // 당년 할인율 (%)
+  prevDiscountRate: number | null; // 전년 할인율 (%)
+  discountRateYoy: number | null; // 할인율 YOY (당년 - 전년, %)
 }
 
 // 티어별/지역별 점당매출 데이터

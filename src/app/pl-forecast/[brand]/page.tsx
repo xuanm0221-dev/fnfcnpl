@@ -794,16 +794,22 @@ interface TreemapContentProps {
   prevSalesK?: string;
   prevShopCnt?: number;
   yoy?: number;
+  discountRate?: number | null;
+  discountRateYoy?: number | null;
   color?: string;
 }
 
-function TreemapContent(props: TreemapContentProps) {
+function TreemapContent(props: TreemapContentProps & { payload?: any }) {
   const { 
     x = 0, y = 0, width = 0, height = 0, 
     displayName, salesPerShop, salesK, shopCnt, 
     prevSalesPerShop, prevSalesK, prevShopCnt,
-    yoy, color 
+    yoy, discountRate, discountRateYoy, color, payload
   } = props;
+  
+  // Recharts가 props로 전달하지 않을 경우 payload에서 가져오기
+  const finalDiscountRate = discountRate !== undefined ? discountRate : (payload?.discountRate ?? null);
+  const finalDiscountRateYoy = discountRateYoy !== undefined ? discountRateYoy : (payload?.discountRateYoy ?? null);
   
   // 타일 간 간격 (2px - 하얀색 구분선)
   const gap = 2;
@@ -894,8 +900,9 @@ function TreemapContent(props: TreemapContentProps) {
         <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
           {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
           <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#fff', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
-            <div>실판&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{salesK}K ({salesYoyPercent !== null ? `${salesYoyPercent}%` : '-'})</div>
-            <div>점당&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{formatNum(salesPerShop || 0)} ({salesPerShopYoyPercent !== null ? `${salesPerShopYoyPercent}%` : '-'})</div>
+            <div>당월누적 실판&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{salesK}K ({salesYoyPercent !== null ? `${salesYoyPercent}%` : '-'})</div>
+            <div>할인율 (YOY)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{finalDiscountRate !== null && finalDiscountRate !== undefined ? `${finalDiscountRate.toFixed(1)}%` : '-'} {finalDiscountRateYoy !== null && finalDiscountRateYoy !== undefined ? `(${finalDiscountRateYoy >= 0 ? '+' : ''}${finalDiscountRateYoy.toFixed(1)}%)` : ''}</div>
+            <div>월말예상 점당&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{formatNum(salesPerShop || 0)} ({salesPerShopYoyPercent !== null ? `${salesPerShopYoyPercent}%` : '-'})</div>
             <div>매장수&nbsp;&nbsp;{shopCnt || 0}개 ({shopYoyText})</div>
           </div>
         </foreignObject>
@@ -1049,6 +1056,8 @@ function CategoryTreemapInline({
       pySalesAmt: cat.pySalesAmt || 0,
       yoy: categoryYoy,
       percentage,
+      discountRate: cat.discountRate ?? null,
+      discountRateYoy: cat.discountRateYoy ?? null,
       color: getYoyColor(categoryYoy), // YOY 기반 그라데이션 색상
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
@@ -1091,7 +1100,7 @@ function CategoryTreemapInline({
               aspectRatio={4 / 3}
               stroke="none"
               content={(props) => {
-                const { x, y, width, height, name, displayName, cySalesAmt, pySalesAmt, yoy, color, percentage } = props as TreemapContentProps & { cySalesAmt?: number; pySalesAmt?: number; percentage?: string };
+                const { x, y, width, height, name, displayName, cySalesAmt, pySalesAmt, yoy, color, percentage, discountRate, discountRateYoy } = props as TreemapContentProps & { cySalesAmt?: number; pySalesAmt?: number; percentage?: string; discountRate?: number | null; discountRateYoy?: number | null };
                 
                 const gap = 2;
                 const innerX = (x || 0) + gap;
@@ -1161,8 +1170,9 @@ function CategoryTreemapInline({
                       <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
                         {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
                         <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#fff', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
-                          <div>실판 {formatK(cySalesAmt || 0)}K (전년 {formatK(pySalesAmt || 0)}K, {categoryYoy !== null ? `${categoryYoy}%` : '-'})</div>
+                          <div>당월누적 실판 {formatK(cySalesAmt || 0)}K (전년 {formatK(pySalesAmt || 0)}K, {categoryYoy !== null ? `${categoryYoy}%` : '-'})</div>
                           <div>비중 {percentage || '0.0'}%</div>
+                          <div>할인율 (YOY) {discountRate !== null && discountRate !== undefined ? `${discountRate.toFixed(1)}%` : '-'} {discountRateYoy !== null && discountRateYoy !== undefined ? `(${discountRateYoy >= 0 ? '+' : ''}${discountRateYoy.toFixed(1)}%)` : ''}</div>
                         </div>
                       </foreignObject>
                     )}
@@ -1337,6 +1347,8 @@ function CategoryTreemapModal({
       pySalesAmt: cat.pySalesAmt || 0,
       yoy: categoryYoy,
       percentage,
+      discountRate: cat.discountRate ?? null,
+      discountRateYoy: cat.discountRateYoy ?? null,
       color: getYoyColor(categoryYoy), // YOY 기반 그라데이션 색상
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
@@ -1371,7 +1383,7 @@ function CategoryTreemapModal({
                     aspectRatio={4 / 3}
                     stroke="none"
                     content={(props) => {
-                      const { x, y, width, height, name, displayName, cySalesAmt, pySalesAmt, yoy, color, percentage } = props as TreemapContentProps & { cySalesAmt?: number; pySalesAmt?: number; percentage?: string };
+                      const { x, y, width, height, name, displayName, cySalesAmt, pySalesAmt, yoy, color, percentage, discountRate, discountRateYoy } = props as TreemapContentProps & { cySalesAmt?: number; pySalesAmt?: number; percentage?: string; discountRate?: number | null; discountRateYoy?: number | null };
                       
                       // 타일 간 간격 (2px - 하얀색 구분선)
                       const gap = 2;
@@ -1445,8 +1457,9 @@ function CategoryTreemapModal({
                             <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
                               {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
                               <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#fff', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
-                                <div>실판 {formatK(cySalesAmt || 0)}K (전년 {formatK(pySalesAmt || 0)}K, {categoryYoy !== null ? `${categoryYoy}%` : '-'})</div>
+                                <div>당월누적 실판 {formatK(cySalesAmt || 0)}K (전년 {formatK(pySalesAmt || 0)}K, {categoryYoy !== null ? `${categoryYoy}%` : '-'})</div>
                                 <div>비중 {percentage || '0.0'}%</div>
+                                <div>할인율 (YOY) {discountRate !== null && discountRate !== undefined ? `${discountRate.toFixed(1)}%` : '-'} {discountRateYoy !== null && discountRateYoy !== undefined ? `(${discountRateYoy >= 0 ? '+' : ''}${discountRateYoy.toFixed(1)}%)` : ''}</div>
                               </div>
                             </foreignObject>
                           )}
@@ -1722,7 +1735,7 @@ function TierRegionTreemap({
     return {
       name: tier.key,
       displayName: tier.key,
-      size: tier.salesAmt || 0, // 실판 기준으로 박스 크기 결정
+      size: tier.salesAmt || 0, // 당월누적 실판 기준으로 박스 크기 결정
       salesPerShop: tier.salesPerShop || 0,
       salesK: Math.round((tier.salesAmt || 0) / 1000).toLocaleString(),
       shopCnt: tier.shopCnt || 0,
@@ -1730,16 +1743,18 @@ function TierRegionTreemap({
       prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(),
       prevShopCnt: prevCumShopCnt,
       yoy,
+      discountRate: tier.discountRate,
+      discountRateYoy: tier.discountRateYoy,
       color: getYoyColor(yoy), // YOY 기반 그라데이션 색상
       labelKo: tier.labelKo,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null)
     .sort((a, b) => {
-      // 실판 기준으로 정렬 (salesAmt)
+      // 당월누적 실판 기준으로 정렬 (salesAmt)
       const aSalesAmt = parseFloat(a.salesK?.replace(/,/g, '') || '0') * 1000;
       const bSalesAmt = parseFloat(b.salesK?.replace(/,/g, '') || '0') * 1000;
       return bSalesAmt - aSalesAmt;
-    }); // 당월 실판 기준 내림차순 정렬
+    }); // 당월누적 실판 기준 내림차순 정렬
   
   // 지역 데이터 변환 (한국어(중국어) 형식)
   const regionTreemapData = safeRegions.map((region) => {
@@ -1753,7 +1768,7 @@ function TierRegionTreemap({
     return {
       name: region.key,
       displayName: region.labelKo ? `${region.labelKo}(${region.key})` : region.key,
-      size: region.salesAmt || 0, // 실판 기준으로 박스 크기 결정
+      size: region.salesAmt || 0, // 당월누적 실판 기준으로 박스 크기 결정
       salesPerShop: region.salesPerShop || 0,
       salesK: Math.round((region.salesAmt || 0) / 1000).toLocaleString(),
       shopCnt: region.shopCnt || 0,
@@ -1761,17 +1776,19 @@ function TierRegionTreemap({
       prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(),
       prevShopCnt: prevCumShopCnt,
       yoy,
+      discountRate: region.discountRate,
+      discountRateYoy: region.discountRateYoy,
       color: getYoyColor(yoy), // YOY 기반 그라데이션 색상
       cities: region.cities,
       labelKo: region.labelKo,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null)
     .sort((a, b) => {
-      // 실판 기준으로 정렬 (salesAmt)
+      // 당월누적 실판 기준으로 정렬 (salesAmt)
       const aSalesAmt = parseFloat(a.salesK?.replace(/,/g, '') || '0') * 1000;
       const bSalesAmt = parseFloat(b.salesK?.replace(/,/g, '') || '0') * 1000;
       return bSalesAmt - aSalesAmt;
-    }); // 당월 실판 기준 내림차순 정렬
+    }); // 당월누적 실판 기준 내림차순 정렬
   
   const handleTierClick = (data: { name: string; labelKo?: string }) => {
     setSelectedTier({ key: data.name, labelKo: data.labelKo });
@@ -1897,10 +1914,10 @@ function TierRegionTreemap({
         
         {/* 범례 */}
         <div className="mt-4 pt-3 border-t border-gray-200">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             {/* 순서 설명 */}
             <div className="text-xs text-gray-600 text-center">
-              ※ 트리맵 순서: 당월 실판 기준 내림차순 정렬
+              ※ 트리맵 순서: 당월누적 실판 기준 내림차순 정렬
             </div>
             
             {/* 색상 기준 범례 */}
@@ -1935,6 +1952,44 @@ function TierRegionTreemap({
                 <span className="text-xs text-gray-600">85% 미만</span>
               </div>
             </div>
+            
+            {/* 시즌 구분 설명 */}
+            {(() => {
+              const currentMonth = parseInt(ym.substring(5, 7));
+              const baseYearShort = ym.substring(2, 4);
+              const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0');
+              const nextYearShort = String(parseInt(baseYearShort) + 1).padStart(2, '0');
+              
+              return (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <div className="text-xs text-gray-600 text-center mb-2">
+                    ※ 시즌 구분 기준:
+                  </div>
+                  <div className="flex justify-center items-center gap-6 flex-wrap text-xs text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">S 시즌 (예: {baseYearShort}S):</span>
+                      <span>• 기준연도와 비교하여 구분</span>
+                      <span>|</span>
+                      <span>{baseYearShort}S = 당시즌, {nextYearShort}S = 차시즌, 그 외 = 과시즌</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">F/N 시즌 (예: {baseYearShort}F, {baseYearShort}N):</span>
+                      {currentMonth <= 2 ? (
+                        <>
+                          <span>• 기준월이 1-2월인 경우:</span>
+                          <span>{prevYearShort}F/N = 당시즌, {baseYearShort}F/N = 차시즌, 그 외 = 과시즌</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>• 기준월이 3월 이상인 경우:</span>
+                          <span>{baseYearShort}F/N = 당시즌, {nextYearShort}F/N = 차시즌, 그 외 = 과시즌</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
