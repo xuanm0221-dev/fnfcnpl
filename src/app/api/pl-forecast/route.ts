@@ -41,6 +41,7 @@ import {
 } from '@/lib/plforecast/snowflake';
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
+import { getKstYesterdayDate, getKstCurrentYm } from '@/lib/plforecast/date';
 
 // 계정맵핑 파싱 (캐시)
 let accountMappings: AccountMapping[] | null = null;
@@ -1004,21 +1005,15 @@ const brandCodeToShopName: Record<string, string> = {
 };
 
 // 전일 날짜 계산 (점당매출용 - 자동 업데이트 기준)
+// 한국 시간대(KST) 기준으로 계산
 function getYesterdayDate(): string {
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  
-  const year = yesterday.getFullYear();
-  const month = String(yesterday.getMonth() + 1).padStart(2, '0');
-  const day = String(yesterday.getDate()).padStart(2, '0');
-  
-  return `${year}-${month}-${day}`;
+  return getKstYesterdayDate();
 }
 
 // 기준월 마감 시점 날짜 계산 (점당매출, 의류 판매율 공통 사용)
 // - 현재 진행중인 월: 전일까지 (누적)
 // - 이미 마감된 월: 해당 월의 마지막 날까지
+// 한국 시간대(KST) 기준으로 계산
 function getMonthEndDate(ym: string): string {
   const currentYm = getCurrentYm();
   
@@ -1695,9 +1690,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
 }
 
 // 현재 월 (YYYY-MM)
+// 한국 시간대(KST) 기준으로 계산
 function getCurrentYm(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return getKstCurrentYm();
 }
 
 // 의류 판매율 기본 시즌 계산 (현재 월 기준)

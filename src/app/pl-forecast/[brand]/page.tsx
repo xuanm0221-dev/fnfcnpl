@@ -5,12 +5,13 @@ import { useRouter, useParams } from 'next/navigation';
 import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail } from '@/lib/plforecast/types';
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
+import { getKstCurrentYm } from '@/lib/plforecast/date';
 import { ResponsiveContainer, Treemap } from 'recharts';
 
 // 현재 월 계산 (YYYY-MM)
+// 한국 시간대(KST) 기준으로 계산
 function getCurrentYm(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return getKstCurrentYm();
 }
 
 // 퍼센트 포맷 (소수점 1자리)
