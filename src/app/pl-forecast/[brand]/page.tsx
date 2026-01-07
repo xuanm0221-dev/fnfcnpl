@@ -932,7 +932,7 @@ function CategoryTreemapInline({
   onCategoryClick: (categoryName: string, type: 'tier' | 'region') => void;
 }) {
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null }[]>([]);
+  const [categories, setCategories] = useState<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null; discountRate: number | null; prevDiscountRate: number | null; discountRateYoy: number | null }[]>([]);
   
   useEffect(() => {
     if (keyName) {
@@ -1215,7 +1215,7 @@ function CategoryTreemapModal({
   lastDt: string;
 }) {
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null }[]>([]);
+  const [categories, setCategories] = useState<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null; discountRate: number | null; prevDiscountRate: number | null; discountRateYoy: number | null }[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showProductModal, setShowProductModal] = useState(false);
   

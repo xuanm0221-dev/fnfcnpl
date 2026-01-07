@@ -1693,7 +1693,7 @@ export async function getCategorySalesData(
   brdCd: string,
   ym: string,
   lastDt: string
-): Promise<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null }[]> {
+): Promise<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null; discountRate: number | null; prevDiscountRate: number | null; discountRateYoy: number | null }[]> {
   const connection = await getConnection();
   
   try {
