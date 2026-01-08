@@ -607,13 +607,13 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
     ? [...data.regions].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
     : [];
   
-  // 티어 합계 계산
+  // 티어 합계 계산 - 전체 데이터 사용 (상단 표와 일치)
   const tierTotalSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
   const tierTotalShopCnt = safeTiers.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
-  // 전년 누적 데이터 합계 (월환산 계산용)
-  const tierTotalPrevCumSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
-  const tierTotalPrevCumShopCnt = safeTiers.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
-  // 전년 월전체 데이터 - 대리상 오프라인 점당매출의 전년 합계 데이터 사용
+  // 전년 누적 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
+  const tierTotalPrevCumSalesAmt = data?.prevTotalCumSalesAmt ?? safeTiers.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
+  const tierTotalPrevCumShopCnt = data?.prevTotalCumShopCnt ?? safeTiers.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
+  // 전년 월전체 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
   const tierTotalPrevFullSalesAmt = data?.prevTotalSalesAmt ?? safeTiers.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
   const tierTotalPrevFullShopCnt = data?.prevTotalShopCnt ?? safeTiers.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
   // 월환산 점당매출 계산
@@ -625,13 +625,13 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
   const tierTotalPrevShopCnt = data?.prevTotalShopCnt ?? safeTiers.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
   const tierTotalPrevSalesPerShop = data?.prevTotalSalesPerShop ?? (tierTotalPrevShopCnt > 0 ? tierTotalPrevSalesAmt / tierTotalPrevShopCnt : 0);
   
-  // 지역 합계 계산
+  // 지역 합계 계산 - 전체 데이터 사용 (상단 표와 일치)
   const regionTotalSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
   const regionTotalShopCnt = safeRegions.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
-  // 전년 누적 데이터 합계 (월환산 계산용)
-  const regionTotalPrevCumSalesAmt = safeRegions.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
-  const regionTotalPrevCumShopCnt = safeRegions.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
-  // 전년 월전체 데이터 - 대리상 오프라인 점당매출의 전년 합계 데이터 사용
+  // 전년 누적 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
+  const regionTotalPrevCumSalesAmt = data?.prevTotalCumSalesAmt ?? safeRegions.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
+  const regionTotalPrevCumShopCnt = data?.prevTotalCumShopCnt ?? safeRegions.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
+  // 전년 월전체 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
   const regionTotalPrevFullSalesAmt = data?.prevTotalSalesAmt ?? safeRegions.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
   const regionTotalPrevFullShopCnt = data?.prevTotalShopCnt ?? safeRegions.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
   // 월환산 점당매출 계산
