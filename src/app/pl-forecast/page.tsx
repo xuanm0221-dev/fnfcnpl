@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ApiResponse, PlLine, ChartData } from '@/lib/plforecast/types';
-import { brandTabs } from '@/lib/plforecast/brand';
+import type { ApiResponse, PlLine, ChartData, BrandCode } from '@/lib/plforecast/types';
+import { brandTabs, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import { getKstCurrentYm } from '@/lib/plforecast/date';
 import {
@@ -218,6 +218,8 @@ export default function PlForecastPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showAccum, setShowAccum] = useState(false);
   const [trendTab, setTrendTab] = useState<'weekly' | 'daily'>('weekly');
+  const [chartBrand, setChartBrand] = useState<BrandCode | 'all'>('all');
+  const [chartData, setChartData] = useState<ChartData | null>(null);
 
   // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
   useEffect(() => {
@@ -257,6 +259,10 @@ export default function PlForecastPage() {
             });
           }
           setExpandedRows(defaultExpanded);
+          // 초기 차트 데이터 설정
+          if (json.charts) {
+            setChartData(json.charts);
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : '데이터 조회 실패');
@@ -266,6 +272,25 @@ export default function PlForecastPage() {
     }
     fetchData();
   }, [ym]);
+
+  // 브랜드 선택 시 차트 데이터 조회
+  useEffect(() => {
+    async function fetchChartData() {
+      if (!data?.lastDt) return;
+      
+      try {
+        const brandParam = chartBrand === 'all' ? 'all' : chartBrand;
+        const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandParam}`);
+        const json: ApiResponse = await res.json();
+        if (json.charts) {
+          setChartData(json.charts);
+        }
+      } catch (err) {
+        console.error('차트 데이터 조회 실패:', err);
+      }
+    }
+    fetchChartData();
+  }, [chartBrand, ym, data?.lastDt]);
 
   // 행 토글
   const toggleRow = (id: string) => {
@@ -694,37 +719,56 @@ export default function PlForecastPage() {
                     </div>
                   </div>
 
-                  {/* 차트4: 월중 누적 매출 추이 */}
+                  {/* 차트4: 월중 리테일 매출 추이 */}
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-semibold text-gray-700">월중 누적 매출 추이</h4>
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => setTrendTab('weekly')}
-                          className={`px-2 py-1 text-xs rounded ${
-                            trendTab === 'weekly' 
-                              ? 'bg-cyan-600 text-white' 
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                        >
-                          주차별
-                        </button>
-                        <button
-                          onClick={() => setTrendTab('daily')}
-                          className={`px-2 py-1 text-xs rounded ${
-                            trendTab === 'daily' 
-                              ? 'bg-cyan-600 text-white' 
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                        >
-                          누적
-                        </button>
+                      <h4 className="text-sm font-semibold text-gray-700">월중 리테일 매출 추이</h4>
+                      <div className="flex gap-1 items-center">
+                        <div className="flex gap-1 mr-2">
+                          <button
+                            onClick={() => setTrendTab('weekly')}
+                            className={`px-2 py-1 text-xs rounded ${
+                              trendTab === 'weekly' 
+                                ? 'bg-cyan-600 text-white' 
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            주차별
+                          </button>
+                          <button
+                            onClick={() => setTrendTab('daily')}
+                            className={`px-2 py-1 text-xs rounded ${
+                              trendTab === 'daily' 
+                                ? 'bg-cyan-600 text-white' 
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            누적
+                          </button>
+                        </div>
+                        <div className="flex gap-1 border-l pl-2">
+                          {brandTabs.map((tab) => (
+                            <button
+                              key={tab.code}
+                              onClick={() => setChartBrand(tab.code)}
+                              className={`px-2 py-1 text-xs rounded ${
+                                chartBrand === tab.code
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart 
-                          data={trendTab === 'weekly' ? data.charts.weeklyTrend : data.charts.weeklyAccumTrend} 
+                          data={trendTab === 'weekly' 
+                            ? (chartData?.weeklyTrend || data.charts?.weeklyTrend || []) 
+                            : (chartData?.weeklyAccumTrend || data.charts?.weeklyAccumTrend || [])} 
                           margin={{ top: 5, right: 20, left: 10, bottom: 25 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />

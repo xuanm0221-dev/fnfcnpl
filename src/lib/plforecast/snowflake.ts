@@ -647,12 +647,12 @@ export async function getWeeklySales(
     for (const week of weekRanges) {
       const sql = `
         SELECT 
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN ?::DATE AND ?::DATE THEN ACT_SALE_AMT ELSE 0 END), 0) as CUR_SALE,
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN ACT_SALE_AMT ELSE 0 END), 0) as PREV_SALE
-        FROM sap_fnf.dw_cn_copa_d
+          COALESCE(SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN sale_amt ELSE 0 END), 0) as CUR_SALE,
+          COALESCE(SUM(CASE WHEN sale_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN sale_amt ELSE 0 END), 0) as PREV_SALE
+        FROM chn.dw_sale
         WHERE (
-          (pst_dt BETWEEN ?::DATE AND ?::DATE)
-          OR (pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE))
+          (sale_dt BETWEEN ?::DATE AND ?::DATE)
+          OR (sale_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE))
         )
         AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
       `;
@@ -704,12 +704,12 @@ export async function getWeeklyAccumSales(
       
       const sql = `
         SELECT 
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN ?::DATE AND ?::DATE THEN ACT_SALE_AMT ELSE 0 END), 0) as CUR_ACCUM,
-          COALESCE(SUM(CASE WHEN pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN ACT_SALE_AMT ELSE 0 END), 0) as PREV_ACCUM
-        FROM sap_fnf.dw_cn_copa_d
+          COALESCE(SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN sale_amt ELSE 0 END), 0) as CUR_ACCUM,
+          COALESCE(SUM(CASE WHEN sale_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE) THEN sale_amt ELSE 0 END), 0) as PREV_ACCUM
+        FROM chn.dw_sale
         WHERE (
-          (pst_dt BETWEEN ?::DATE AND ?::DATE)
-          OR (pst_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE))
+          (sale_dt BETWEEN ?::DATE AND ?::DATE)
+          OR (sale_dt BETWEEN DATEADD(year, -1, ?::DATE) AND DATEADD(year, -1, ?::DATE))
         )
         AND brd_cd IN (${brandCodes.map(() => '?').join(',')})
       `;

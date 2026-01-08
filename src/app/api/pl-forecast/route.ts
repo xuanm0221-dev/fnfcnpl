@@ -1575,10 +1575,17 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     // 카드 요약 데이터 계산 (lines가 비어있지 않을 때만)
     const summary = lines && lines.length > 0 ? buildCardSummary(lines, mergedData, context) : undefined;
 
-    // 차트 데이터 (전체 페이지만)
+    // 차트 데이터 (전체 페이지만, 브랜드별 필터링 지원)
     let charts: ChartData | undefined;
     if (brand === 'all' && brandDataMap.size > 0) {
       charts = await buildChartData(ym, lastDt, brandDataMap, lines, brandCodes);
+    } else if (brand !== 'all') {
+      // 브랜드별 차트 데이터도 생성 (주차별 매출 추이용)
+      // brandDataMap이 비어있어도 주차별 매출 데이터는 조회 가능
+      const singleBrandCode = brand as BrandCode;
+      // 빈 brandDataMap을 전달하되, 주차별 매출 데이터만 조회
+      const emptyBrandDataMap = new Map<BrandCode, { lines: PlLine[]; prevYear: Record<string, number>; accum: Record<string, number> }>();
+      charts = await buildChartData(ym, lastDt, emptyBrandDataMap, lines, [singleBrandCode]);
     }
     
     // 채널별 테이블 데이터 (브랜드별 페이지만)
