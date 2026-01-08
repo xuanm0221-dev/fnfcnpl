@@ -6,6 +6,7 @@ import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, 
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import { getKstCurrentYm } from '@/lib/plforecast/date';
+import { calculateAdjustedProgressRate } from '@/lib/plforecast/progressRateAdjustment';
 import { ResponsiveContainer, Treemap } from 'recharts';
 
 // 현재 월 계산 (YYYY-MM)
@@ -445,6 +446,9 @@ function ShopSalesModal({
 
 // 점당매출 테이블 컴포넌트 (대리상 오프라인)
 function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { data: RetailSalesTableData; brandLabel: string; onSalesClick: () => void; retailLastDt: string }) {
+  // 토글 상태
+  const [isLegendExpanded, setIsLegendExpanded] = React.useState(false);
+  
   // 날짜 포맷 (25.12.29 형식)
   const formatShortDate = (dateStr: string): string => {
     if (!dateStr) return '';
@@ -470,6 +474,7 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
   const rows: Array<{
     key: keyof RetailSalesTableData;
     label: string;
+    labelExtra?: React.ReactNode;
     formatActual: (v: number | null) => string;
     formatPlan: (v: number | null) => string;
     formatPrev: (v: number | null) => string;
@@ -498,6 +503,11 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
     { 
       key: 'salesPerShopMonthly', 
       label: '4. 점당매출_월환산',
+      labelExtra: data.isProgressRateAdjusted ? (
+        <span className="ml-2 px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded-full">
+          명절보정
+        </span>
+      ) : null,
       formatActual: (v) => formatNumber(v, 0),
       formatPlan: (v) => formatNumber(v, 0),
       formatPrev: (v) => formatNumber(v, 0),
@@ -537,8 +547,11 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
                   className={`border-b border-gray-100 ${isHighlight ? 'bg-yellow-50' : ''} ${isClickable ? 'cursor-pointer hover:bg-blue-100' : ''}`}
                   onClick={isClickable ? onSalesClick : undefined}
                 >
-                  <td className={`py-2 px-3 text-left font-medium border-r border-gray-200 whitespace-nowrap ${isClickable ? 'text-blue-600 underline' : 'text-gray-700'}`}>
-                    {row.label}
+                  <td className={`py-2 px-3 text-left font-medium border-r border-gray-200 ${isClickable ? 'text-blue-600 underline' : 'text-gray-700'}`}>
+                    <div className="flex items-center">
+                      <span>{row.label}</span>
+                      {row.labelExtra}
+                    </div>
                   </td>
                   <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">
                     {row.formatActual(rowData.actual)}
@@ -572,14 +585,103 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
         <p>※ 기준 안내</p>
         <p>• 리테일 매출: 대리상 오프라인 매장 + 상품 브랜드 필터 (매장 브랜드 무관)</p>
         <p>• 매장수: 대리상 오프라인 매장 + 매장 브랜드 필터 (해당 상품 브랜드 매출 &gt; 0 매장만 카운팅)</p>
-        <p>• 점당매출_월환산: 전년 진척률(전년 누적/전년 전체)을 기준으로 당년 누적 매출을 월환산하여 계산한 점당매출</p>
+        <p>
+          • 점당매출_월환산: {' '}
+          {data.isProgressRateAdjusted ? (
+            <>
+              <span className="text-indigo-600 font-semibold">[명절보정]</span> 요일계수 × 명절D계수를 적용한 보정 진척률로 월환산 (1~2월 설날, 9~10월 추석)
+            </>
+          ) : (
+            <>전년 단순 진척률(전년 누적/전년 전체)로 월환산</>
+          )}
+        </p>
+        {data.isProgressRateAdjusted && (
+          <div className="mt-2">
+            <button
+              onClick={() => setIsLegendExpanded(!isLegendExpanded)}
+              className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-semibold text-xs transition-colors"
+            >
+              <span className={`transform transition-transform duration-200 ${isLegendExpanded ? 'rotate-90' : ''}`}>
+                ▶
+              </span>
+              명절보정 계산 방식 {isLegendExpanded ? '접기' : '상세보기'}
+            </button>
+            
+            {isLegendExpanded && (
+              <div className="mt-2 p-3 bg-white rounded border border-indigo-100">
+                <p className="text-gray-700 font-semibold mb-1">
+                  <span className="text-indigo-600">▸</span> 명절보정 계산 방식
+                </p>
+                <div className="ml-3 space-y-1 text-gray-600">
+                  <p>
+                    <strong>1. 문제</strong>: 설날(춘절, 1~2월) 및 추석(9~10월)이 매년 이동하여 단순 진척률로는 부정확
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    예) 2025년 1월 설날 포함 vs 2026년 1월 설날 없음 / 2025년 추석 10월 vs 2026년 추석 9월
+                  </p>
+                  
+                  <p className="mt-2">
+                    <strong>2. 해결</strong>: 전년 요일 패턴 + 당년 명절 위치를 결합하여 보정
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    • 요일계수: 전년 실제 요일 (주말 1.3~1.5배, 평일 0.7~0.9배)
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    • 명절D계수: 당년 명절 기준 (D-7~D-1 피크 1.3~2.1배, D+0~D+7 연휴 0.5~0.9배)
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    • 설날: D-48 ~ D+15 범위 / 추석: D-14 ~ D+7 범위
+                  </p>
+                  
+                  <p className="mt-2">
+                    <strong>3. 계산식</strong>:
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px] font-mono">
+                    진척률 = Σ(전년 요일계수 × 당년 D-index계수) / 전년 월전체 가중치합
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px] font-mono">
+                    월환산 = 당년 누적 매출 / 진척률
+                  </p>
+                  
+                  <p className="mt-2">
+                    <strong>4. 예시</strong>: 2026년 1월 7일 조회 (설날 보정)
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    • 당년 설날: 2/17 (1월은 D-47~D-17, 일반 기간)
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    • 전년(2025) 1/1~1/7 요일 × 당년(2026) D-index계수 = 누적 가중치
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    • 전년(2025) 1/1~1/31 요일 × 당년(2026) D-index계수 = 월전체 가중치
+                  </p>
+                  <p className="ml-4 text-gray-500 text-[11px]">
+                    • 진척률 ≈ 7/31 = 23% → 월환산 = 누적 / 0.23 = 약 4.3배
+                  </p>
+                </div>
+                
+                <p className="text-gray-400 mt-2 text-[11px] border-t border-gray-200 pt-2">
+                  ※ 3~8월, 11~12월은 명절 영향이 없어 기존 단순 진척률 사용
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // 티어별/지역별 점당매출 테이블 컴포넌트
-function TierRegionTable({ data }: { data: TierRegionSalesData }) {
+function TierRegionTable({ 
+  data, 
+  ym, 
+  retailLastDt 
+}: { 
+  data: TierRegionSalesData; 
+  ym: string; 
+  retailLastDt: string; 
+}) {
   // 숫자 포맷 (천단위 콤마)
   const formatNumber = (value: number): string => {
     return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -616,8 +718,13 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
   // 전년 월전체 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
   const tierTotalPrevFullSalesAmt = data?.prevTotalSalesAmt ?? safeTiers.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
   const tierTotalPrevFullShopCnt = data?.prevTotalShopCnt ?? safeTiers.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
-  // 월환산 점당매출 계산
-  const tierLyProgressRate = tierTotalPrevFullSalesAmt > 0 ? tierTotalPrevCumSalesAmt / tierTotalPrevFullSalesAmt : 0;
+  // 월환산 점당매출 계산 (명절 보정 적용)
+  const { progressRate: tierLyProgressRate } = calculateAdjustedProgressRate(
+    ym,
+    retailLastDt,
+    tierTotalPrevCumSalesAmt,
+    tierTotalPrevFullSalesAmt
+  );
   const tierMonthlyTotalAmt = tierLyProgressRate > 0 ? tierTotalSalesAmt / tierLyProgressRate : 0;
   const tierTotalSalesPerShop = tierTotalShopCnt > 0 ? tierMonthlyTotalAmt / tierTotalShopCnt : 0;
   // 전년 월전체 데이터 (표시용) - 대리상 오프라인 점당매출의 전년 합계 데이터 사용
@@ -634,8 +741,13 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
   // 전년 월전체 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
   const regionTotalPrevFullSalesAmt = data?.prevTotalSalesAmt ?? safeRegions.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
   const regionTotalPrevFullShopCnt = data?.prevTotalShopCnt ?? safeRegions.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
-  // 월환산 점당매출 계산
-  const regionLyProgressRate = regionTotalPrevFullSalesAmt > 0 ? regionTotalPrevCumSalesAmt / regionTotalPrevFullSalesAmt : 0;
+  // 월환산 점당매출 계산 (명절 보정 적용)
+  const { progressRate: regionLyProgressRate } = calculateAdjustedProgressRate(
+    ym,
+    retailLastDt,
+    regionTotalPrevCumSalesAmt,
+    regionTotalPrevFullSalesAmt
+  );
   const regionMonthlyTotalAmt = regionLyProgressRate > 0 ? regionTotalSalesAmt / regionLyProgressRate : 0;
   const regionTotalSalesPerShop = regionTotalShopCnt > 0 ? regionMonthlyTotalAmt / regionTotalShopCnt : 0;
   // 전년 월전체 데이터 (표시용) - 대리상 오프라인 점당매출의 전년 합계 데이터 사용
@@ -667,7 +779,16 @@ function TierRegionTable({ data }: { data: TierRegionSalesData }) {
                 )}
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">리테일매출(K)</th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">매장수</th>
-                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">월환산 점당매출</th>
+                <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-100">
+                  <div className="flex items-center justify-end gap-1">
+                    <span>월환산 점당매출</span>
+                    {rows.some(r => r.isProgressRateAdjusted) && (
+                      <span className="px-1.5 py-0.5 text-[10px] bg-indigo-100 text-indigo-700 rounded">
+                        명절보정
+                      </span>
+                    )}
+                  </div>
+                </th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-200">YOY(점당매출)</th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 bg-blue-50 border-r border-gray-200">YOY(매장수)</th>
                 <th className="py-2 px-2 text-right font-semibold text-gray-700 border-r border-gray-100">(전년)리테일매출(K)</th>
@@ -3011,7 +3132,11 @@ export default function BrandPlForecastPage() {
               {/* 티어별/지역별 점당매출 테이블 */}
               {data.tierRegionData && (
                 <div className="mt-6">
-                  <TierRegionTable data={data.tierRegionData} />
+                  <TierRegionTable 
+                    data={data.tierRegionData} 
+                    ym={ym}
+                    retailLastDt={data.retailLastDt || ''}
+                  />
                 </div>
               )}
               

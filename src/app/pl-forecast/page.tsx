@@ -220,6 +220,7 @@ export default function PlForecastPage() {
   const [trendTab, setTrendTab] = useState<'weekly' | 'daily'>('weekly');
   const [chartBrand, setChartBrand] = useState<BrandCode | 'all'>('all');
   const [chartData, setChartData] = useState<ChartData | null>(null);
+  const [chartDataLoading, setChartDataLoading] = useState(false);
 
   // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
   useEffect(() => {
@@ -278,6 +279,7 @@ export default function PlForecastPage() {
     async function fetchChartData() {
       if (!data?.lastDt) return;
       
+      setChartDataLoading(true);
       try {
         const brandParam = chartBrand === 'all' ? 'all' : chartBrand;
         const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandParam}`);
@@ -287,6 +289,8 @@ export default function PlForecastPage() {
         }
       } catch (err) {
         console.error('차트 데이터 조회 실패:', err);
+      } finally {
+        setChartDataLoading(false);
       }
     }
     fetchChartData();
@@ -764,46 +768,70 @@ export default function PlForecastPage() {
                       </div>
                     </div>
                     <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart 
-                          data={trendTab === 'weekly' 
-                            ? (chartData?.weeklyTrend || data.charts?.weeklyTrend || []) 
-                            : (chartData?.weeklyAccumTrend || data.charts?.weeklyAccumTrend || [])} 
-                          margin={{ top: 5, right: 20, left: 10, bottom: 25 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                          <XAxis 
-                            dataKey="label" 
-                            tick={{ fontSize: 9, fill: '#6b7280' }} 
-                            angle={-20}
-                            textAnchor="end"
-                            height={50}
-                          />
-                          <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => formatKChart(v)} />
-                          <Tooltip 
-                            formatter={(value) => [formatKChart(Number(value || 0)), '']}
-                            contentStyle={{ fontSize: 11 }}
-                          />
-                          <Legend 
-                            wrapperStyle={{ fontSize: 11 }} 
-                            formatter={(value) => value === 'curValue' ? '주차별 매출' : '전년 매출'}
-                          />
-                          <Bar 
-                            dataKey="curValue" 
-                            fill="#818cf8" 
-                            radius={[4, 4, 0, 0]} 
-                            name="curValue"
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="prevValue" 
-                            stroke="#10b981" 
-                            strokeWidth={2} 
-                            dot={{ r: 4, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} 
-                            name="prevValue"
-                          />
-                        </ComposedChart>
-                      </ResponsiveContainer>
+                      {chartDataLoading ? (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="flex items-center gap-3 text-gray-500">
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                                fill="none"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                              />
+                            </svg>
+                            <span>데이터 조회 중...</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart 
+                            data={trendTab === 'weekly' 
+                              ? (chartData?.weeklyTrend || data.charts?.weeklyTrend || []) 
+                              : (chartData?.weeklyAccumTrend || data.charts?.weeklyAccumTrend || [])} 
+                            margin={{ top: 5, right: 20, left: 10, bottom: 25 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis 
+                              dataKey="label" 
+                              tick={{ fontSize: 9, fill: '#6b7280' }} 
+                              angle={-20}
+                              textAnchor="end"
+                              height={50}
+                            />
+                            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => formatKChart(v)} />
+                            <Tooltip 
+                              formatter={(value) => [formatKChart(Number(value || 0)), '']}
+                              contentStyle={{ fontSize: 11 }}
+                            />
+                            <Legend 
+                              wrapperStyle={{ fontSize: 11 }} 
+                              formatter={(value) => value === 'curValue' ? '주차별 매출' : '전년 매출'}
+                            />
+                            <Bar 
+                              dataKey="curValue" 
+                              fill="#818cf8" 
+                              radius={[4, 4, 0, 0]} 
+                              name="curValue"
+                            />
+                            <Line 
+                              type="monotone" 
+                              dataKey="prevValue" 
+                              stroke="#10b981" 
+                              strokeWidth={2} 
+                              dot={{ r: 4, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }} 
+                              name="prevValue"
+                            />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                 </div>

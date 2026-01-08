@@ -18,6 +18,7 @@ import {
   parseChannelPlanData,
 } from '@/lib/plforecast/parseCsv';
 import { calcYoyRate, calcAchvRate } from '@/lib/plforecast/format';
+import { calculateAdjustedProgressRate } from '@/lib/plforecast/progressRateAdjustment';
 import {
   getLastDates,
   getPrevYearActuals,
@@ -118,6 +119,8 @@ async function calcBrandData(
 // 계산된 값들을 저장하는 컨텍스트 (영업이익 계산용)
 interface CalcContext {
   vatExcForecast: number; // 실판(V-) 월말예상
+  actSaleVatIncForecast: number; // 실판(V+) 월말예상
+  cogsSumForecast: number; // 매출원가 합계 월말예상
   grossProfitForecast: number; // 매출총이익 월말예상
   directCostSumForecast: number; // 직접비 합계 월말예상
   opexSumForecast: number; // 영업비 합계 월말예상
@@ -294,35 +297,28 @@ function buildPlLine(
             prevYearProgressRate = null;
           }
           
-          // 월말예상 계산
-          if (channel === 'onlineDealer' || channel === 'offlineDealer') {
-            // 대리상: 목표 그대로
-            forecast = target;
+          // 월말예상 계산: 모든 채널 Tag대비 원가율 기반
+          const tagSaleAccum = channelData.accumChannelTagSale?.[channel] ?? null;
+          const tagSalePrevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
+          const tagSalePrevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
+          
+          // Tag매출 월말예상 계산
+          let tagSaleForecast: number | null = null;
+          if (tagSalePrevYearFullMonth !== null && tagSalePrevYearFullMonth !== 0 && tagSalePrevYearAccum !== null) {
+            const tagSaleProgressRate = tagSalePrevYearAccum / tagSalePrevYearFullMonth;
+            if (tagSaleProgressRate !== 0 && tagSaleAccum !== null) {
+              tagSaleForecast = tagSaleAccum / tagSaleProgressRate;
+            }
+          }
+          
+          // Tag매출 누적이 0이거나 월말예상이 null이면 null
+          if (tagSaleAccum === null || tagSaleAccum === 0 || tagSaleForecast === null || accum === null) {
+            forecast = null;
           } else {
-            // 직영: Tag대비 원가율 기반
-            const tagSaleAccum = channelData.accumChannelTagSale?.[channel] ?? null;
-            const tagSaleTarget = channelData.targetChannelTagSale?.[channel] ?? null;
-            const tagSalePrevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
-            const tagSalePrevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
-            
-            // Tag매출 월말예상 계산
-            let tagSaleForecast: number | null = null;
-            if (tagSalePrevYearFullMonth !== null && tagSalePrevYearFullMonth !== 0 && tagSalePrevYearAccum !== null) {
-              const tagSaleProgressRate = tagSalePrevYearAccum / tagSalePrevYearFullMonth;
-              if (tagSaleProgressRate !== 0 && tagSaleAccum !== null) {
-                tagSaleForecast = tagSaleAccum / tagSaleProgressRate;
-              }
-            }
-            
-            // Tag매출 누적이 0이거나 월말예상이 null이면 null
-            if (tagSaleAccum === null || tagSaleAccum === 0 || tagSaleForecast === null || accum === null) {
-              forecast = null;
-            } else {
-              // Tag대비 원가율 = (매출원가 누적 × 1.13) / Tag매출 누적
-              const tagCogsRate = (accum * 1.13) / tagSaleAccum;
-              // 월말예상 매출원가 = (Tag대비 원가율 × Tag매출 월말예상) / 1.13
-              forecast = (tagCogsRate * tagSaleForecast) / 1.13;
-            }
+            // Tag대비 원가율 = (매출원가 누적 × 1.13) / Tag매출 누적
+            const tagCogsRate = (accum * 1.13) / tagSaleAccum;
+            // 월말예상 매출원가 = (Tag대비 원가율 × Tag매출 월말예상) / 1.13
+            forecast = (tagCogsRate * tagSaleForecast) / 1.13;
           }
         }
       }
@@ -354,6 +350,9 @@ function buildPlLine(
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
         target = childLines.reduce((sum, c) => sum + (c.target || 0), 0);
         forecast = childLines.reduce((sum, c) => sum + (c.forecast || 0), 0);
+        
+        // 컨텍스트에 저장 (매출총이익 계산용)
+        context.cogsSumForecast = forecast || 0;
         
         // prevYearAccum과 prevYearProgressRate 합산
         const validPrevYearAccum = childLines.filter(c => c.prevYearAccum !== null && c.prevYearAccum !== undefined);
@@ -461,9 +460,9 @@ function buildPlLine(
       break;
 
     case 'grossProfit':
-      // 매출총이익 = 실판(V-) - 매출원가합계
-      const vatExcPrevYear = data.prevYear[vatExcludedItem] || 0;
-      const vatExcAccum = data.accum[vatExcludedItem] || 0;
+      // 매출총이익 = 실판(V+) / 1.13 - 매출원가합계 = 실판(V-) - 매출원가합계
+      const vatIncPrevYear = sumByLevel(data.prevYear, mappings, '실판(V+)');
+      const vatIncAccum = sumByLevel(data.accum, mappings, '실판(V+)');
 
       // 매출원가 합계 계산
       const cogsPrevYear = sumByLevel(data.prevYear, mappings, '매출원가')
@@ -471,18 +470,17 @@ function buildPlLine(
       const cogsAccum = sumByLevel(data.accum, mappings, '매출원가')
         + sumByLevel(data.accum, mappings, '평가감');
 
-      prevYear = vatExcPrevYear - cogsPrevYear;
-      accum = vatExcAccum - cogsAccum;
+      prevYear = (vatIncPrevYear / 1.13) - cogsPrevYear;
+      accum = (vatIncAccum / 1.13) - cogsAccum;
 
       // 목표 계산
-      const vatExcTargetGP = getTarget('실판(V-)', '실판(V-)', '실판(V-)') || 0;
+      const vatIncTargetGP = getTarget('실판(V+)', '실판(V+)', '실판(V+)') || 0;
       const cogsTarget = (getTarget('매출원가', '매출원가', '매출원가') || 0)
         + (getTarget('평가감') || 0);
-      target = vatExcTargetGP - cogsTarget;
+      target = (vatIncTargetGP / 1.13) - cogsTarget;
 
-      const vatExcForecastGP = calculateForecast(vatExcAccum, data.accumDays, data.monthDays) || 0;
-      const cogsForecast = calculateForecast(cogsAccum, data.accumDays, data.monthDays) || 0;
-      forecast = vatExcForecastGP - cogsForecast;
+      // 월말예상 계산: 실판(V+) forecast / 1.13 - 매출원가 합계 forecast
+      forecast = (context.actSaleVatIncForecast / 1.13) - context.cogsSumForecast;
 
       // 컨텍스트에 저장 (영업이익 계산용)
       context.grossProfitForecast = forecast;
@@ -491,8 +489,8 @@ function buildPlLine(
     case 'directProfit':
       // 직접이익 = 매출총이익 - 직접비합계
       // 전년, 누적 계산
-      const vatExcDPPY = data.prevYear[vatExcludedItem] || 0;
-      const vatExcDPAcc = data.accum[vatExcludedItem] || 0;
+      const vatIncDPPY = sumByLevel(data.prevYear, mappings, '실판(V+)');
+      const vatIncDPAcc = sumByLevel(data.accum, mappings, '실판(V+)');
       
       const cogsDPPY = sumByLevel(data.prevYear, mappings, '매출원가')
         + sumByLevel(data.prevYear, mappings, '평가감');
@@ -502,15 +500,15 @@ function buildPlLine(
       const directDPPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems);
       const directDPAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems);
       
-      prevYear = (vatExcDPPY - cogsDPPY) - directDPPY;
-      accum = (vatExcDPAcc - cogsDPAcc) - directDPAcc;
+      prevYear = ((vatIncDPPY / 1.13) - cogsDPPY) - directDPPY;
+      accum = ((vatIncDPAcc / 1.13) - cogsDPAcc) - directDPAcc;
       
       // 목표 계산
-      const vatExcDPTgt = getTarget('실판(V-)', '실판(V-)', '실판(V-)') || 0;
+      const vatIncDPTgt = getTarget('실판(V+)', '실판(V+)', '실판(V+)') || 0;
       const cogsDPTgt = (getTarget('매출원가', '매출원가', '매출원가') || 0)
         + (getTarget('평가감') || 0);
       const directDPTgt = getTarget('직접비') || 0;
-      target = (vatExcDPTgt - cogsDPTgt) - directDPTgt;
+      target = ((vatIncDPTgt / 1.13) - cogsDPTgt) - directDPTgt;
       
       // 월말예상 = 매출총이익 월말예상 - 직접비 월말예상
       forecast = context.grossProfitForecast - context.directCostSumForecast;
@@ -519,8 +517,8 @@ function buildPlLine(
     case 'operatingProfit':
       // 영업이익 = 매출총이익 - 직접비합계 - 영업비합계
       // 전년, 누적도 동일한 로직으로 계산
-      const vatExcPY = data.prevYear[vatExcludedItem] || 0;
-      const vatExcAcc = data.accum[vatExcludedItem] || 0;
+      const vatIncPY = sumByLevel(data.prevYear, mappings, '실판(V+)');
+      const vatIncAcc = sumByLevel(data.accum, mappings, '실판(V+)');
       
       const cogsPY = sumByLevel(data.prevYear, mappings, '매출원가')
         + sumByLevel(data.prevYear, mappings, '평가감');
@@ -533,16 +531,16 @@ function buildPlLine(
       const opexPY = sumByLevel(data.prevYear, mappings, '영업비');
       const opexAcc = sumByLevel(data.accum, mappings, '영업비');
       
-      prevYear = (vatExcPY - cogsPY) - directPY - opexPY;
-      accum = (vatExcAcc - cogsAcc) - directAcc - opexAcc;
+      prevYear = ((vatIncPY / 1.13) - cogsPY) - directPY - opexPY;
+      accum = ((vatIncAcc / 1.13) - cogsAcc) - directAcc - opexAcc;
       
       // 목표
-      const vatExcTgt = getTarget('실판(V-)', '실판(V-)', '실판(V-)') || 0;
+      const vatIncTgt = getTarget('실판(V+)', '실판(V+)', '실판(V+)') || 0;
       const cogsTgt = (getTarget('매출원가', '매출원가', '매출원가') || 0)
         + (getTarget('평가감') || 0);
       const directTgt = getTarget('직접비') || 0;
       const opexTgt = getTarget('영업비') || 0;
-      target = (vatExcTgt - cogsTgt) - directTgt - opexTgt;
+      target = ((vatIncTgt / 1.13) - cogsTgt) - directTgt - opexTgt;
       
       // 월말예상 = 매출총이익 월말예상 - 직접비 월말예상 - 영업비 월말예상
       forecast = context.grossProfitForecast - context.directCostSumForecast - context.opexSumForecast;
@@ -605,12 +603,25 @@ function buildPlLine(
       buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
     );
     
-    // Tag매출, 실판(V+), 매출원가 합계 부모 행의 경우 자식들의 합계로 계산
-    if ((def.id === 'tag-sale' || def.id === 'act-sale-vat-inc' || def.id === 'cogs-sum') && children.length > 0) {
+    // Tag매출, 실판(V+), 매출원가 부모 행의 경우 자식들의 합계로 계산
+    if ((def.id === 'tag-sale' || def.id === 'act-sale-vat-inc' || def.id === 'cogs' || def.id === 'cogs-sum') && children.length > 0) {
       prevYear = children.reduce((sum, c) => sum + (c.prevYear || 0), 0);
       accum = children.reduce((sum, c) => sum + (c.accum || 0), 0);
       target = children.reduce((sum, c) => sum + (c.target || 0), 0);
       forecast = children.reduce((sum, c) => sum + (c.forecast || 0), 0);
+      
+      // channelData가 없을 때 (전체 탭): level1으로 직접 계산
+      if ((def.id === 'act-sale-vat-inc' || def.id === 'cogs') && !channelData && def.level1) {
+        prevYear = sumByLevel(data.prevYear, mappings, def.level1);
+        accum = sumByLevel(data.accum, mappings, def.level1);
+        target = getTarget(def.level1, def.level2, def.level3);
+        forecast = calculateForecast(accum, data.accumDays, data.monthDays);
+      }
+      
+      // 실판(V+) forecast를 context에 저장 (매출총이익 계산용)
+      if (def.id === 'act-sale-vat-inc') {
+        context.actSaleVatIncForecast = forecast || 0;
+      }
       
       // prevYearAccum과 prevYearProgressRate도 합산
       const validPrevYearAccum = children.filter(c => c.prevYearAccum !== null && c.prevYearAccum !== undefined);
@@ -1096,11 +1107,16 @@ async function buildRetailSalesTable(
     prevYear: lyPerShop,
   };
   
-  // 점당매출_월환산
-  // 전년 진척률 = ly_cum / ly_full
-  const lyProgressRate = actuals.lyFullSalesAmt > 0 
-    ? actuals.lyCumSalesAmt / actuals.lyFullSalesAmt : 0;
-  // 월환산 총액 = cy_sales / (전년 진척률)
+  // 점당매출_월환산 - 1월/2월만 설날 보정 적용
+  // 보정된 전년 진척률 계산 (1/2월: 요일계수 × 설날D계수, 3~8월: 단순 진척률)
+  const { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
+    ym,
+    retailLastDt,
+    actuals.lyCumSalesAmt,
+    actuals.lyFullSalesAmt
+  );
+  
+  // 월환산 총액 = cy_sales / (보정된 전년 진척률)
   const monthlyTotalAmt = lyProgressRate > 0 ? actuals.cySalesAmt / lyProgressRate : 0;
   // 실적(점당월환산) = 월환산 총액 / cy_shop_cnt
   const monthlyPerShop = actuals.cyShopCnt > 0 ? monthlyTotalAmt / actuals.cyShopCnt : 0;
@@ -1122,6 +1138,7 @@ async function buildRetailSalesTable(
       shopCount,
       salesPerShop,
       salesPerShopMonthly,
+      isProgressRateAdjusted: isAdjusted, // 설날 보정 적용 여부
     },
     retailLastDt,
   };
@@ -1182,10 +1199,14 @@ async function buildTierRegionData(
       const prevFullShopCnt = prevFullRow?.prevFullShopCnt || 0;
       const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
-      // 월환산 점당매출 계산
-      // 전년 진척률 = 전년 누적 / 전년 전체
-      const lyProgressRate = prevFullSalesAmt > 0 ? prevCumSalesAmt / prevFullSalesAmt : 0;
-      // 월환산 총액 = 당년 누적 / (전년 진척률)
+      // 월환산 점당매출 계산 (명절 보정 적용)
+      const { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
+        ym,
+        retailLastDt,
+        prevCumSalesAmt,
+        prevFullSalesAmt
+      );
+      // 월환산 총액 = 당년 누적 / (보정된 진척률)
       const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
       // 실적(점당월환산) = 월환산 총액 / 당년 매장수
       const monthlyPerShop = row.shopCnt > 0 ? monthlyTotalAmt / row.shopCnt : 0;
@@ -1214,6 +1235,7 @@ async function buildTierRegionData(
         prevTagAmt: prevCumTagAmt, // 전년 누적 Tag 가격
         prevFullTagAmt, // 전년 월전체 Tag 가격
         salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
+        isProgressRateAdjusted: isAdjusted, // 명절 보정 적용 여부
         discountRate,
         prevDiscountRate,
         discountRateYoy,
@@ -1251,10 +1273,14 @@ async function buildTierRegionData(
       const prevFullShopCnt = prevFullRow?.prevFullShopCnt || 0;
       const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
-      // 월환산 점당매출 계산
-      // 전년 진척률 = 전년 누적 / 전년 전체
-      const lyProgressRate = prevFullSalesAmt > 0 ? prevCumSalesAmt / prevFullSalesAmt : 0;
-      // 월환산 총액 = 당년 누적 / (전년 진척률)
+      // 월환산 점당매출 계산 (명절 보정 적용)
+      const { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
+        ym,
+        retailLastDt,
+        prevCumSalesAmt,
+        prevFullSalesAmt
+      );
+      // 월환산 총액 = 당년 누적 / (보정된 진척률)
       const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
       // 실적(점당월환산) = 월환산 총액 / 당년 매장수
       const monthlyPerShop = row.shopCnt > 0 ? monthlyTotalAmt / row.shopCnt : 0;
@@ -1283,6 +1309,7 @@ async function buildTierRegionData(
         prevTagAmt: prevCumTagAmt, // 전년 누적 Tag 가격
         prevFullTagAmt, // 전년 월전체 Tag 가격
         salesPerShop: monthlyPerShop, // 월환산 점당매출로 변경
+        isProgressRateAdjusted: isAdjusted, // 명절 보정 적용 여부
         discountRate,
         prevDiscountRate,
         discountRateYoy,
@@ -1430,6 +1457,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         if (bData) {
           const bContext: CalcContext = {
             vatExcForecast: 0,
+            actSaleVatIncForecast: 0,
+            cogsSumForecast: 0,
             grossProfitForecast: 0,
             directCostSumForecast: 0,
             opexSumForecast: 0,
@@ -1510,6 +1539,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     // 계산 컨텍스트 초기화
     const context: CalcContext = {
       vatExcForecast: 0,
+      actSaleVatIncForecast: 0,
+      cogsSumForecast: 0,
       grossProfitForecast: 0,
       directCostSumForecast: 0,
       opexSumForecast: 0,

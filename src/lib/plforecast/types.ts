@@ -210,6 +210,7 @@ export interface RetailSalesTableData {
   shopCount: RetailSalesRow;       // 매장수
   salesPerShop: RetailSalesRow;    // 점당매출
   salesPerShopMonthly: RetailSalesRow; // 점당매출_월환산
+  isProgressRateAdjusted?: boolean; // 진척률 보정 적용 여부 (1/2월 설날보정)
 }
 
 // 매장별 상세 데이터 (모달용)
@@ -228,6 +229,7 @@ export interface TierRegionSalesRow {
   salesAmt: number;     // 당년 매출 합계
   shopCnt: number;      // 당년 매장수
   salesPerShop: number; // 당년 점당매출 (월환산)
+  isProgressRateAdjusted?: boolean; // 진척률 보정 적용 여부 (명절 보정)
   prevSalesAmt: number; // 전년 월전체 매출 합계 (표시 및 YOY 비교용)
   prevShopCnt: number;  // 전년 월전체 매장수 (표시 및 YOY 비교용)
   prevSalesPerShop: number; // 전년 월전체 점당매출 (표시 및 YOY 비교용)
