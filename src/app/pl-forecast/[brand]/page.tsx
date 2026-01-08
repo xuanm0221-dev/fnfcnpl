@@ -541,6 +541,8 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
               const isHighlight = row.key === 'salesPerShopMonthly';
               const isClickable = row.key === 'salesK';
               
+              if (!rowData || typeof rowData !== 'object') return null;
+              
               return (
                 <tr 
                   key={row.key} 
