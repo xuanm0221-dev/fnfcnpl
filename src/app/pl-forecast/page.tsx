@@ -901,7 +901,7 @@ export default function PlForecastPage() {
                         <th className="py-3 px-4 text-left text-gray-800 sticky left-0 bg-gradient-to-b from-gray-100 to-gray-50 z-20 border-r border-gray-200">
                           구분
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">전년</th>
+                        <th className="py-3 px-3 text-right text-gray-800">전년(월전체)</th>
                         {showAccum && (
                           <>
                             <th className="py-3 px-3 text-right text-gray-800">(전년)누적</th>
@@ -910,7 +910,7 @@ export default function PlForecastPage() {
                         )}
                         <th className="py-3 px-3 text-right text-gray-800">목표</th>
                         {showAccum && (
-                          <th className="py-3 px-3 text-right text-gray-800">누적</th>
+                          <th className="py-3 px-3 text-right text-gray-800">누적(당월실적)</th>
                         )}
                         <th className="py-3 px-3 text-right text-gray-800">월말예상</th>
                         <th className="py-3 px-3 text-right text-gray-800">전년비</th>

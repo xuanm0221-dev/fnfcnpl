@@ -249,6 +249,8 @@ export interface TierRegionSalesRow {
 export interface TierRegionSalesData {
   tiers: TierRegionSalesRow[];   // 티어별
   regions: TierRegionSalesRow[]; // 지역별
+  tradeZones: TierRegionSalesRow[]; // Trade Zone별
+  shopLevels: TierRegionSalesRow[]; // Shop Level별
   // 전년 합계 데이터 (대리상 오프라인 점당매출과 일치)
   prevTotalSalesAmt?: number;      // 전년 월전체 매출 합계
   prevTotalShopCnt?: number;       // 전년 월전체 매장수 합계

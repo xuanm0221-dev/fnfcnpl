@@ -710,6 +710,12 @@ function TierRegionTable({
   const safeRegions = Array.isArray(data?.regions) 
     ? [...data.regions].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
     : [];
+  const safeTradeZones = Array.isArray(data?.tradeZones) 
+    ? [...data.tradeZones].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    : [];
+  const safeShopLevels = Array.isArray(data?.shopLevels) 
+    ? [...data.shopLevels].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    : [];
   
   // 티어 합계 계산 - 전체 데이터 사용 (상단 표와 일치)
   const tierTotalSalesAmt = safeTiers.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
@@ -756,14 +762,62 @@ function TierRegionTable({
   const regionTotalPrevSalesAmt = data?.prevTotalSalesAmt ?? safeRegions.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
   const regionTotalPrevShopCnt = data?.prevTotalShopCnt ?? safeRegions.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
   const regionTotalPrevSalesPerShop = data?.prevTotalSalesPerShop ?? (regionTotalPrevShopCnt > 0 ? regionTotalPrevSalesAmt / regionTotalPrevShopCnt : 0);
+  
+  // Trade Zone 합계 계산 - 전체 데이터 사용 (상단 표와 일치)
+  const tradeZoneTotalSalesAmt = safeTradeZones.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
+  const tradeZoneTotalShopCnt = safeTradeZones.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
+  // 전년 누적 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
+  const tradeZoneTotalPrevCumSalesAmt = data?.prevTotalCumSalesAmt ?? safeTradeZones.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
+  const tradeZoneTotalPrevCumShopCnt = data?.prevTotalCumShopCnt ?? safeTradeZones.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
+  // 전년 월전체 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
+  const tradeZoneTotalPrevFullSalesAmt = data?.prevTotalSalesAmt ?? safeTradeZones.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
+  const tradeZoneTotalPrevFullShopCnt = data?.prevTotalShopCnt ?? safeTradeZones.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
+  // 월환산 점당매출 계산 (명절 보정 적용)
+  const { progressRate: tradeZoneLyProgressRate } = calculateAdjustedProgressRate(
+    ym,
+    retailLastDt,
+    tradeZoneTotalPrevCumSalesAmt,
+    tradeZoneTotalPrevFullSalesAmt
+  );
+  const tradeZoneMonthlyTotalAmt = tradeZoneLyProgressRate > 0 ? tradeZoneTotalSalesAmt / tradeZoneLyProgressRate : 0;
+  const tradeZoneTotalSalesPerShop = tradeZoneTotalShopCnt > 0 ? tradeZoneMonthlyTotalAmt / tradeZoneTotalShopCnt : 0;
+  // 전년 월전체 데이터 (표시용) - 대리상 오프라인 점당매출의 전년 합계 데이터 사용
+  const tradeZoneTotalPrevSalesAmt = data?.prevTotalSalesAmt ?? safeTradeZones.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
+  const tradeZoneTotalPrevShopCnt = data?.prevTotalShopCnt ?? safeTradeZones.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
+  const tradeZoneTotalPrevSalesPerShop = data?.prevTotalSalesPerShop ?? (tradeZoneTotalPrevShopCnt > 0 ? tradeZoneTotalPrevSalesAmt / tradeZoneTotalPrevShopCnt : 0);
+  
+  // Shop Level 합계 계산 - 전체 데이터 사용 (상단 표와 일치)
+  const shopLevelTotalSalesAmt = safeShopLevels.reduce((sum, r) => sum + (r?.salesAmt || 0), 0);
+  const shopLevelTotalShopCnt = safeShopLevels.reduce((sum, r) => sum + (r?.shopCnt || 0), 0);
+  // 전년 누적 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
+  const shopLevelTotalPrevCumSalesAmt = data?.prevTotalCumSalesAmt ?? safeShopLevels.reduce((sum, r) => sum + (r?.prevCumSalesAmt || 0), 0);
+  const shopLevelTotalPrevCumShopCnt = data?.prevTotalCumShopCnt ?? safeShopLevels.reduce((sum, r) => sum + (r?.prevCumShopCnt || 0), 0);
+  // 전년 월전체 데이터는 서버에서 전달된 전체 데이터 우선 사용 (상단 표와 일치)
+  const shopLevelTotalPrevFullSalesAmt = data?.prevTotalSalesAmt ?? safeShopLevels.reduce((sum, r) => sum + (r?.prevFullSalesAmt || 0), 0);
+  const shopLevelTotalPrevFullShopCnt = data?.prevTotalShopCnt ?? safeShopLevels.reduce((sum, r) => sum + (r?.prevFullShopCnt || 0), 0);
+  // 월환산 점당매출 계산 (명절 보정 적용)
+  const { progressRate: shopLevelLyProgressRate } = calculateAdjustedProgressRate(
+    ym,
+    retailLastDt,
+    shopLevelTotalPrevCumSalesAmt,
+    shopLevelTotalPrevFullSalesAmt
+  );
+  const shopLevelMonthlyTotalAmt = shopLevelLyProgressRate > 0 ? shopLevelTotalSalesAmt / shopLevelLyProgressRate : 0;
+  const shopLevelTotalSalesPerShop = shopLevelTotalShopCnt > 0 ? shopLevelMonthlyTotalAmt / shopLevelTotalShopCnt : 0;
+  // 전년 월전체 데이터 (표시용) - 대리상 오프라인 점당매출의 전년 합계 데이터 사용
+  const shopLevelTotalPrevSalesAmt = data?.prevTotalSalesAmt ?? safeShopLevels.reduce((sum, r) => sum + (r?.prevSalesAmt || 0), 0);
+  const shopLevelTotalPrevShopCnt = data?.prevTotalShopCnt ?? safeShopLevels.reduce((sum, r) => sum + (r?.prevShopCnt || 0), 0);
+  const shopLevelTotalPrevSalesPerShop = data?.prevTotalSalesPerShop ?? (shopLevelTotalPrevShopCnt > 0 ? shopLevelTotalPrevSalesAmt / shopLevelTotalPrevShopCnt : 0);
 
   // 테이블 렌더링 함수
-  const renderTable = (type: 'tier' | 'region', rows: TierRegionSalesRow[], totalSalesAmt: number, totalShopCnt: number, totalSalesPerShop: number, totalPrevSalesAmt: number, totalPrevShopCnt: number, totalPrevSalesPerShop: number) => {
+  const renderTable = (type: 'tier' | 'region' | 'trade_zone' | 'shop_level', rows: TierRegionSalesRow[], totalSalesAmt: number, totalShopCnt: number, totalSalesPerShop: number, totalPrevSalesAmt: number, totalPrevShopCnt: number, totalPrevSalesPerShop: number) => {
     return (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-full flex flex-col">
         {/* 헤더 */}
         <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700">{type === 'tier' ? 'Tier (대리상)' : '지역(대리상)'}</h3>
+          <h3 className="text-sm font-semibold text-gray-700">
+            {type === 'tier' ? 'Tier (대리상)' : type === 'region' ? '지역(대리상)' : type === 'trade_zone' ? 'Trade Zone (대리상)' : 'Shop Level (대리상)'}
+          </h3>
         </div>
         
         {/* 테이블 */}
@@ -771,8 +825,10 @@ function TierRegionTable({
           <table className="w-full text-xs">
             <thead className="bg-gray-50 sticky top-0">
               <tr className="border-b border-gray-200">
-                {type === 'tier' ? (
-                  <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-200">티어구분</th>
+                {type === 'tier' || type === 'trade_zone' || type === 'shop_level' ? (
+                  <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-200">
+                    {type === 'tier' ? '티어구분' : type === 'trade_zone' ? 'Trade Zone' : 'Shop Level'}
+                  </th>
                 ) : (
                   <>
                     <th className="py-2 px-3 text-left font-semibold text-gray-700 border-r border-gray-100">중국어</th>
@@ -801,7 +857,7 @@ function TierRegionTable({
             <tbody>
               {/* 합계 행 */}
               <tr className="border-b border-gray-300 bg-yellow-50 font-semibold">
-                {type === 'tier' ? (
+                {type === 'tier' || type === 'trade_zone' || type === 'shop_level' ? (
                   <td className="py-2 px-3 text-left text-gray-800 border-r border-gray-200">합계</td>
                 ) : (
                   <>
@@ -835,7 +891,7 @@ function TierRegionTable({
                 const hasTooltip = !!tooltipText;
                 return (
                   <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50">
-                    {type === 'tier' ? (
+                    {type === 'tier' || type === 'trade_zone' || type === 'shop_level' ? (
                       <td 
                         className={`py-2 px-3 text-left font-medium text-gray-700 border-r border-gray-200 ${hasTooltip ? 'cursor-help' : ''}`}
                         {...(hasTooltip ? { title: tooltipText } : {})}
@@ -879,7 +935,7 @@ function TierRegionTable({
               })}
               {(rows?.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={type === 'tier' ? 8 : 9} className="py-4 text-center text-gray-500">
+                  <td colSpan={type === 'tier' || type === 'trade_zone' || type === 'shop_level' ? 8 : 9} className="py-4 text-center text-gray-500">
                     데이터가 없습니다.
                   </td>
                 </tr>
@@ -892,12 +948,24 @@ function TierRegionTable({
   };
 
   return (
-    <div className="grid grid-cols-2 gap-4">
-      {/* 좌측: Tier 테이블 */}
-      {renderTable('tier', safeTiers, tierTotalSalesAmt, tierTotalShopCnt, tierTotalSalesPerShop, tierTotalPrevSalesAmt, tierTotalPrevShopCnt, tierTotalPrevSalesPerShop)}
+    <div className="space-y-4">
+      {/* 1행: Tier 표 | 지역 표 */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* 좌측: Tier 테이블 */}
+        {renderTable('tier', safeTiers, tierTotalSalesAmt, tierTotalShopCnt, tierTotalSalesPerShop, tierTotalPrevSalesAmt, tierTotalPrevShopCnt, tierTotalPrevSalesPerShop)}
+        
+        {/* 우측: 지역 테이블 */}
+        {renderTable('region', safeRegions, regionTotalSalesAmt, regionTotalShopCnt, regionTotalSalesPerShop, regionTotalPrevSalesAmt, regionTotalPrevShopCnt, regionTotalPrevSalesPerShop)}
+      </div>
       
-      {/* 우측: 지역 테이블 */}
-      {renderTable('region', safeRegions, regionTotalSalesAmt, regionTotalShopCnt, regionTotalSalesPerShop, regionTotalPrevSalesAmt, regionTotalPrevShopCnt, regionTotalPrevSalesPerShop)}
+      {/* 2행: Trade Zone 표 | Shop Level 표 */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* 좌측: Trade Zone 테이블 */}
+        {renderTable('trade_zone', safeTradeZones, tradeZoneTotalSalesAmt, tradeZoneTotalShopCnt, tradeZoneTotalSalesPerShop, tradeZoneTotalPrevSalesAmt, tradeZoneTotalPrevShopCnt, tradeZoneTotalPrevSalesPerShop)}
+        
+        {/* 우측: Shop Level 테이블 */}
+        {renderTable('shop_level', safeShopLevels, shopLevelTotalSalesAmt, shopLevelTotalShopCnt, shopLevelTotalSalesPerShop, shopLevelTotalPrevSalesAmt, shopLevelTotalPrevShopCnt, shopLevelTotalPrevSalesPerShop)}
+      </div>
     </div>
   );
 }
@@ -3249,7 +3317,7 @@ export default function BrandPlForecastPage() {
                         <th className="py-3 px-4 text-left text-gray-800 sticky left-0 bg-gradient-to-b from-gray-100 to-gray-50 z-20 border-r border-gray-200">
                           구분
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">전년</th>
+                        <th className="py-3 px-3 text-right text-gray-800">전년(월전체)</th>
                         {showAccum && (
                           <>
                             <th className="py-3 px-3 text-right text-gray-800">(전년)누적</th>
@@ -3258,7 +3326,7 @@ export default function BrandPlForecastPage() {
                         )}
                         <th className="py-3 px-3 text-right text-gray-800">목표</th>
                         {showAccum && (
-                          <th className="py-3 px-3 text-right text-gray-800">누적</th>
+                          <th className="py-3 px-3 text-right text-gray-800">누적(당월실적)</th>
                         )}
                         <th className="py-3 px-3 text-right text-gray-800">월말예상</th>
                         <th className="py-3 px-3 text-right text-gray-800">전년비</th>

@@ -96,7 +96,7 @@ interface ActualResult {
   [key: string]: number | string;
 }
 
-// 전년 실적 조회
+// 전년 실적 조회 (월 전체 데이터)
 export async function getPrevYearActuals(
   prevYm: string,
   brandCode: BrandCode,
@@ -123,6 +123,63 @@ export async function getPrevYearActuals(
     for (const item of items) {
       result[item] = Number(rows[0][item]) || 0;
     }
+    return result;
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+// 전년 실적 조회 (누적 데이터)
+export async function getPrevYearActualsAccum(
+  prevYm: string,
+  lastDt: string,
+  brandCode: BrandCode,
+  items: string[]
+): Promise<Record<string, number>> {
+  if (items.length === 0) return {};
+  
+  const connection = await getConnection();
+  try {
+    // lastDt에서 일자 추출 (예: 2026-01-08 -> 08)
+    // 전년도 동일 월의 동일 일자 사용 (월의 마지막 일자 초과 시 마지막 일자로 제한)
+    const dayOfMonth = parseInt(lastDt.split('-')[2], 10);
+    const prevYear = parseInt(prevYm.split('-')[0], 10);
+    const prevMonth = parseInt(prevYm.split('-')[1], 10);
+    const lastDayOfPrevMonth = new Date(prevYear, prevMonth, 0).getDate();
+    const actualDay = Math.min(dayOfMonth, lastDayOfPrevMonth);
+    const prevLastDt = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(actualDay).padStart(2, '0')}`;
+    
+    const selectClauses = items.map((item) => `COALESCE(SUM(${item}), 0) as "${item}"`).join(', ');
+    const sql = `
+      SELECT ${selectClauses}
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND brd_cd = ?
+        AND pst_dt <= ?::DATE
+    `;
+    const rows = await executeQuery<ActualResult>(connection, sql, [prevYm, brandCode, prevLastDt]);
+    
+    if (rows.length === 0) {
+      return Object.fromEntries(items.map((item) => [item, 0]));
+    }
+    
+    const result: Record<string, number> = {};
+    for (const item of items) {
+      result[item] = Number(rows[0][item]) || 0;
+    }
+    
+    // 디버깅: 누적 데이터 확인
+    if (items.includes('ACT_SALE_AMT') || items.includes('ACT_COGS')) {
+      console.log('[getPrevYearActualsAccum] 누적 데이터 조회:', {
+        prevYm,
+        prevLastDt,
+        brandCode,
+        actSaleAmt: result['ACT_SALE_AMT'],
+        actCogs: result['ACT_COGS'],
+        sampleItems: Object.entries(result).slice(0, 5),
+      });
+    }
+    
     return result;
   } finally {
     await destroyConnection(connection);
@@ -1599,6 +1656,406 @@ export async function getRegionSalesData(
           key: r.GROUP_KEY || 'Unknown',
           labelKo: regionKoMap[r.GROUP_KEY] || r.GROUP_KEY,
           cities: undefined, // 전년도는 도시 정보 없음
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+          prevFullSalesAmt: isFull ? Number(r.SALES_AMT) || 0 : 0,
+          prevFullShopCnt: isFull ? Number(r.SHOP_CNT) || 0 : 0,
+          prevCumSalesAmt: !isFull ? Number(r.SALES_AMT) || 0 : 0, // 전년 누적 매출
+          prevCumShopCnt: !isFull ? Number(r.SHOP_CNT) || 0 : 0, // 전년 누적 매장수
+          tagAmt: 0,
+          prevTagAmt: !isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 누적 Tag 가격
+          prevFullTagAmt: isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 월전체 Tag 가격
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
+        };
+      }
+    };
+    
+    return {
+      current: currentRows.map(r => toRow(r, true)),
+      prevYear: prevRows.map(r => toRow(r, false, false)),
+      prevYearFull: prevFullRows.map(r => toRow(r, false, true)),
+    };
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+/**
+ * Trade Zone별 점당매출 조회
+ */
+export async function getTradeZoneSalesData(
+  ym: string,
+  lastDt: string,
+  brandCode: string,
+  shopBrandName: string
+): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
+  const connection = await getConnection();
+  try {
+    // 날짜 계산
+    const [year, month] = ym.split('-').map(Number);
+    const prevYear = year - 1;
+    const lastDay = lastDt.split('-')[2];
+    const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
+    const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
+    const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
+    
+    const sql = `
+      WITH valid_shops AS (
+        -- 대리상 오프라인 정규매장 (brd_nm 포함)
+        SELECT DISTINCT d.shop_id, d.trade_zone_nm, d.brd_nm
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE d.anlys_shop_type_nm IN ('FO', 'FP')
+          AND d.fr_or_cls = 'FR'
+          AND m.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ),
+      -- 당해 Trade Zone별 매출 (판매액 > 0인 매장만)
+      cy_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      cy_trade_zone AS (
+        SELECT 
+          COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
+          COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
+          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
+        FROM cy_shop_sales css
+        INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
+        GROUP BY COALESCE(vs.trade_zone_nm, '기타')
+      ),
+      -- 전년 Trade Zone별 매출 (판매액 > 0인 매장만)
+      ly_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      ly_trade_zone AS (
+        SELECT 
+          COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
+          COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
+          COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
+        FROM ly_shop_sales lss
+        INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
+        GROUP BY COALESCE(vs.trade_zone_nm, '기타')
+      ),
+      -- 전년 월전체 Trade Zone별 매출 (판매액 > 0인 매장만)
+      ly_full_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      ly_full_trade_zone AS (
+        SELECT 
+          COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
+          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
+          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+        FROM ly_full_shop_sales lfs
+        INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
+        GROUP BY COALESCE(vs.trade_zone_nm, '기타')
+      )
+      SELECT 
+        'CY' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        TAG_AMT,
+        SHOP_CNT,
+        '' as CITIES
+      FROM cy_trade_zone
+      UNION ALL
+      SELECT 
+        'LY' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        TAG_AMT,
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_trade_zone
+      UNION ALL
+      SELECT 
+        'LY_FULL' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        TAG_AMT,
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_full_trade_zone
+    `;
+    
+    const binds = [
+      lastDt, lastDt, brandCode, shopBrandName,
+      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
+    ];
+    
+    const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
+    
+    const currentRows = rows.filter(r => r.PERIOD === 'CY');
+    const prevRows = rows.filter(r => r.PERIOD === 'LY');
+    const prevFullRows = rows.filter(r => r.PERIOD === 'LY_FULL');
+    
+    const toRow = (r: TierRegionResult, isCurrent: boolean, isFull: boolean = false): TierRegionSalesRow => {
+      // 전년도 데이터인 경우 실제 데이터를 사용, 당해 데이터인 경우 전년도는 0 (나중에 buildTierRegionData에서 매칭)
+      if (isCurrent) {
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          cities: undefined, // Trade Zone은 도시 정보 없음
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+          prevFullSalesAmt: 0,
+          prevFullShopCnt: 0,
+          prevCumSalesAmt: 0,
+          prevCumShopCnt: 0,
+          tagAmt: Number(r.TAG_AMT) || 0,
+          prevTagAmt: 0,
+          prevFullTagAmt: 0,
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
+        };
+      } else {
+        // 전년도 데이터: 실제 전년도 값 사용
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          cities: undefined, // Trade Zone은 도시 정보 없음
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+          prevFullSalesAmt: isFull ? Number(r.SALES_AMT) || 0 : 0,
+          prevFullShopCnt: isFull ? Number(r.SHOP_CNT) || 0 : 0,
+          prevCumSalesAmt: !isFull ? Number(r.SALES_AMT) || 0 : 0, // 전년 누적 매출
+          prevCumShopCnt: !isFull ? Number(r.SHOP_CNT) || 0 : 0, // 전년 누적 매장수
+          tagAmt: 0,
+          prevTagAmt: !isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 누적 Tag 가격
+          prevFullTagAmt: isFull ? Number(r.TAG_AMT) || 0 : 0, // 전년 월전체 Tag 가격
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
+        };
+      }
+    };
+    
+    return {
+      current: currentRows.map(r => toRow(r, true)),
+      prevYear: prevRows.map(r => toRow(r, false, false)),
+      prevYearFull: prevFullRows.map(r => toRow(r, false, true)),
+    };
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+/**
+ * Shop Level별 점당매출 조회
+ */
+export async function getShopLevelSalesData(
+  ym: string,
+  lastDt: string,
+  brandCode: string,
+  shopBrandName: string
+): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
+  const connection = await getConnection();
+  try {
+    // 날짜 계산
+    const [year, month] = ym.split('-').map(Number);
+    const prevYear = year - 1;
+    const lastDay = lastDt.split('-')[2];
+    const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
+    const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
+    const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
+    
+    const sql = `
+      WITH valid_shops AS (
+        -- 대리상 오프라인 정규매장 (brd_nm 포함)
+        SELECT DISTINCT d.shop_id, d.shop_level_nm, d.brd_nm
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE d.anlys_shop_type_nm IN ('FO', 'FP')
+          AND d.fr_or_cls = 'FR'
+          AND m.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ),
+      -- 당해 Shop Level별 매출 (판매액 > 0인 매장만)
+      cy_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      cy_shop_level AS (
+        SELECT 
+          COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
+          COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
+          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
+        FROM cy_shop_sales css
+        INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
+        GROUP BY COALESCE(vs.shop_level_nm, '기타')
+      ),
+      -- 전년 Shop Level별 매출 (판매액 > 0인 매장만)
+      ly_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      ly_shop_level AS (
+        SELECT 
+          COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
+          COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
+          COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
+        FROM ly_shop_sales lss
+        INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
+        GROUP BY COALESCE(vs.shop_level_nm, '기타')
+      ),
+      -- 전년 월전체 Shop Level별 매출 (판매액 > 0인 매장만)
+      ly_full_shop_sales AS (
+        SELECT 
+          sale.shop_id,
+          vs.brd_nm,
+          SUM(sale.sale_amt) as shop_sales_amt,
+          SUM(sale.tag_amt) as shop_tag_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+          AND sale.brd_cd = ?
+        GROUP BY sale.shop_id, vs.brd_nm
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      ly_full_shop_level AS (
+        SELECT 
+          COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
+          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
+          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
+          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+        FROM ly_full_shop_sales lfs
+        INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
+        GROUP BY COALESCE(vs.shop_level_nm, '기타')
+      )
+      SELECT 
+        'CY' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        TAG_AMT,
+        SHOP_CNT,
+        '' as CITIES
+      FROM cy_shop_level
+      UNION ALL
+      SELECT 
+        'LY' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        TAG_AMT,
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_shop_level
+      UNION ALL
+      SELECT 
+        'LY_FULL' as PERIOD, 
+        GROUP_KEY, 
+        SALES_AMT, 
+        TAG_AMT,
+        SHOP_CNT,
+        '' as CITIES
+      FROM ly_full_shop_level
+    `;
+    
+    const binds = [
+      lastDt, lastDt, brandCode, shopBrandName,
+      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
+    ];
+    
+    const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
+    
+    const currentRows = rows.filter(r => r.PERIOD === 'CY');
+    const prevRows = rows.filter(r => r.PERIOD === 'LY');
+    const prevFullRows = rows.filter(r => r.PERIOD === 'LY_FULL');
+    
+    const toRow = (r: TierRegionResult, isCurrent: boolean, isFull: boolean = false): TierRegionSalesRow => {
+      // 전년도 데이터인 경우 실제 데이터를 사용, 당해 데이터인 경우 전년도는 0 (나중에 buildTierRegionData에서 매칭)
+      if (isCurrent) {
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          cities: undefined, // Shop Level은 도시 정보 없음
+          salesAmt: Number(r.SALES_AMT) || 0,
+          shopCnt: Number(r.SHOP_CNT) || 0,
+          salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
+          prevSalesAmt: 0,
+          prevShopCnt: 0,
+          prevSalesPerShop: 0,
+          prevFullSalesAmt: 0,
+          prevFullShopCnt: 0,
+          prevCumSalesAmt: 0,
+          prevCumShopCnt: 0,
+          tagAmt: Number(r.TAG_AMT) || 0,
+          prevTagAmt: 0,
+          prevFullTagAmt: 0,
+          discountRate: null,
+          prevDiscountRate: null,
+          discountRateYoy: null,
+        };
+      } else {
+        // 전년도 데이터: 실제 전년도 값 사용
+        return {
+          key: r.GROUP_KEY || 'Unknown',
+          cities: undefined, // Shop Level은 도시 정보 없음
           salesAmt: Number(r.SALES_AMT) || 0,
           shopCnt: Number(r.SHOP_CNT) || 0,
           salesPerShop: r.SHOP_CNT > 0 ? r.SALES_AMT / r.SHOP_CNT : 0,
