@@ -1157,6 +1157,8 @@ const regionKoMap: Record<string, string> = {
   '华中': '화중',
   '东北': '동북',
   '西南': '서남',
+  // 조합된 지역명
+  '华东/华中': '화동/화중',
 };
 
 // 도시명 한국어 번역 (주요 도시)
@@ -1210,6 +1212,9 @@ const cityKoMap: Record<string, string> = {
   '延边': '연변',
   '白城': '바이청',
   '佳木斯': '자무스',
+  '泰州': '타이저우',
+  '扬州': '양저우',
+  '牡丹江': '무단장',
 };
 
 /**
@@ -1646,6 +1651,21 @@ export async function getRegionSalesData(
       return displayName;
     };
     
+    // 지역명 한국어 번역 (조합된 지역명 처리)
+    const formatRegionName = (regionCn: string): string => {
+      // 먼저 전체 지역명으로 매핑 확인
+      if (regionKoMap[regionCn]) {
+        return regionKoMap[regionCn];
+      }
+      // 조합된 지역명 처리 (예: "华东/华中")
+      if (regionCn.includes('/')) {
+        const parts = regionCn.split('/').map(part => part.trim());
+        const translatedParts = parts.map(part => regionKoMap[part] || part);
+        return translatedParts.join('/');
+      }
+      return regionCn;
+    };
+    
     const toRow = (r: TierRegionResult, isCurrent: boolean, isFull: boolean = false): TierRegionSalesRow => {
       const cities = isCurrent && r.CITIES 
         ? parseCities(r.CITIES).map(formatCityName)
@@ -1655,7 +1675,7 @@ export async function getRegionSalesData(
       if (isCurrent) {
         return {
           key: r.GROUP_KEY || 'Unknown',
-          labelKo: regionKoMap[r.GROUP_KEY] || r.GROUP_KEY,
+          labelKo: formatRegionName(r.GROUP_KEY || 'Unknown'),
           cities: cities.length > 0 ? cities : undefined,
           salesAmt: Number(r.SALES_AMT) || 0,
           shopCnt: Number(r.SHOP_CNT) || 0,
@@ -1678,7 +1698,7 @@ export async function getRegionSalesData(
         // 전년도 데이터: 실제 전년도 값 사용
         return {
           key: r.GROUP_KEY || 'Unknown',
-          labelKo: regionKoMap[r.GROUP_KEY] || r.GROUP_KEY,
+          labelKo: formatRegionName(r.GROUP_KEY || 'Unknown'),
           cities: undefined, // 전년도는 도시 정보 없음
           salesAmt: Number(r.SALES_AMT) || 0,
           shopCnt: Number(r.SHOP_CNT) || 0,
