@@ -489,9 +489,9 @@ function RetailSalesTable({ data, brandLabel, onSalesClick, retailLastDt }: { da
     { 
       key: 'shopCount', 
       label: '2. 매장수',
-      formatActual: (v) => formatNumber(v, 0),
-      formatPlan: (v) => formatNumber(v, 0),
-      formatPrev: (v) => formatNumber(v, 0),
+      formatActual: (v) => v !== null ? `${formatNumber(v, 0)}개` : '-',
+      formatPlan: (v) => v !== null ? `${formatNumber(v, 0)}개` : '-',
+      formatPrev: (v) => v !== null ? `${formatNumber(v, 0)}개` : '-',
     },
     { 
       key: 'salesPerShop', 
