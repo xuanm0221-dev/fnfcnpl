@@ -288,6 +288,30 @@ export interface ClothingItemDetail {
   poQty: number; // 발주수량
 }
 
+// 정규매장별 월별 리테일 매출 행 데이터
+export interface ShopMonthlySalesRow {
+  shopId: string;        // 매장 ID
+  shopName: string;      // 매장명
+  channel: string;       // 채널 (FR/OR)
+  openMonth: string;     // 오픈월 (YY.MM 형식)
+  monthlySales: { [month: string]: number }; // 월별 매출 { '1': 123456, '2': 234567, ... }
+}
+
+// 정규매장별 월별 리테일 매출 그룹 데이터
+export interface ShopMonthlySalesGroup {
+  totalSales: { [month: string]: number };    // 월별 총 매출
+  shopCount: { [month: string]: number };     // 월별 매장수 (매출 > 0인 매장만)
+  salesPerShop: { [month: string]: number | null }; // 월별 점당매출
+  shops: ShopMonthlySalesRow[];               // 개별 매장 목록
+}
+
+// 정규매장별 월별 리테일 매출 전체 데이터
+export interface ShopMonthlySalesData {
+  dealer: ShopMonthlySalesGroup;  // 대리상 그룹
+  direct: ShopMonthlySalesGroup;  // 직영 그룹
+  months: string[];               // 표시할 월 목록 (예: ['2025-02', '2025-03', ..., '2026-01'])
+}
+
 // 비용 계산 타입
 export type CostCalculationType = 'fixed' | 'variable';
 

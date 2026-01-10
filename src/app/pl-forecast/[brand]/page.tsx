@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail, ShopMonthlySalesData } from '@/lib/plforecast/types';
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import { getKstCurrentYm } from '@/lib/plforecast/date';
@@ -2725,6 +2725,317 @@ function ClothingSalesSection({
   );
 }
 
+// 정규매장별 월별 리테일 매출 표 컴포넌트
+function ShopMonthlySalesTable({ 
+  ym,
+  brandCode 
+}: { 
+  ym: string;
+  brandCode: string;
+}) {
+  const [viewType, setViewType] = useState<'year' | '12months'>('12months');
+  const [selectedYear, setSelectedYear] = useState<number | undefined>(undefined);
+  const [data, setData] = useState<ShopMonthlySalesData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dealerExpanded, setDealerExpanded] = useState(false);
+  const [directExpanded, setDirectExpanded] = useState(false);
+  
+  // 데이터 조회
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const year = viewType === 'year' ? selectedYear : undefined;
+        const params = new URLSearchParams({
+          ym,
+          viewType,
+          ...(year ? { year: String(year) } : {})
+        });
+        
+        const response = await fetch(`/api/shop-monthly-sales?${params}`);
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          setData(result.data);
+        } else {
+          setError(result.error || '데이터 조회 실패');
+        }
+      } catch (err) {
+        console.error('[ShopMonthlySalesTable] 데이터 조회 오류:', err);
+        setError(err instanceof Error ? err.message : '알 수 없는 오류');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    if (viewType === 'year' && !selectedYear) {
+      // 연도 선택 시 기본값 설정
+      const [year] = ym.split('-').map(Number);
+      setSelectedYear(year);
+      return;
+    }
+    
+    fetchData();
+  }, [ym, viewType, selectedYear]);
+  
+  // 연도 선택 핸들러
+  const handleYearSelect = (year: number) => {
+    setViewType('year');
+    setSelectedYear(year);
+  };
+  
+  // 12개월 탭 선택
+  const handle12MonthsSelect = () => {
+    setViewType('12months');
+    setSelectedYear(undefined);
+  };
+  
+  // 접기/펴기 토글 핸들러
+  const toggleDealer = () => {
+    setDealerExpanded(prev => !prev);
+  };
+  
+  const toggleDirect = () => {
+    setDirectExpanded(prev => !prev);
+  };
+  
+  // 숫자 포맷팅 (쉼표 추가)
+  const formatNumber = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return '-';
+    return Math.round(value).toLocaleString();
+  };
+  
+  // 월별 컬럼 렌더링
+  const renderMonthColumns = (monthlyData: { [month: string]: number | null }) => {
+    if (!data || !data.months || data.months.length === 0) return null;
+    
+    return data.months.map((month, idx) => {
+      const [y, m] = month.split('-').map(Number);
+      const monthKey = String(m);
+      const value = monthlyData[monthKey] ?? null;
+      
+      return (
+        <td key={month} className="px-3 py-2 text-right text-sm font-mono border-r border-gray-200">
+          {formatNumber(value)}
+        </td>
+      );
+    });
+  };
+  
+  // 표시할 월 라벨
+  const getMonthLabels = () => {
+    if (!data || !data.months) return [];
+    return data.months.map(month => {
+      const [y, m] = month.split('-').map(Number);
+      return `${m}월`;
+    });
+  };
+  
+  if (loading) {
+    return (
+      <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden p-6">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-sm text-gray-500">데이터를 조회 중입니다...</div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden p-6">
+        <div className="text-sm text-red-600">오류: {error}</div>
+      </div>
+    );
+  }
+  
+  if (!data) {
+    return null;
+  }
+  
+  const monthLabels = getMonthLabels();
+  
+  return (
+    <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+        <h3 className="text-sm font-semibold text-gray-700">Discovery 매장별 리테일 매출</h3>
+        
+        {/* 탭 선택 - 아이폰 스타일 세그먼트 컨트롤 */}
+        <div className="inline-flex items-center bg-gray-100 rounded-lg p-1 shadow-sm">
+          <button
+            onClick={() => handleYearSelect(2025)}
+            className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
+              viewType === 'year' && selectedYear === 2025
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            25년
+          </button>
+          <button
+            onClick={() => handleYearSelect(2026)}
+            className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
+              viewType === 'year' && selectedYear === 2026
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            26년
+          </button>
+          <button
+            onClick={handle12MonthsSelect}
+            className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
+              viewType === '12months'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            12개월
+          </button>
+        </div>
+      </div>
+      
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-indigo-950 border-b border-black/20">
+              <th className="px-3 py-2 text-left font-semibold text-white border-r border-indigo-900 sticky left-0 bg-indigo-950 z-10 min-w-[150px]">
+                매장명
+              </th>
+              <th className="px-3 py-2 text-center font-semibold text-white border-r border-indigo-900 min-w-[60px]">
+                채널
+              </th>
+              <th className="px-3 py-2 text-center font-semibold text-white border-r border-indigo-900 min-w-[70px]">
+                오픈월
+              </th>
+              {monthLabels.map((label, idx) => (
+                <th key={idx} className="px-3 py-2 text-center font-semibold text-white border-r border-indigo-900 min-w-[100px]">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {/* 대리상 섹션 */}
+            <tr className="bg-blue-100 border-b-2 border-gray-300 font-bold">
+              <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-blue-100 z-10">
+                <div className="flex items-center justify-between w-full">
+                  <span>대리상 리테일 {dealerExpanded ? '(펴기)' : '(접기)'}</span>
+                  <button
+                    onClick={toggleDealer}
+                    className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
+                    title={dealerExpanded ? '접기' : '펴기'}
+                  >
+                    {dealerExpanded ? '▼' : '▶'}
+                  </button>
+                </div>
+              </td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">FR</td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
+              {renderMonthColumns(data.dealer.totalSales)}
+            </tr>
+            <tr className="bg-blue-100 border-b-2 border-gray-300 font-bold">
+              <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-blue-100 z-10">
+                대리상 매장수
+              </td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">FR</td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
+              {data.months.map((month, idx) => {
+                const [y, m] = month.split('-').map(Number);
+                const monthKey = String(m);
+                const count = data.dealer.shopCount[monthKey] ?? 0;
+                return (
+                  <td key={month} className="px-3 py-2 text-right text-sm font-mono border-r border-gray-200">
+                    {count > 0 ? `${count}개` : '-'}
+                  </td>
+                );
+              })}
+            </tr>
+            <tr className="bg-blue-100 border-b-2 border-gray-300 font-bold">
+              <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-blue-100 z-10">
+                대리상 점당매출
+              </td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">FR</td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
+              {renderMonthColumns(data.dealer.salesPerShop)}
+            </tr>
+            
+            {/* 대리상 개별 매장 - 접었을 때 숨김 */}
+            {dealerExpanded && data.dealer.shops.map((shop, idx) => (
+              <tr key={shop.shopId} className={`border-b border-gray-200 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-inherit z-10">
+                  {shop.shopName}
+                </td>
+                <td className="px-3 py-2 text-center border-r border-gray-200">{shop.channel}</td>
+                <td className="px-3 py-2 text-center border-r border-gray-200">{shop.openMonth}</td>
+                {renderMonthColumns(shop.monthlySales)}
+              </tr>
+            ))}
+            
+            {/* 직영 섹션 */}
+            <tr className="bg-teal-50 border-b-2 border-gray-300 font-bold">
+              <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-teal-50 z-10">
+                <div className="flex items-center justify-between w-full">
+                  <span>직영 리테일 {directExpanded ? '(펴기)' : '(접기)'}</span>
+                  <button
+                    onClick={toggleDirect}
+                    className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
+                    title={directExpanded ? '접기' : '펴기'}
+                  >
+                    {directExpanded ? '▼' : '▶'}
+                  </button>
+                </div>
+              </td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">OR</td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
+              {renderMonthColumns(data.direct.totalSales)}
+            </tr>
+            <tr className="bg-teal-50 border-b-2 border-gray-300 font-bold">
+              <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-teal-50 z-10">
+                직영 매장수
+              </td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">OR</td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
+              {data.months.map((month, idx) => {
+                const [y, m] = month.split('-').map(Number);
+                const monthKey = String(m);
+                const count = data.direct.shopCount[monthKey] ?? 0;
+                return (
+                  <td key={month} className="px-3 py-2 text-right text-sm font-mono border-r border-gray-200">
+                    {count > 0 ? `${count}개` : '-'}
+                  </td>
+                );
+              })}
+            </tr>
+            <tr className="bg-teal-50 border-b-2 border-gray-300 font-bold">
+              <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-teal-50 z-10">
+                직영 점당매출
+              </td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">OR</td>
+              <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
+              {renderMonthColumns(data.direct.salesPerShop)}
+            </tr>
+            
+            {/* 직영 개별 매장 - 접었을 때 숨김 */}
+            {directExpanded && data.direct.shops.map((shop, idx) => (
+              <tr key={shop.shopId} className={`border-b border-gray-200 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-inherit z-10">
+                  {shop.shopName}
+                </td>
+                <td className="px-3 py-2 text-center border-r border-gray-200">{shop.channel}</td>
+                <td className="px-3 py-2 text-center border-r border-gray-200">{shop.openMonth}</td>
+                {renderMonthColumns(shop.monthlySales)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function BrandPlForecastPage() {
   const router = useRouter();
   const params = useParams();
@@ -3257,6 +3568,11 @@ export default function BrandPlForecastPage() {
                   <p className="text-xs text-gray-400 mt-2">브랜드: {data?.brand || ''}, 기준일: {data?.lastDt || ''}</p>
                 </div>
               ) : null}
+              
+              {/* 정규매장별 월별 리테일 매출 표 (DISCOVERY만) */}
+              {data && data.brand === 'X' && (
+                <ShopMonthlySalesTable ym={ym} brandCode={data.brand} />
+              )}
               
               {/* 매장별 상세 모달 */}
               <ShopSalesModal

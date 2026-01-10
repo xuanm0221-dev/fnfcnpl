@@ -1,5 +1,5 @@
-import snowflake from 'snowflake-sdk';
-import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow, ChannelActuals } from './types';
+﻿import snowflake from 'snowflake-sdk';
+import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow, ChannelActuals, ShopMonthlySalesData, ShopMonthlySalesRow, ShopMonthlySalesGroup } from './types';
 
 // Snowflake 연결 설정
 function getConnection(): Promise<snowflake.Connection> {
@@ -1095,7 +1095,7 @@ export async function getShopSalesDetails(
     const sql = `
       WITH valid_shops AS (
         -- 대리상 오프라인 정규매장 필터 (매장 브랜드 무관)
-        SELECT DISTINCT d.shop_id, m.shop_nm_cn, d.fr_or_cls
+        SELECT DISTINCT d.shop_id, m.shop_nm_en, d.fr_or_cls
         FROM CHN.dw_shop_wh_detail d
         JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
         WHERE d.anlys_shop_type_nm IN ('FO', 'FP')
@@ -1116,7 +1116,7 @@ export async function getShopSalesDetails(
       )
       SELECT 
         ss.shop_id as SHOP_ID,
-        vs.shop_nm_cn as SHOP_NAME,
+        vs.shop_nm_en as SHOP_NAME,
         ss.sales_amt as SALES_AMT,
         vs.fr_or_cls as FR_OR_CLS
       FROM shop_sales ss
@@ -2872,3 +2872,358 @@ export async function getClothingItemDetails(
   }
 }
 
+// 정규매장별 월별 리테일 매출 조회 결과
+interface ShopMonthlySalesResult {
+  SHOP_ID: string;
+  SHOP_NAME: string;
+  CHANNEL: string;
+  OPEN_MONTH: string;
+  MONTH_1: number | null;
+  MONTH_2: number | null;
+  MONTH_3: number | null;
+  MONTH_4: number | null;
+  MONTH_5: number | null;
+  MONTH_6: number | null;
+  MONTH_7: number | null;
+  MONTH_8: number | null;
+  MONTH_9: number | null;
+  MONTH_10: number | null;
+  MONTH_11: number | null;
+  MONTH_12: number | null;
+}
+
+interface ShopMonthlySalesSummaryResult {
+  CHANNEL: string;
+  MONTH_1: number | null;
+  MONTH_2: number | null;
+  MONTH_3: number | null;
+  MONTH_4: number | null;
+  MONTH_5: number | null;
+  MONTH_6: number | null;
+  MONTH_7: number | null;
+  MONTH_8: number | null;
+  MONTH_9: number | null;
+  MONTH_10: number | null;
+  MONTH_11: number | null;
+  MONTH_12: number | null;
+  SHOP_CNT_1: number;
+  SHOP_CNT_2: number;
+  SHOP_CNT_3: number;
+  SHOP_CNT_4: number;
+  SHOP_CNT_5: number;
+  SHOP_CNT_6: number;
+  SHOP_CNT_7: number;
+  SHOP_CNT_8: number;
+  SHOP_CNT_9: number;
+  SHOP_CNT_10: number;
+  SHOP_CNT_11: number;
+  SHOP_CNT_12: number;
+}
+
+/**
+ * 정규매장별 월별 리테일 매출 조회
+ * @param baseYm 기준년월 (YYYY-MM)
+ * @param lastDt 기준일 (YYYY-MM-DD)
+ * @param viewType 'year' (25년/26년) 또는 '12months' (12개월)
+ * @param year 선택한 연도 (2025 또는 2026, viewType='year'일 때만)
+ * @param brandCode 브랜드 코드 ('X' = DISCOVERY)
+ */
+export async function getShopMonthlySales(
+  baseYm: string,
+  lastDt: string,
+  viewType: 'year' | '12months',
+  year?: number,
+  brandCode: string = 'X'
+): Promise<ShopMonthlySalesData> {
+  const connection = await getConnection();
+  
+  try {
+    // 표시할 월 목록 계산
+    const months: string[] = [];
+    const [baseYear, baseMonth] = baseYm.split('-').map(Number);
+    
+    if (viewType === 'year' && year) {
+      // 연도 선택: 해당 연도의 1월~12월
+      for (let m = 1; m <= 12; m++) {
+        months.push(`${year}-${String(m).padStart(2, '0')}`);
+      }
+    } else if (viewType === '12months') {
+      // 12개월 탭: 기준월 포함 이전 11개월
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(baseYear, baseMonth - 1, 1);
+        date.setMonth(date.getMonth() - i);
+        const y = date.getFullYear();
+        const m = date.getMonth() + 1;
+        months.push(`${y}-${String(m).padStart(2, '0')}`);
+      }
+    }
+    
+    // 각 월별 시작일/종료일 계산
+    const monthDates = months.map((ym, idx) => {
+      const [y, m] = ym.split('-').map(Number);
+      const isBaseMonth = ym === baseYm;
+      const startDt = `${y}-${String(m).padStart(2, '0')}-01`;
+      let endDt: string;
+      
+      if (isBaseMonth) {
+        // 기준월: 누적 (해당 월 1일~기준일)
+        endDt = lastDt;
+      } else {
+        // 이전 월: 전체월 (해당 월 1일~월말)
+        const lastDay = new Date(y, m, 0).getDate();
+        endDt = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      }
+      
+      return { ym, startDt, endDt, monthNum: m };
+    });
+    
+    // 월별 CASE WHEN 구문 생성
+    const monthCases = monthDates.map((md, idx) => {
+      const monthNum = md.monthNum;
+      return `
+        SUM(CASE 
+          WHEN sale.sale_dt BETWEEN '${md.startDt}'::DATE AND '${md.endDt}'::DATE 
+          THEN sale.sale_amt 
+          ELSE 0 
+        END) AS MONTH_${monthNum},
+        COUNT(DISTINCT CASE 
+          WHEN sale.sale_dt BETWEEN '${md.startDt}'::DATE AND '${md.endDt}'::DATE 
+            AND sale.sale_amt > 0 
+          THEN sale.shop_id 
+          ELSE NULL 
+        END) AS SHOP_CNT_${monthNum}
+      `;
+    }).join(',\n        ');
+    
+    const sql = `
+      WITH valid_shops AS (
+        -- 대리상(FR) + 직영(OR) 오프라인 정규매장 필터 (DISCOVERY 브랜드 매출이 있는 매장만)
+        SELECT DISTINCT 
+          d.shop_id, 
+          m.shop_nm_en, 
+          d.fr_or_cls,
+          d.open_dt
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE d.anlys_shop_type_nm IN ('FO', 'FP')
+          AND d.fr_or_cls IN ('FR', 'OR')
+          AND m.anlys_onoff_cls_nm = 'Offline'
+          AND EXISTS (
+            SELECT 1 
+            FROM CHN.dw_sale s 
+            WHERE s.shop_id = d.shop_id 
+              AND s.brd_cd = ?
+          )
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ),
+      shop_monthly_sales AS (
+        SELECT 
+          sale.shop_id,
+          ${monthCases}
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.brd_cd = ?
+        GROUP BY sale.shop_id
+      ),
+      shop_data AS (
+        SELECT 
+          vs.shop_id,
+          vs.shop_nm_en as SHOP_NAME,
+          vs.fr_or_cls as CHANNEL,
+          CASE 
+            WHEN vs.open_dt IS NOT NULL 
+            THEN TO_CHAR(vs.open_dt, 'YY.MM')
+            ELSE ''
+          END as OPEN_MONTH,
+          COALESCE(sms.MONTH_1, 0) as MONTH_1,
+          COALESCE(sms.MONTH_2, 0) as MONTH_2,
+          COALESCE(sms.MONTH_3, 0) as MONTH_3,
+          COALESCE(sms.MONTH_4, 0) as MONTH_4,
+          COALESCE(sms.MONTH_5, 0) as MONTH_5,
+          COALESCE(sms.MONTH_6, 0) as MONTH_6,
+          COALESCE(sms.MONTH_7, 0) as MONTH_7,
+          COALESCE(sms.MONTH_8, 0) as MONTH_8,
+          COALESCE(sms.MONTH_9, 0) as MONTH_9,
+          COALESCE(sms.MONTH_10, 0) as MONTH_10,
+          COALESCE(sms.MONTH_11, 0) as MONTH_11,
+          COALESCE(sms.MONTH_12, 0) as MONTH_12
+        FROM valid_shops vs
+        LEFT JOIN shop_monthly_sales sms ON vs.shop_id = sms.shop_id
+        ORDER BY vs.open_dt ASC NULLS LAST
+      ),
+      summary_data AS (
+        SELECT 
+          vs.fr_or_cls as CHANNEL,
+          ${monthCases}
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.brd_cd = ?
+        GROUP BY vs.fr_or_cls
+      )
+      SELECT 
+        sd.shop_id as SHOP_ID,
+        sd.SHOP_NAME,
+        sd.CHANNEL,
+        sd.OPEN_MONTH,
+        sd.MONTH_1, sd.MONTH_2, sd.MONTH_3, sd.MONTH_4,
+        sd.MONTH_5, sd.MONTH_6, sd.MONTH_7, sd.MONTH_8,
+        sd.MONTH_9, sd.MONTH_10, sd.MONTH_11, sd.MONTH_12
+      FROM shop_data sd
+      UNION ALL
+      SELECT 
+        'SUMMARY' as SHOP_ID,
+        CASE WHEN sm.CHANNEL = 'FR' THEN '대리상 리테일' ELSE '직영 리테일' END as SHOP_NAME,
+        sm.CHANNEL,
+        '' as OPEN_MONTH,
+        sm.MONTH_1, sm.MONTH_2, sm.MONTH_3, sm.MONTH_4,
+        sm.MONTH_5, sm.MONTH_6, sm.MONTH_7, sm.MONTH_8,
+        sm.MONTH_9, sm.MONTH_10, sm.MONTH_11, sm.MONTH_12
+      FROM summary_data sm
+      ORDER BY 
+        CASE WHEN SHOP_ID = 'SUMMARY' THEN 0 ELSE 1 END,
+        CHANNEL,
+        OPEN_MONTH
+    `;
+    
+    // SQL이 너무 복잡하므로 단계별로 실행
+    // 먼저 매장별 데이터와 합계 데이터를 분리하여 조회
+    // valid_shops에서 brandCode 1번, shop_monthly_sales에서 brandCode 1번, summary_data에서 brandCode 1번 사용
+    const shopRows = await executeQuery<ShopMonthlySalesResult>(connection, sql, [brandCode, brandCode, brandCode]);
+    
+    // 결과를 그룹별로 분리
+    const dealerShops: ShopMonthlySalesRow[] = [];
+    const directShops: ShopMonthlySalesRow[] = [];
+    
+    let dealerTotalSales: { [month: string]: number } = {};
+    let dealerShopCount: { [month: string]: number } = {};
+    let directTotalSales: { [month: string]: number } = {};
+    let directShopCount: { [month: string]: number } = {};
+    
+    // 월별 키 초기화
+    monthDates.forEach(md => {
+      const monthKey = String(md.monthNum);
+      dealerTotalSales[monthKey] = 0;
+      dealerShopCount[monthKey] = 0;
+      directTotalSales[monthKey] = 0;
+      directShopCount[monthKey] = 0;
+    });
+    
+    for (const row of shopRows) {
+      const monthSales: { [month: string]: number } = {};
+      let hasAnySales = false;
+      
+      monthDates.forEach(md => {
+        const monthKey = String(md.monthNum);
+        const salesKey = `MONTH_${md.monthNum}` as keyof ShopMonthlySalesResult;
+        const value = row[salesKey] as number | null;
+        monthSales[monthKey] = value !== null ? Number(value) || 0 : 0;
+        if (monthSales[monthKey] !== 0) hasAnySales = true;
+      });
+      
+      if (row.SHOP_ID === 'SUMMARY') {
+        // 합계 행
+        monthDates.forEach(md => {
+          const monthKey = String(md.monthNum);
+          const salesKey = `MONTH_${md.monthNum}` as keyof ShopMonthlySalesResult;
+          const value = row[salesKey] as number | null;
+          const sales = value !== null ? Number(value) || 0 : 0;
+          
+          if (row.CHANNEL === 'FR') {
+            dealerTotalSales[monthKey] = sales;
+          } else if (row.CHANNEL === 'OR') {
+            directTotalSales[monthKey] = sales;
+          }
+        });
+      } else {
+        // 매장 행
+        const shopRow: ShopMonthlySalesRow = {
+          shopId: row.SHOP_ID || '',
+          shopName: row.SHOP_NAME || '',
+          channel: row.CHANNEL || '',
+          openMonth: row.OPEN_MONTH || '',
+          monthlySales: monthSales
+        };
+        
+        if (row.CHANNEL === 'FR') {
+          dealerShops.push(shopRow);
+          // 매장수 계산 (매출 > 0인 월만 카운팅)
+          monthDates.forEach(md => {
+            const monthKey = String(md.monthNum);
+            if (monthSales[monthKey] > 0) {
+              dealerShopCount[monthKey]++;
+            }
+          });
+        } else if (row.CHANNEL === 'OR') {
+          directShops.push(shopRow);
+          // 매장수 계산 (매출 > 0인 월만 카운팅)
+          monthDates.forEach(md => {
+            const monthKey = String(md.monthNum);
+            if (monthSales[monthKey] > 0) {
+              directShopCount[monthKey]++;
+            }
+          });
+        }
+      }
+    }
+    
+    // 합계 데이터 재계산 (전체 합계)
+    dealerTotalSales = {};
+    directTotalSales = {};
+    dealerShopCount = {};
+    directShopCount = {};
+    
+    monthDates.forEach(md => {
+      const monthKey = String(md.monthNum);
+      dealerTotalSales[monthKey] = 0;
+      dealerShopCount[monthKey] = 0;
+      directTotalSales[monthKey] = 0;
+      directShopCount[monthKey] = 0;
+      
+      // 대리상 합계
+      dealerShops.forEach(shop => {
+        const sales = shop.monthlySales[monthKey] || 0;
+        dealerTotalSales[monthKey] += sales;
+        if (sales > 0) dealerShopCount[monthKey]++;
+      });
+      
+      // 직영 합계
+      directShops.forEach(shop => {
+        const sales = shop.monthlySales[monthKey] || 0;
+        directTotalSales[monthKey] += sales;
+        if (sales > 0) directShopCount[monthKey]++;
+      });
+    });
+    
+    // 점당매출 계산
+    const dealerSalesPerShop: { [month: string]: number | null } = {};
+    const directSalesPerShop: { [month: string]: number | null } = {};
+    
+    monthDates.forEach(md => {
+      const monthKey = String(md.monthNum);
+      dealerSalesPerShop[monthKey] = dealerShopCount[monthKey] > 0 
+        ? dealerTotalSales[monthKey] / dealerShopCount[monthKey] 
+        : null;
+      directSalesPerShop[monthKey] = directShopCount[monthKey] > 0 
+        ? directTotalSales[monthKey] / directShopCount[monthKey] 
+        : null;
+    });
+    
+    return {
+      dealer: {
+        totalSales: dealerTotalSales,
+        shopCount: dealerShopCount,
+        salesPerShop: dealerSalesPerShop,
+        shops: dealerShops
+      },
+      direct: {
+        totalSales: directTotalSales,
+        shopCount: directShopCount,
+        salesPerShop: directSalesPerShop,
+        shops: directShops
+      },
+      months: months
+    };
+  } finally {
+    await destroyConnection(connection);
+  }
+}
