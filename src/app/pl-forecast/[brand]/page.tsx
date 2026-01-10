@@ -696,7 +696,15 @@ function TierRegionTable({
   
   // 매장수 YOY 포맷팅 (증감 개수 + 백분율)
   const formatShopYoy = (shopCnt: number, prevShopCnt: number): string => {
-    if (!prevShopCnt || prevShopCnt === 0) return '-';
+    // 전년이 0이고 당년도 0이면 '-'
+    if ((!prevShopCnt || prevShopCnt === 0) && (!shopCnt || shopCnt === 0)) return '-';
+    // 전년이 0이고 당년이 있으면 증감만 표시
+    if (!prevShopCnt || prevShopCnt === 0) {
+      const diff = shopCnt;
+      const sign = diff >= 0 ? '+' : '△';
+      return `${sign}${Math.abs(diff)}개`;
+    }
+    // 전년이 있으면 증감 + 백분율 표시
     const diff = shopCnt - prevShopCnt;
     const percent = Math.round((shopCnt / prevShopCnt) * 100);
     const sign = diff >= 0 ? '+' : '△';
@@ -1038,18 +1046,35 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
   
   // 매장수 YOY 포맷팅 (증감 개수 + 백분율)
   const formatShopYoy = (shopCnt: number | undefined, prevShopCnt: number | undefined): string => {
-    if (!shopCnt || !prevShopCnt || prevShopCnt === 0) return '-';
-    const diff = shopCnt - prevShopCnt;
-    const percent = Math.round((shopCnt / prevShopCnt) * 100);
+    const currentCnt = shopCnt || 0;
+    const prevCnt = prevShopCnt || 0;
+    // 전년이 0이고 당년도 0이면 '-'
+    if (prevCnt === 0 && currentCnt === 0) return '-';
+    // 전년이 0이고 당년이 있으면 증감만 표시
+    if (prevCnt === 0) {
+      const diff = currentCnt;
+      const sign = diff >= 0 ? '+' : '△';
+      return `${sign}${Math.abs(diff)}개`;
+    }
+    // 전년이 있으면 증감 + 백분율 표시
+    const diff = currentCnt - prevCnt;
+    const percent = Math.round((currentCnt / prevCnt) * 100);
     const sign = diff >= 0 ? '+' : '△';
     return `${sign}${Math.abs(diff)}개, ${percent}%`;
   };
   
-  // YOY 계산
-  const tagYoy = salesK && prevSalesK 
-    ? (parseFloat(salesK.replace(/,/g, '')) / parseFloat(prevSalesK.replace(/,/g, ''))) * 100
+  // 실판 YOY 계산 (당월누적 vs 전년 누적)
+  const salesYoyPercent = salesK && prevSalesK 
+    ? Math.round((parseFloat(salesK.replace(/,/g, '')) / parseFloat(prevSalesK.replace(/,/g, ''))) * 100)
     : null;
-  const salesYoy = yoy ? yoy * 100 : null;
+  
+  // 점당매출 YOY 계산 (월말예상 점당 vs 전년 월전체 점당) - 테이블과 일치
+  const salesPerShopYoyPercent = prevSalesPerShop && prevSalesPerShop > 0
+    ? Math.round((salesPerShop || 0) / prevSalesPerShop * 100)
+    : null;
+  
+  // 매장수 YOY 포맷팅 (테이블과 일치)
+  const shopYoyText = formatShopYoy(shopCnt, prevShopCnt);
   
   // 라인 높이
   const lineHeight = 18;
@@ -1059,13 +1084,6 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
   // 작은 박스 처리: 폰트 크기 조정 (더 작게)
   const fontSize = innerWidth < 120 ? '8px' : innerWidth < 150 ? '9px' : '10px';
   const titleFontSize = innerWidth < 120 ? 14 : innerWidth < 150 ? 15 : 16;
-  
-  // 실판 YOY 계산
-  const salesYoyPercent = tagYoy ? Math.round(tagYoy) : null;
-  // 점당매출 YOY 계산
-  const salesPerShopYoyPercent = salesYoy ? Math.round(salesYoy) : null;
-  // 매장수 YOY 포맷팅
-  const shopYoyText = formatShopYoy(shopCnt, prevShopCnt);
   
   return (
     <g>
@@ -1917,12 +1935,13 @@ function TierRegionTreemap({
   // 티어 데이터 변환
   const tierTreemapData = safeTiers.map((tier) => {
     if (!tier) return null;
-    // 전년 누적 데이터 사용 (트리맵은 누적 기준)
+    // 전년 월전체 데이터 (점당매출 YOY 및 매장수 YOY 계산용)
+    const prevShopCnt = tier.prevShopCnt || 0;
+    const prevSalesPerShop = tier.prevSalesPerShop || 0;
+    // 전년 누적 데이터 (실판 YOY 계산용)
     const prevCumSalesAmt = tier.prevCumSalesAmt || 0;
-    const prevCumShopCnt = tier.prevCumShopCnt || 0;
-    const prevCumSalesPerShop = prevCumShopCnt > 0 ? prevCumSalesAmt / prevCumShopCnt : 0;
-    // YOY: 당년 누적 vs 전년 누적 비교
-    const yoy = prevCumSalesPerShop > 0 ? (tier.salesPerShop || 0) / prevCumSalesPerShop : undefined;
+    // 실판 YOY 계산 (색상용, 당월누적 vs 전년 누적)
+    const yoy = prevCumSalesAmt > 0 ? (tier.salesAmt || 0) / prevCumSalesAmt : undefined;
     return {
       name: tier.key,
       displayName: tier.key,
@@ -1930,13 +1949,13 @@ function TierRegionTreemap({
       salesPerShop: tier.salesPerShop || 0,
       salesK: Math.round((tier.salesAmt || 0) / 1000).toLocaleString(),
       shopCnt: tier.shopCnt || 0,
-      prevSalesPerShop: prevCumSalesPerShop,
-      prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(),
-      prevShopCnt: prevCumShopCnt,
+      prevSalesPerShop: prevSalesPerShop, // 전년 월전체 점당매출 (점당매출 YOY 계산용)
+      prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(), // 전년 누적 매출 (실판 YOY 계산용)
+      prevShopCnt: prevShopCnt, // 전년 월전체 매장수 (매장수 YOY 계산용)
       yoy,
       discountRate: tier.discountRate,
       discountRateYoy: tier.discountRateYoy,
-      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상
+      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상 (실판 기준)
       labelKo: tier.labelKo,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null)
@@ -1950,12 +1969,13 @@ function TierRegionTreemap({
   // 지역 데이터 변환 (한국어(중국어) 형식)
   const regionTreemapData = safeRegions.map((region) => {
     if (!region) return null;
-    // 전년 누적 데이터 사용 (트리맵은 누적 기준)
+    // 전년 월전체 데이터 (점당매출 YOY 및 매장수 YOY 계산용)
+    const prevShopCnt = region.prevShopCnt || 0;
+    const prevSalesPerShop = region.prevSalesPerShop || 0;
+    // 전년 누적 데이터 (실판 YOY 계산용)
     const prevCumSalesAmt = region.prevCumSalesAmt || 0;
-    const prevCumShopCnt = region.prevCumShopCnt || 0;
-    const prevCumSalesPerShop = prevCumShopCnt > 0 ? prevCumSalesAmt / prevCumShopCnt : 0;
-    // YOY: 당년 누적 vs 전년 누적 비교
-    const yoy = prevCumSalesPerShop > 0 ? (region.salesPerShop || 0) / prevCumSalesPerShop : undefined;
+    // 실판 YOY 계산 (색상용, 당월누적 vs 전년 누적)
+    const yoy = prevCumSalesAmt > 0 ? (region.salesAmt || 0) / prevCumSalesAmt : undefined;
     return {
       name: region.key,
       displayName: region.labelKo ? `${region.labelKo}(${region.key})` : region.key,
@@ -1963,13 +1983,13 @@ function TierRegionTreemap({
       salesPerShop: region.salesPerShop || 0,
       salesK: Math.round((region.salesAmt || 0) / 1000).toLocaleString(),
       shopCnt: region.shopCnt || 0,
-      prevSalesPerShop: prevCumSalesPerShop,
-      prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(),
-      prevShopCnt: prevCumShopCnt,
+      prevSalesPerShop: prevSalesPerShop, // 전년 월전체 점당매출 (점당매출 YOY 계산용)
+      prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(), // 전년 누적 매출 (실판 YOY 계산용)
+      prevShopCnt: prevShopCnt, // 전년 월전체 매장수 (매장수 YOY 계산용)
       yoy,
       discountRate: region.discountRate,
       discountRateYoy: region.discountRateYoy,
-      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상
+      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상 (실판 기준)
       cities: region.cities,
       labelKo: region.labelKo,
     };
@@ -2936,19 +2956,17 @@ export default function BrandPlForecastPage() {
         )}
 
         {/* 목표 */}
-        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs bg-sky-50`}>
           {formatK(line.target)}
         </td>
 
         {/* 누적 */}
-        {showAccum && (
-          <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
-            {formatK(line.accum)}
-          </td>
-        )}
+        <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
+          {formatK(line.accum)}
+        </td>
 
         {/* 월말예상 */}
-        <td className={`py-3 px-3 text-right font-mono text-emerald-600 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-3 text-right font-mono text-emerald-600 text-xs bg-sky-50`}>
           {formatK(line.forecast)}
         </td>
 
@@ -3305,7 +3323,7 @@ export default function BrandPlForecastPage() {
                         }
                       `}
                     >
-                      누적 {showAccum ? '숨기기' : '보기'}
+                      전년누적 {showAccum ? '숨기기' : '보기'}
                     </button>
                   </div>
                 </div>
@@ -3317,20 +3335,58 @@ export default function BrandPlForecastPage() {
                         <th className="py-3 px-4 text-left text-gray-800 sticky left-0 bg-gradient-to-b from-gray-100 to-gray-50 z-20 border-r border-gray-200">
                           구분
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">전년(월전체)</th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(전년)</span>
+                            <span>월전체</span>
+                          </div>
+                        </th>
                         {showAccum && (
                           <>
-                            <th className="py-3 px-3 text-right text-gray-800">(전년)누적</th>
-                            <th className="py-3 px-3 text-right text-gray-800">(전년)진척률</th>
+                            <th className="py-3 px-3 text-right text-gray-800">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>(전년)</span>
+                                <span>누적</span>
+                              </div>
+                            </th>
+                            <th className="py-3 px-3 text-right text-gray-800">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>(전년)</span>
+                                <span>진척률</span>
+                              </div>
+                            </th>
                           </>
                         )}
-                        <th className="py-3 px-3 text-right text-gray-800">목표</th>
-                        {showAccum && (
-                          <th className="py-3 px-3 text-right text-gray-800">누적(당월실적)</th>
-                        )}
-                        <th className="py-3 px-3 text-right text-gray-800">월말예상</th>
-                        <th className="py-3 px-3 text-right text-gray-800">전년비</th>
-                        <th className="py-3 px-3 text-right text-gray-800">달성율</th>
+                        <th className="py-3 px-3 text-right text-gray-800 bg-sky-50">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월)</span>
+                            <span>목표</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월)</span>
+                            <span>누적실적</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800 bg-sky-50">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월)</span>
+                            <span>월말예상</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월말)</span>
+                            <span>전년비</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(목표비)</span>
+                            <span>달성율</span>
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
@@ -3338,7 +3394,7 @@ export default function BrandPlForecastPage() {
                         data.lines.map((line) => renderRow(line))
                       ) : (
                         <tr>
-                          <td colSpan={showAccum ? 9 : 7} className="py-12 text-center text-gray-400">
+                          <td colSpan={showAccum ? 9 : 8} className="py-12 text-center text-gray-400">
                             데이터가 없습니다.
                           </td>
                         </tr>

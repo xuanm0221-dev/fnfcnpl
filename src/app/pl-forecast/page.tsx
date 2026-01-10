@@ -400,19 +400,17 @@ export default function PlForecastPage() {
         )}
 
         {/* 목표 */}
-        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs bg-sky-50`}>
           {formatK(line.target)}
         </td>
 
         {/* 누적 */}
-        {showAccum && (
-          <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
-            {formatK(line.accum)}
-          </td>
-        )}
+        <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
+          {formatK(line.accum)}
+        </td>
 
         {/* 월말예상 */}
-        <td className={`py-3 px-3 text-right font-mono text-emerald-600 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-3 text-right font-mono text-emerald-600 text-xs bg-sky-50`}>
           {formatK(line.forecast)}
         </td>
 
@@ -640,7 +638,7 @@ export default function PlForecastPage() {
                 <div className="grid grid-cols-2 gap-4">
                   {/* 차트1: 브랜드별 매출/영업이익 */}
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">브랜드별 매출현황 & 영업이익 (K단위)</h4>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">[월말예상] 브랜드별 매출현황(V+) & 영업이익</h4>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={data.charts.brandSales} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
@@ -671,7 +669,7 @@ export default function PlForecastPage() {
 
                   {/* 차트2: 브랜드별 레이더 (계획/전년비) */}
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">전체 브랜드 매출 계획/전년비 (%)</h4>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">전체 브랜드 매출 목표/전년비 (%), (V+)</h4>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <RadarChart data={data.charts.brandRadar} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
@@ -692,7 +690,7 @@ export default function PlForecastPage() {
 
                   {/* 차트3: Waterfall 손익 구조 */}
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">전체 손익 구조 (Waterfall)</h4>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">[월말예상] 법인 손익 구조</h4>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart 
@@ -889,7 +887,7 @@ export default function PlForecastPage() {
                         }
                       `}
                     >
-                      누적 {showAccum ? '숨기기' : '보기'}
+                      전년누적 {showAccum ? '숨기기' : '보기'}
                     </button>
                   </div>
                 </div>
@@ -901,20 +899,58 @@ export default function PlForecastPage() {
                         <th className="py-3 px-4 text-left text-gray-800 sticky left-0 bg-gradient-to-b from-gray-100 to-gray-50 z-20 border-r border-gray-200">
                           구분
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">전년(월전체)</th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(전년)</span>
+                            <span>월전체</span>
+                          </div>
+                        </th>
                         {showAccum && (
                           <>
-                            <th className="py-3 px-3 text-right text-gray-800">(전년)누적</th>
-                            <th className="py-3 px-3 text-right text-gray-800">(전년)진척률</th>
+                            <th className="py-3 px-3 text-right text-gray-800">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>(전년)</span>
+                                <span>누적</span>
+                              </div>
+                            </th>
+                            <th className="py-3 px-3 text-right text-gray-800">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>(전년)</span>
+                                <span>진척률</span>
+                              </div>
+                            </th>
                           </>
                         )}
-                        <th className="py-3 px-3 text-right text-gray-800">목표</th>
-                        {showAccum && (
-                          <th className="py-3 px-3 text-right text-gray-800">누적(당월실적)</th>
-                        )}
-                        <th className="py-3 px-3 text-right text-gray-800">월말예상</th>
-                        <th className="py-3 px-3 text-right text-gray-800">전년비</th>
-                        <th className="py-3 px-3 text-right text-gray-800">달성율</th>
+                        <th className="py-3 px-3 text-right text-gray-800 bg-sky-50">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월)</span>
+                            <span>목표</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월)</span>
+                            <span>누적실적</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800 bg-sky-50">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월)</span>
+                            <span>월말예상</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(당월말)</span>
+                            <span>전년비</span>
+                          </div>
+                        </th>
+                        <th className="py-3 px-3 text-right text-gray-800">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>(목표비)</span>
+                            <span>달성율</span>
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
@@ -922,7 +958,7 @@ export default function PlForecastPage() {
                         data.lines.map((line) => renderRow(line))
                       ) : (
                         <tr>
-                          <td colSpan={showAccum ? 9 : 7} className="py-12 text-center text-gray-400">
+                          <td colSpan={showAccum ? 9 : 8} className="py-12 text-center text-gray-400">
                             데이터가 없습니다.
                           </td>
                         </tr>

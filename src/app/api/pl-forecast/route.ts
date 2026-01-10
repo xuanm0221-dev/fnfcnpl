@@ -161,6 +161,275 @@ function calculateForecast(accum: number | null, accumDays: number, monthDays: n
   }
 }
 
+// (전년)진척률 계산 헬퍼 함수
+function calculatePrevYearProgressRate(prevYear: number | null, prevYearAccum: number | null): number | null {
+  if (prevYear === null || prevYearAccum === null) {
+    return null;
+  }
+  if (prevYear === 0) {
+    // 분모가 0이면 0 반환 (prevYearAccum이 null이 아니고 0일 수도 있으므로)
+    return 0;
+  }
+  const rate = prevYearAccum / prevYear;
+  return isNaN(rate) || !isFinite(rate) ? null : rate;
+}
+
+// Lines 합산 함수 (브랜드별 lines를 합산)
+function mergePlLines(brandLinesList: PlLine[][]): PlLine[] {
+  if (brandLinesList.length === 0) return [];
+  if (brandLinesList.length === 1) return brandLinesList[0];
+
+  // 첫 번째 브랜드의 lines를 기준으로 구조 복사
+  const mergedLines: PlLine[] = brandLinesList[0].map(line => ({
+    ...line,
+    prevYear: 0,
+    prevYearAccum: 0,
+    prevYearProgressRate: null,
+    target: 0,
+    accum: 0,
+    forecast: 0,
+    yoyRate: null,
+    achvRate: null,
+    children: line.children ? line.children.map(child => ({
+      ...child,
+      prevYear: 0,
+      prevYearAccum: 0,
+      prevYearProgressRate: null,
+      target: 0,
+      accum: 0,
+      forecast: 0,
+      yoyRate: null,
+      achvRate: null,
+      children: undefined, // 2레벨까지만 처리 (필요시 확장)
+    })) : undefined,
+  }));
+
+  // 모든 브랜드의 lines를 순회하며 합산
+  for (const brandLines of brandLinesList) {
+    for (let i = 0; i < mergedLines.length; i++) {
+      const mergedLine = mergedLines[i];
+      const brandLine = brandLines[i];
+      
+      if (!brandLine || mergedLine.id !== brandLine.id) {
+        // id가 일치하지 않으면 찾기
+        const found = brandLines.find(l => l.id === mergedLine.id);
+        if (!found) continue;
+        mergeLineValues(mergedLine, found);
+      } else {
+        mergeLineValues(mergedLine, brandLine);
+      }
+    }
+  }
+
+  // 계산 필드 재계산 (합산된 리프 노드 값 기반)
+  for (const line of mergedLines) {
+    // 부모 노드는 children의 합으로 재계산 (children이 있는 경우)
+    if (line.children && line.children.length > 0) {
+      const sumPrevYear = line.children.reduce((sum, c) => sum + (c.prevYear || 0), 0);
+      const sumPrevYearAccum = line.children.reduce((sum, c) => sum + (c.prevYearAccum || 0), 0);
+      const sumAccum = line.children.reduce((sum, c) => sum + (c.accum || 0), 0);
+      const sumTarget = line.children.reduce((sum, c) => sum + (c.target || 0), 0);
+      const sumForecast = line.children.reduce((sum, c) => sum + (c.forecast || 0), 0);
+      
+      // isCalculated가 false인 경우에만 합산 (실제 계정과목)
+      if (!line.isCalculated) {
+        line.prevYear = sumPrevYear || line.prevYear;
+        line.prevYearAccum = sumPrevYearAccum || line.prevYearAccum;
+        line.accum = sumAccum || line.accum;
+        line.target = sumTarget || line.target;
+        line.forecast = sumForecast || line.forecast;
+      }
+    }
+
+    // 계산 필드 재계산
+    if (line.isCalculated) {
+      if (line.id === 'gross-profit') {
+        // 매출총이익 = 실판(V+)/1.13 - 매출원가 합계
+        const actSaleLine = mergedLines.find(l => l.id === 'act-sale-vat-inc');
+        const cogsSumLine = mergedLines.find(l => l.id === 'cogs-sum');
+        if (actSaleLine && cogsSumLine) {
+          const vatIncPrevYear = actSaleLine.prevYear ?? 0;
+          const vatIncAccum = actSaleLine.accum ?? 0;
+          const vatIncPrevYearAccum = actSaleLine.prevYearAccum ?? 0;
+          const cogsPrevYear = cogsSumLine.prevYear ?? 0;
+          const cogsAccum = cogsSumLine.accum ?? 0;
+          const cogsPrevYearAccum = cogsSumLine.prevYearAccum ?? 0;
+          
+          const calcPrevYear = vatIncPrevYear !== null && cogsPrevYear !== null ? (vatIncPrevYear / 1.13) - cogsPrevYear : null;
+          const calcAccum = vatIncAccum !== null && cogsAccum !== null ? (vatIncAccum / 1.13) - cogsAccum : null;
+          const calcPrevYearAccum = vatIncPrevYearAccum !== null && cogsPrevYearAccum !== null ? (vatIncPrevYearAccum / 1.13) - cogsPrevYearAccum : null;
+          line.prevYear = calcPrevYear !== null && !isNaN(calcPrevYear) && isFinite(calcPrevYear) ? calcPrevYear : null;
+          line.accum = calcAccum !== null && !isNaN(calcAccum) && isFinite(calcAccum) ? calcAccum : null;
+          line.prevYearAccum = calcPrevYearAccum !== null && !isNaN(calcPrevYearAccum) && isFinite(calcPrevYearAccum) ? calcPrevYearAccum : null;
+          
+          // target과 forecast 재계산
+          const vatIncTarget = actSaleLine.target ?? 0;
+          const cogsTarget = cogsSumLine.target ?? 0;
+          const calcTarget = vatIncTarget !== null && cogsTarget !== null ? (vatIncTarget / 1.13) - cogsTarget : null;
+          line.target = calcTarget !== null && !isNaN(calcTarget) && isFinite(calcTarget) ? calcTarget : null;
+          
+          const vatIncForecast = actSaleLine.forecast ?? 0;
+          const cogsForecast = cogsSumLine.forecast ?? 0;
+          const calcForecast = vatIncForecast !== null && cogsForecast !== null ? (vatIncForecast / 1.13) - cogsForecast : null;
+          line.forecast = calcForecast !== null && !isNaN(calcForecast) && isFinite(calcForecast) ? calcForecast : null;
+        }
+      } else if (line.id === 'direct-profit') {
+        // 직접이익 = 매출총이익 - 직접비 합계
+        const grossProfitLine = mergedLines.find(l => l.id === 'gross-profit');
+        const directCostSumLine = mergedLines.find(l => l.id === 'direct-cost-sum');
+        if (grossProfitLine && directCostSumLine) {
+          const grossPrevYear = grossProfitLine.prevYear ?? 0;
+          const grossAccum = grossProfitLine.accum ?? 0;
+          const grossPrevYearAccum = grossProfitLine.prevYearAccum ?? 0;
+          const directPrevYear = directCostSumLine.prevYear ?? 0;
+          const directAccum = directCostSumLine.accum ?? 0;
+          const directPrevYearAccum = directCostSumLine.prevYearAccum ?? 0;
+          
+          const calcPrevYear = grossPrevYear !== null && directPrevYear !== null ? grossPrevYear - directPrevYear : null;
+          const calcAccum = grossAccum !== null && directAccum !== null ? grossAccum - directAccum : null;
+          const calcPrevYearAccum = grossPrevYearAccum !== null && directPrevYearAccum !== null ? grossPrevYearAccum - directPrevYearAccum : null;
+          line.prevYear = calcPrevYear !== null && !isNaN(calcPrevYear) && isFinite(calcPrevYear) ? calcPrevYear : null;
+          line.accum = calcAccum !== null && !isNaN(calcAccum) && isFinite(calcAccum) ? calcAccum : null;
+          line.prevYearAccum = calcPrevYearAccum !== null && !isNaN(calcPrevYearAccum) && isFinite(calcPrevYearAccum) ? calcPrevYearAccum : null;
+          
+          // target과 forecast 재계산
+          const grossTarget = grossProfitLine.target ?? 0;
+          const directTarget = directCostSumLine.target ?? 0;
+          const calcTarget = grossTarget !== null && directTarget !== null ? grossTarget - directTarget : null;
+          line.target = calcTarget !== null && !isNaN(calcTarget) && isFinite(calcTarget) ? calcTarget : null;
+          
+          const grossForecast = grossProfitLine.forecast ?? 0;
+          const directForecast = directCostSumLine.forecast ?? 0;
+          const calcForecast = grossForecast !== null && directForecast !== null ? grossForecast - directForecast : null;
+          line.forecast = calcForecast !== null && !isNaN(calcForecast) && isFinite(calcForecast) ? calcForecast : null;
+        }
+      } else if (line.id === 'operating-profit') {
+        // 영업이익 = 직접이익 - 영업비 합계
+        const directProfitLine = mergedLines.find(l => l.id === 'direct-profit');
+        const opexSumLine = mergedLines.find(l => l.id === 'opex-sum');
+        if (directProfitLine && opexSumLine) {
+          const directPrevYear = directProfitLine.prevYear ?? 0;
+          const directAccum = directProfitLine.accum ?? 0;
+          const directPrevYearAccum = directProfitLine.prevYearAccum ?? 0;
+          const opexPrevYear = opexSumLine.prevYear ?? 0;
+          const opexAccum = opexSumLine.accum ?? 0;
+          const opexPrevYearAccum = opexSumLine.prevYearAccum ?? 0;
+          
+          const calcPrevYear = directPrevYear !== null && opexPrevYear !== null ? directPrevYear - opexPrevYear : null;
+          const calcAccum = directAccum !== null && opexAccum !== null ? directAccum - opexAccum : null;
+          const calcPrevYearAccum = directPrevYearAccum !== null && opexPrevYearAccum !== null ? directPrevYearAccum - opexPrevYearAccum : null;
+          line.prevYear = calcPrevYear !== null && !isNaN(calcPrevYear) && isFinite(calcPrevYear) ? calcPrevYear : null;
+          line.accum = calcAccum !== null && !isNaN(calcAccum) && isFinite(calcAccum) ? calcAccum : null;
+          line.prevYearAccum = calcPrevYearAccum !== null && !isNaN(calcPrevYearAccum) && isFinite(calcPrevYearAccum) ? calcPrevYearAccum : null;
+          
+          // target과 forecast 재계산
+          const directTarget = directProfitLine.target ?? 0;
+          const opexTarget = opexSumLine.target ?? 0;
+          const calcTarget = directTarget !== null && opexTarget !== null ? directTarget - opexTarget : null;
+          line.target = calcTarget !== null && !isNaN(calcTarget) && isFinite(calcTarget) ? calcTarget : null;
+          
+          const directForecast = directProfitLine.forecast ?? 0;
+          const opexForecast = opexSumLine.forecast ?? 0;
+          const calcForecast = directForecast !== null && opexForecast !== null ? directForecast - opexForecast : null;
+          line.forecast = calcForecast !== null && !isNaN(calcForecast) && isFinite(calcForecast) ? calcForecast : null;
+        }
+      } else if (line.id === 'cogs-sum' || line.id === 'direct-cost-sum' || line.id === 'opex-sum') {
+        // 합계 필드: children의 합
+        if (line.children && line.children.length > 0) {
+          line.prevYear = line.children.reduce((sum, c) => sum + (c.prevYear ?? 0), 0);
+          line.prevYearAccum = line.children.reduce((sum, c) => sum + (c.prevYearAccum ?? 0), 0);
+          line.accum = line.children.reduce((sum, c) => sum + (c.accum ?? 0), 0);
+          line.target = line.children.reduce((sum, c) => sum + (c.target ?? 0), 0);
+          line.forecast = line.children.reduce((sum, c) => sum + (c.forecast ?? 0), 0);
+        }
+      }
+    }
+
+    // prevYearProgressRate 재계산
+    line.prevYearProgressRate = calculatePrevYearProgressRate(line.prevYear, line.prevYearAccum ?? null);
+    
+    // yoyRate 재계산: (forecast/prevYear) - 1
+    if (line.forecast !== null && line.prevYear !== null && line.prevYear !== 0) {
+      line.yoyRate = (line.forecast / line.prevYear) - 1;
+      if (isNaN(line.yoyRate) || !isFinite(line.yoyRate)) line.yoyRate = null;
+    } else {
+      line.yoyRate = null;
+    }
+    
+    // achvRate 재계산: forecast/target
+    if (line.forecast !== null && line.target !== null && line.target !== 0) {
+      line.achvRate = line.forecast / line.target;
+      if (isNaN(line.achvRate) || !isFinite(line.achvRate)) line.achvRate = null;
+    } else {
+      line.achvRate = null;
+    }
+
+    // children도 재계산
+    if (line.children) {
+      for (const child of line.children) {
+        child.prevYearProgressRate = calculatePrevYearProgressRate(child.prevYear, child.prevYearAccum ?? null);
+        if (child.forecast !== null && child.prevYear !== null && child.prevYear !== 0) {
+          child.yoyRate = (child.forecast / child.prevYear) - 1;
+          if (isNaN(child.yoyRate) || !isFinite(child.yoyRate)) child.yoyRate = null;
+        } else {
+          child.yoyRate = null;
+        }
+        if (child.forecast !== null && child.target !== null && child.target !== 0) {
+          child.achvRate = child.forecast / child.target;
+          if (isNaN(child.achvRate) || !isFinite(child.achvRate)) child.achvRate = null;
+        } else {
+          child.achvRate = null;
+        }
+      }
+    }
+  }
+
+  return mergedLines;
+}
+
+// 개별 라인 값 합산 헬퍼 함수
+function mergeLineValues(merged: PlLine, source: PlLine): void {
+  // 계산 필드(isCalculated === true)는 합산하지 않음 (나중에 재계산)
+  if (merged.isCalculated) {
+    // children만 합산
+    if (merged.children && source.children) {
+      for (const mergedChild of merged.children) {
+        const sourceChild = source.children.find(c => c.id === mergedChild.id);
+        if (sourceChild) {
+          mergeLineValues(mergedChild, sourceChild);
+        }
+      }
+    }
+    return;
+  }
+
+  // 숫자 필드 합산 (null/undefined는 0으로 처리)
+  merged.prevYear = (merged.prevYear ?? 0) + (source.prevYear ?? 0);
+  merged.prevYearAccum = (merged.prevYearAccum ?? 0) + (source.prevYearAccum ?? 0);
+  merged.target = (merged.target ?? 0) + (source.target ?? 0);
+  merged.accum = (merged.accum ?? 0) + (source.accum ?? 0);
+  merged.forecast = (merged.forecast ?? 0) + (source.forecast ?? 0);
+
+  // children도 합산 (같은 id를 가진 children 찾아서 합산)
+  if (merged.children && source.children) {
+    for (const mergedChild of merged.children) {
+      const sourceChild = source.children.find(c => c.id === mergedChild.id);
+      if (sourceChild) {
+        mergeLineValues(mergedChild, sourceChild);
+      }
+    }
+  } else if (source.children && !merged.children) {
+    // merged에 children이 없는데 source에 있으면 복사
+    merged.children = source.children.map(child => ({
+      ...child,
+      prevYearProgressRate: null,
+      yoyRate: null,
+      achvRate: null,
+      children: undefined,
+    }));
+  }
+}
+
 // PlLine 빌드 (재귀)
 function buildPlLine(
   def: LineDefinition,
@@ -428,13 +697,25 @@ function buildPlLine(
         target = childLines.reduce((sum, c) => sum + (c.target || 0), 0);
         forecast = childLines.reduce((sum, c) => sum + (c.forecast || 0), 0);
 
-        // prevYearAccum 합산
+        // prevYearAccum 합산 (데이터 없으면 0으로 설정)
         const validPrevYearAccum = childLines.filter(c => c.prevYearAccum !== null && c.prevYearAccum !== undefined);
         if (validPrevYearAccum.length > 0) {
           prevYearAccum = validPrevYearAccum.reduce((sum, c) => sum + (c.prevYearAccum || 0), 0);
         } else {
-          prevYearAccum = null;
+          prevYearAccum = 0; // null 대신 0으로 설정 (데이터 없으면 0)
         }
+        
+        // 디버깅: direct-cost-sum prevYearAccum 계산 확인
+        console.log('[direct-cost-sum] prevYearAccum 계산:', {
+          childLinesCount: childLines.length,
+          validPrevYearAccumCount: validPrevYearAccum.length,
+          childPrevYearAccums: childLines.map(c => ({ id: c.id, label: c.label, prevYearAccum: c.prevYearAccum })),
+          calculatedPrevYearAccum: prevYearAccum,
+          sumByLevelResult: sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems),
+        });
+
+        // (전년)진척률 계산
+        prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
 
         // 컨텍스트에 저장 (영업이익 계산용)
         context.directCostSumForecast = forecast || 0;
@@ -447,7 +728,7 @@ function buildPlLine(
           isCalculated: def.isCalculated,
           prevYear,
           prevYearAccum,
-          prevYearProgressRate: null,
+          prevYearProgressRate,
           target,
           accum,
           forecast,
@@ -473,13 +754,16 @@ function buildPlLine(
         // 영업비 월말예상 = 목표 그대로 (고정비)
         forecast = target;
 
-        // prevYearAccum 합산
+        // prevYearAccum 합산 (데이터 없으면 0으로 설정)
         const validPrevYearAccum = childLines.filter(c => c.prevYearAccum !== null && c.prevYearAccum !== undefined);
         if (validPrevYearAccum.length > 0) {
           prevYearAccum = validPrevYearAccum.reduce((sum, c) => sum + (c.prevYearAccum || 0), 0);
         } else {
-          prevYearAccum = null;
+          prevYearAccum = 0; // null 대신 0으로 설정 (데이터 없으면 0)
         }
+
+        // (전년)진척률 계산
+        prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
 
         // 컨텍스트에 저장 (영업이익 계산용)
         context.opexSumForecast = forecast || 0;
@@ -492,7 +776,7 @@ function buildPlLine(
           isCalculated: def.isCalculated,
           prevYear,
           prevYearAccum,
-          prevYearProgressRate: null,
+          prevYearProgressRate,
           target,
           accum,
           forecast,
@@ -541,6 +825,9 @@ function buildPlLine(
       
       prevYearAccum = isNaN(calculatedPrevYearAccum) || !isFinite(calculatedPrevYearAccum) ? null : calculatedPrevYearAccum;
 
+      // (전년)진척률 계산
+      prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
+
       // 목표 계산
       const vatIncTargetGP = getTarget('실판(V+)', '실판(V+)', '실판(V+)') || 0;
       const cogsTarget = (getTarget('매출원가', '매출원가', '매출원가') || 0)
@@ -586,9 +873,32 @@ function buildPlLine(
       const cogsDPPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '매출원가')
         + sumByLevel(data.prevYearAccum, mappings, '평가감');
       const grossProfitPrevYearAccum = (vatIncDPPrevYearAccum / 1.13) - cogsDPPrevYearAccum;
-      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems); // 전년 누적 직접비 합계
+      
+      // 직접비 합계 계산: sumByLevel 결과를 그대로 사용 (없으면 0 반환)
+      // 디버깅: 직접비 항목 확인
+      const directItems = getItemsByLevel(mappings, '직접비');
+      const directItemsWithValues = directItems
+        .filter(item => !dealerSupportItems.includes(item))
+        .map(item => ({ item, value: data.prevYearAccum[item] || 0 }))
+        .filter(({ value }) => value !== 0);
+      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      
+      // 디버깅: prevYearAccum 계산 확인
+      console.log('[directProfit] prevYearAccum 계산:', {
+        grossProfitPrevYearAccum,
+        directCostSumPrevYearAccum,
+        calculatedPrevYearAccum: grossProfitPrevYearAccum - directCostSumPrevYearAccum,
+        directItemsCount: directItems.length,
+        directItemsWithValues,
+        directItemsInData: Object.keys(data.prevYearAccum).filter(key => directItems.includes(key)),
+        allDirectItemsValues: directItems.map(item => ({ item, value: data.prevYearAccum[item], excluded: dealerSupportItems.includes(item) })),
+      });
+      
       const calculatedPrevYearAccum = grossProfitPrevYearAccum - directCostSumPrevYearAccum;
       prevYearAccum = isNaN(calculatedPrevYearAccum) || !isFinite(calculatedPrevYearAccum) ? null : calculatedPrevYearAccum;
+      
+      // (전년)진척률 계산
+      prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
       
       // 목표 계산
       const vatIncDPTgt = getTarget('실판(V+)', '실판(V+)', '실판(V+)') || 0;
@@ -638,11 +948,28 @@ function buildPlLine(
       const cogsOPPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '매출원가')
         + sumByLevel(data.prevYearAccum, mappings, '평가감');
       const grossProfitPrevYearAccum = (vatIncOPPrevYearAccum / 1.13) - cogsOPPrevYearAccum;
-      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems); // 전년 누적 직접비 합계
+      
+      // 직접비 합계 계산: sumByLevel 결과를 그대로 사용 (없으면 0 반환)
+      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems);
       const directProfitPrevYearAccum = grossProfitPrevYearAccum - directCostSumPrevYearAccum;
-      const opexSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '영업비'); // 전년 누적 영업비 합계
+      
+      // 영업비 합계 계산: sumByLevel 결과를 그대로 사용 (없으면 0 반환)
+      const opexSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '영업비');
+      
+      // 디버깅: prevYearAccum 계산 확인
+      console.log('[operatingProfit] prevYearAccum 계산:', {
+        grossProfitPrevYearAccum,
+        directCostSumPrevYearAccum,
+        directProfitPrevYearAccum,
+        opexSumPrevYearAccum,
+        calculatedPrevYearAccum: directProfitPrevYearAccum - opexSumPrevYearAccum,
+      });
+      
       const calculatedPrevYearAccum = directProfitPrevYearAccum - opexSumPrevYearAccum;
       prevYearAccum = isNaN(calculatedPrevYearAccum) || !isFinite(calculatedPrevYearAccum) ? null : calculatedPrevYearAccum;
+      
+      // (전년)진척률 계산
+      prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
       
       // 목표
       const vatIncTgt = getTarget('실판(V+)', '실판(V+)', '실판(V+)') || 0;
@@ -664,7 +991,11 @@ function buildPlLine(
       if (def.level1) {
         prevYear = sumByLevel(data.prevYear, mappings, def.level1, def.level2, def.level3, dealerSupportItems);
         accum = sumByLevel(data.accum, mappings, def.level1, def.level2, def.level3, dealerSupportItems);
+        prevYearAccum = sumByLevel(data.prevYearAccum, mappings, def.level1, def.level2, def.level3, dealerSupportItems);
         target = getTarget(def.level1, def.level2, def.level3);
+        
+        // (전년)진척률 계산
+        prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
         
         // 직접비/영업비: level3 기준으로 고정비/변동비 판단
         if (def.costCategory === 'direct' || def.costCategory === 'opex') {
@@ -727,8 +1058,11 @@ function buildPlLine(
       if ((def.id === 'act-sale-vat-inc' || def.id === 'cogs') && !channelData && def.level1) {
         prevYear = sumByLevel(data.prevYear, mappings, def.level1);
         accum = sumByLevel(data.accum, mappings, def.level1);
+        prevYearAccum = sumByLevel(data.prevYearAccum, mappings, def.level1);
         target = getTarget(def.level1, def.level2, def.level3);
         forecast = calculateForecast(accum, data.accumDays, data.monthDays);
+        // (전년)진척률 계산
+        prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
       }
       
       // 실판(V+) forecast를 context에 저장 (매출총이익 계산용)
@@ -911,7 +1245,7 @@ async function buildChartData(
   
   // 2. Waterfall 차트 데이터 (7단계)
   const findLine = (id: string) => allLines.find(l => l.id === id);
-  const actSaleVatExc = findLine('act-sale-vat-exc');
+  const actSaleVatInc = findLine('act-sale-vat-inc');
   const cogsSum = findLine('cogs-sum');
   const grossProfit = findLine('gross-profit');
   const directCostSum = findLine('direct-cost-sum');
@@ -921,8 +1255,11 @@ async function buildChartData(
   // 직접이익 계산
   const directProfitForecast = (grossProfit?.forecast || 0) - (directCostSum?.forecast || 0);
   
+  // 실판매출 = 실판(V+)/1.13
+  const actSaleVatExcForecast = actSaleVatInc ? (actSaleVatInc.forecast || 0) / 1.13 : 0;
+  
   const waterfall: WaterfallData[] = [
-    { name: '실판매출', value: actSaleVatExc?.forecast || 0, type: 'positive' },
+    { name: '실판매출', value: actSaleVatExcForecast, type: 'positive' },
     { name: '매출원가', value: -(cogsSum?.forecast || 0), type: 'negative' },
     { name: '매출총이익', value: grossProfit?.forecast || 0, type: 'subtotal' },
     { name: '직접비', value: -(directCostSum?.forecast || 0), type: 'negative' },
@@ -1308,6 +1645,28 @@ async function buildTierRegionData(
       regionPrevYearKeys: safeRegionPrevYear.map(r => r?.key),
     });
     
+    // DISCOVERY 브랜드: 전체 진척률 계산 (전년 데이터 없는 경우 fallback용)
+    let totalProgressRate: number | null = null;
+    let totalProgressRateAdjusted: boolean = false;
+    if (brandCode === 'X') {
+      const totalPrevCumSalesAmt = retailSalesData.lyCumSalesAmt || 0;
+      const totalPrevFullSalesAmt = retailSalesData.lyFullSalesAmt || 0;
+      const { progressRate, isAdjusted } = calculateAdjustedProgressRate(
+        ym,
+        retailLastDt,
+        totalPrevCumSalesAmt,
+        totalPrevFullSalesAmt
+      );
+      totalProgressRate = progressRate;
+      totalProgressRateAdjusted = isAdjusted;
+      console.log('[buildTierRegionData] DISCOVERY 전체 진척률 계산:', {
+        totalPrevCumSalesAmt,
+        totalPrevFullSalesAmt,
+        totalProgressRate,
+        isAdjusted: totalProgressRateAdjusted,
+      });
+    }
+    
     // 티어별 - 전년 데이터 매칭 및 월환산 점당매출 계산
     const tiers: TierRegionSalesRow[] = safeTierCurrent.map((row) => {
       if (!row) return null;
@@ -1325,12 +1684,18 @@ async function buildTierRegionData(
       const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
       // 월환산 점당매출 계산 (명절 보정 적용)
-      const { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
+      let { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
         ym,
         retailLastDt,
         prevCumSalesAmt,
         prevFullSalesAmt
       );
+      // DISCOVERY 브랜드: 전년 데이터가 없거나 진척률이 0이면 전체 진척률 사용
+      if (brandCode === 'X' && (lyProgressRate === 0 || lyProgressRate === null) && totalProgressRate !== null && totalProgressRate > 0) {
+        lyProgressRate = totalProgressRate;
+        isAdjusted = totalProgressRateAdjusted;
+        console.log(`[buildTierRegionData] DISCOVERY Tier ${row.key}: 전체 진척률 사용 (${lyProgressRate})`);
+      }
       // 월환산 총액 = 당년 누적 / (보정된 진척률)
       const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
       // 실적(점당월환산) = 월환산 총액 / 당년 매장수
@@ -1399,12 +1764,18 @@ async function buildTierRegionData(
       const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
       // 월환산 점당매출 계산 (명절 보정 적용)
-      const { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
+      let { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
         ym,
         retailLastDt,
         prevCumSalesAmt,
         prevFullSalesAmt
       );
+      // DISCOVERY 브랜드: 전년 데이터가 없거나 진척률이 0이면 전체 진척률 사용
+      if (brandCode === 'X' && (lyProgressRate === 0 || lyProgressRate === null) && totalProgressRate !== null && totalProgressRate > 0) {
+        lyProgressRate = totalProgressRate;
+        isAdjusted = totalProgressRateAdjusted;
+        console.log(`[buildTierRegionData] DISCOVERY Region ${row.key}: 전체 진척률 사용 (${lyProgressRate})`);
+      }
       // 월환산 총액 = 당년 누적 / (보정된 진척률)
       const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
       // 실적(점당월환산) = 월환산 총액 / 당년 매장수
@@ -1464,12 +1835,18 @@ async function buildTierRegionData(
       const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
       // 월환산 점당매출 계산 (명절 보정 적용)
-      const { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
+      let { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
         ym,
         retailLastDt,
         prevCumSalesAmt,
         prevFullSalesAmt
       );
+      // DISCOVERY 브랜드: 전년 데이터가 없거나 진척률이 0이면 전체 진척률 사용
+      if (brandCode === 'X' && (lyProgressRate === 0 || lyProgressRate === null) && totalProgressRate !== null && totalProgressRate > 0) {
+        lyProgressRate = totalProgressRate;
+        isAdjusted = totalProgressRateAdjusted;
+        console.log(`[buildTierRegionData] DISCOVERY Trade Zone ${row.key}: 전체 진척률 사용 (${lyProgressRate})`);
+      }
       // 월환산 총액 = 당년 누적 / (보정된 진척률)
       const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
       // 실적(점당월환산) = 월환산 총액 / 당년 매장수
@@ -1525,12 +1902,18 @@ async function buildTierRegionData(
       const prevFullTagAmt = prevFullRow?.prevFullTagAmt || 0;
       
       // 월환산 점당매출 계산 (명절 보정 적용)
-      const { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
+      let { progressRate: lyProgressRate, isAdjusted } = calculateAdjustedProgressRate(
         ym,
         retailLastDt,
         prevCumSalesAmt,
         prevFullSalesAmt
       );
+      // DISCOVERY 브랜드: 전년 데이터가 없거나 진척률이 0이면 전체 진척률 사용
+      if (brandCode === 'X' && (lyProgressRate === 0 || lyProgressRate === null) && totalProgressRate !== null && totalProgressRate > 0) {
+        lyProgressRate = totalProgressRate;
+        isAdjusted = totalProgressRateAdjusted;
+        console.log(`[buildTierRegionData] DISCOVERY Shop Level ${row.key}: 전체 진척률 사용 (${lyProgressRate})`);
+      }
       // 월환산 총액 = 당년 누적 / (보정된 진척률)
       const monthlyTotalAmt = lyProgressRate > 0 ? row.salesAmt / lyProgressRate : 0;
       // 실적(점당월환산) = 월환산 총액 / 당년 매장수
@@ -1628,15 +2011,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     }
     
     const monthDays = getMonthDays(ym);
-    
-    // 목표 CSV가 없거나 1~11월인 경우 해당 월의 마지막 날 계산
-    const year = parseInt(ym.substring(0, 4));
-    const month = parseInt(ym.substring(5, 7));
-    const shouldUseMonthEnd = !targetCsv || (month >= 1 && month <= 11);
-    const lastDayOfMonth = shouldUseMonthEnd ? new Date(year, month, 0).getDate() : 0;
-    const lastDtOfMonth = shouldUseMonthEnd 
-      ? `${year}-${String(month).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
-      : '';
 
     // 브랜드 코드 목록 결정
     const brandCodes: BrandCode[] = brand === 'all' ? allBrandCodes : [brand as BrandCode];
@@ -1685,21 +2059,78 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         }
       }
       
-      // 데이터 조회 시에는 목표가 없거나 1~11월이면 월의 마지막 날까지 조회
-      // codeDt가 없어도 shouldUseMonthEnd이고 lastDtOfMonth가 있으면 사용 (목표 없어도 실제 데이터 조회)
-      let queryDt = codeDt || (shouldUseMonthEnd ? lastDtOfMonth : '');
-      if (shouldUseMonthEnd && queryDt && lastDtOfMonth && queryDt < lastDtOfMonth) {
-        queryDt = lastDtOfMonth;
-      }
-      
-      if (queryDt) {
-        const bData = await calcBrandData(ym, code, mappings, targets, queryDt);
+      // calcBrandData 호출 시 실제 마감일(codeDt)만 사용 (누적 조회는 실제 마감일 기준)
+      if (codeDt) {
+        const bData = await calcBrandData(ym, code, mappings, targets, codeDt);
         brandDataList.push(bData);
       }
     }
     
-    // 브랜드별 개별 lines 생성 (차트용)
-    if (brand === 'all') {
+    // 브랜드별 개별 lines 생성 (차트용 및 전체 탭 합산용)
+    const brandLinesList: PlLine[][] = [];
+    if (brand === 'all' && lastDt) {
+      const prevYm = getPrevYearMonth(ym);
+      
+      // 각 브랜드별로 channelData 조회 및 완전한 lines 생성
+      for (const code of brandCodes) {
+        const bDataIdx = brandCodes.indexOf(code);
+        const bData = brandDataList[bDataIdx];
+        if (bData) {
+          // 각 브랜드별 channelData 조회 (병렬 처리)
+          const [prevYearChannel, channelActuals, prevYearChannelTagSale, prevYearChannelCogs, prevYearChannelAccum, prevYearChannelFullMonth] = await Promise.all([
+            getPrevYearChannelActuals(prevYm, code),
+            getChannelActuals(ym, lastDt, code),
+            getPrevYearChannelTagSale(prevYm, code),
+            getPrevYearChannelCogs(prevYm, code),
+            getPrevYearChannelAccum(prevYm, lastDt, code),
+            getPrevYearChannelFullMonth(prevYm, code),
+          ]);
+          
+          // 목표 데이터는 parseChannelPlanData 사용
+          const channelPlan = parseChannelPlanData(targetCsv, code);
+          
+          const bChannelData = {
+            prevYearChannel,
+            targetChannel: channelPlan.actSaleVatInc,
+            accumChannel: channelActuals.actSaleVatInc,
+            targetChannelVatExc: channelPlan.actSaleVatExc,
+            accumChannelVatExc: channelActuals.actSaleVatExc,
+            prevYearChannelTagSale,
+            targetChannelTagSale: channelPlan.tagSale,
+            accumChannelTagSale: channelActuals.tagSale,
+            prevYearChannelCogs,
+            targetChannelCogs: channelPlan.cogs,
+            accumChannelCogs: channelActuals.cogs,
+            prevYearChannelAccum,
+            prevYearChannelFullMonth,
+          };
+          
+          const bContext: CalcContext = {
+            vatExcForecast: 0,
+            actSaleVatIncForecast: 0,
+            cogsSumForecast: 0,
+            grossProfitForecast: 0,
+            directCostSumForecast: 0,
+            opexSumForecast: 0,
+            vatExcTarget: 0,
+          };
+          const bMerged = {
+            prevYear: bData.prevYear,
+            prevYearAccum: bData.prevYearAccum,
+            accum: bData.accum,
+            accumDays: bData.accumDays,
+            monthDays,
+          };
+          // channelData를 포함하여 완전한 lines 생성
+          const bLines = lineDefinitions.map((def) =>
+            buildPlLine(def, bMerged, mappings, targets, code, bContext, bChannelData)
+          );
+          brandLinesList.push(bLines);
+          brandDataMap.set(code, { lines: bLines, prevYear: bData.prevYear, accum: bData.accum });
+        }
+      }
+    } else if (brand === 'all') {
+      // lastDt가 없는 경우 기존 로직 사용
       for (const code of brandCodes) {
         const bDataIdx = brandCodes.indexOf(code);
         const bData = brandDataList[bDataIdx];
@@ -1723,6 +2154,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
           const bLines = lineDefinitions.map((def) =>
             buildPlLine(def, bMerged, mappings, targets, code, bContext)
           );
+          brandLinesList.push(bLines);
           brandDataMap.set(code, { lines: bLines, prevYear: bData.prevYear, accum: bData.accum });
         }
       }
@@ -1856,9 +2288,16 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     }
 
     // PlLine 빌드
-    const lines: PlLine[] = lineDefinitions.map((def) =>
-      buildPlLine(def, mergedData, mappings, targets, brand === 'all' ? 'all' : (brand as BrandCode), context, channelData)
-    );
+    let lines: PlLine[];
+    if (brand === 'all' && brandLinesList.length > 0) {
+      // 전체 탭: 브랜드별 lines 합산
+      lines = mergePlLines(brandLinesList);
+    } else {
+      // 개별 브랜드: 기존 로직 사용
+      lines = lineDefinitions.map((def) =>
+        buildPlLine(def, mergedData, mappings, targets, brand as BrandCode, context, channelData)
+      );
+    }
 
     // 카드 요약 데이터 계산 (lines가 비어있지 않을 때만)
     const summary = lines && lines.length > 0 ? buildCardSummary(lines, mergedData, context) : undefined;
