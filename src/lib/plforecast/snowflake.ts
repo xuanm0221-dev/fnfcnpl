@@ -2934,6 +2934,18 @@ interface ShopMonthlySalesResult {
   MONTH_10: number | null;
   MONTH_11: number | null;
   MONTH_12: number | null;
+  TAG_MONTH_1: number | null;
+  TAG_MONTH_2: number | null;
+  TAG_MONTH_3: number | null;
+  TAG_MONTH_4: number | null;
+  TAG_MONTH_5: number | null;
+  TAG_MONTH_6: number | null;
+  TAG_MONTH_7: number | null;
+  TAG_MONTH_8: number | null;
+  TAG_MONTH_9: number | null;
+  TAG_MONTH_10: number | null;
+  TAG_MONTH_11: number | null;
+  TAG_MONTH_12: number | null;
 }
 
 interface ShopMonthlySalesSummaryResult {
@@ -3030,6 +3042,11 @@ export async function getShopMonthlySales(
           THEN sale.sale_amt 
           ELSE 0 
         END) AS MONTH_${monthNum},
+        SUM(CASE 
+          WHEN sale.sale_dt BETWEEN '${md.startDt}'::DATE AND '${md.endDt}'::DATE 
+          THEN sale.tag_amt 
+          ELSE 0 
+        END) AS TAG_MONTH_${monthNum},
         COUNT(DISTINCT CASE 
           WHEN sale.sale_dt BETWEEN '${md.startDt}'::DATE AND '${md.endDt}'::DATE 
             AND sale.sale_amt > 0 
@@ -3090,7 +3107,19 @@ export async function getShopMonthlySales(
           COALESCE(sms.MONTH_9, 0) as MONTH_9,
           COALESCE(sms.MONTH_10, 0) as MONTH_10,
           COALESCE(sms.MONTH_11, 0) as MONTH_11,
-          COALESCE(sms.MONTH_12, 0) as MONTH_12
+          COALESCE(sms.MONTH_12, 0) as MONTH_12,
+          COALESCE(sms.TAG_MONTH_1, 0) as TAG_MONTH_1,
+          COALESCE(sms.TAG_MONTH_2, 0) as TAG_MONTH_2,
+          COALESCE(sms.TAG_MONTH_3, 0) as TAG_MONTH_3,
+          COALESCE(sms.TAG_MONTH_4, 0) as TAG_MONTH_4,
+          COALESCE(sms.TAG_MONTH_5, 0) as TAG_MONTH_5,
+          COALESCE(sms.TAG_MONTH_6, 0) as TAG_MONTH_6,
+          COALESCE(sms.TAG_MONTH_7, 0) as TAG_MONTH_7,
+          COALESCE(sms.TAG_MONTH_8, 0) as TAG_MONTH_8,
+          COALESCE(sms.TAG_MONTH_9, 0) as TAG_MONTH_9,
+          COALESCE(sms.TAG_MONTH_10, 0) as TAG_MONTH_10,
+          COALESCE(sms.TAG_MONTH_11, 0) as TAG_MONTH_11,
+          COALESCE(sms.TAG_MONTH_12, 0) as TAG_MONTH_12
         FROM valid_shops vs
         LEFT JOIN shop_monthly_sales sms ON vs.shop_id = sms.shop_id
         ORDER BY vs.open_dt ASC NULLS LAST
@@ -3111,7 +3140,10 @@ export async function getShopMonthlySales(
         sd.OPEN_MONTH,
         sd.MONTH_1, sd.MONTH_2, sd.MONTH_3, sd.MONTH_4,
         sd.MONTH_5, sd.MONTH_6, sd.MONTH_7, sd.MONTH_8,
-        sd.MONTH_9, sd.MONTH_10, sd.MONTH_11, sd.MONTH_12
+        sd.MONTH_9, sd.MONTH_10, sd.MONTH_11, sd.MONTH_12,
+        sd.TAG_MONTH_1, sd.TAG_MONTH_2, sd.TAG_MONTH_3, sd.TAG_MONTH_4,
+        sd.TAG_MONTH_5, sd.TAG_MONTH_6, sd.TAG_MONTH_7, sd.TAG_MONTH_8,
+        sd.TAG_MONTH_9, sd.TAG_MONTH_10, sd.TAG_MONTH_11, sd.TAG_MONTH_12
       FROM shop_data sd
       UNION ALL
       SELECT 
@@ -3121,7 +3153,10 @@ export async function getShopMonthlySales(
         '' as OPEN_MONTH,
         sm.MONTH_1, sm.MONTH_2, sm.MONTH_3, sm.MONTH_4,
         sm.MONTH_5, sm.MONTH_6, sm.MONTH_7, sm.MONTH_8,
-        sm.MONTH_9, sm.MONTH_10, sm.MONTH_11, sm.MONTH_12
+        sm.MONTH_9, sm.MONTH_10, sm.MONTH_11, sm.MONTH_12,
+        sm.TAG_MONTH_1, sm.TAG_MONTH_2, sm.TAG_MONTH_3, sm.TAG_MONTH_4,
+        sm.TAG_MONTH_5, sm.TAG_MONTH_6, sm.TAG_MONTH_7, sm.TAG_MONTH_8,
+        sm.TAG_MONTH_9, sm.TAG_MONTH_10, sm.TAG_MONTH_11, sm.TAG_MONTH_12
       FROM summary_data sm
       ORDER BY 
         CASE WHEN SHOP_ID = 'SUMMARY' THEN 0 ELSE 1 END,
@@ -3139,28 +3174,36 @@ export async function getShopMonthlySales(
     const directShops: ShopMonthlySalesRow[] = [];
     
     let dealerTotalSales: { [month: string]: number } = {};
+    let dealerTotalTagAmt: { [month: string]: number } = {};
     let dealerShopCount: { [month: string]: number } = {};
     let directTotalSales: { [month: string]: number } = {};
+    let directTotalTagAmt: { [month: string]: number } = {};
     let directShopCount: { [month: string]: number } = {};
     
     // 월별 키 초기화
     monthDates.forEach(md => {
       const monthKey = String(md.monthNum);
       dealerTotalSales[monthKey] = 0;
+      dealerTotalTagAmt[monthKey] = 0;
       dealerShopCount[monthKey] = 0;
       directTotalSales[monthKey] = 0;
+      directTotalTagAmt[monthKey] = 0;
       directShopCount[monthKey] = 0;
     });
     
     for (const row of shopRows) {
       const monthSales: { [month: string]: number } = {};
+      const monthTagAmt: { [month: string]: number } = {};
       let hasAnySales = false;
       
       monthDates.forEach(md => {
         const monthKey = String(md.monthNum);
         const salesKey = `MONTH_${md.monthNum}` as keyof ShopMonthlySalesResult;
-        const value = row[salesKey] as number | null;
-        monthSales[monthKey] = value !== null ? Number(value) || 0 : 0;
+        const tagKey = `TAG_MONTH_${md.monthNum}` as keyof ShopMonthlySalesResult;
+        const salesValue = row[salesKey] as number | null;
+        const tagValue = row[tagKey] as number | null;
+        monthSales[monthKey] = salesValue !== null ? Number(salesValue) || 0 : 0;
+        monthTagAmt[monthKey] = tagValue !== null ? Number(tagValue) || 0 : 0;
         if (monthSales[monthKey] !== 0) hasAnySales = true;
       });
       
@@ -3169,13 +3212,18 @@ export async function getShopMonthlySales(
         monthDates.forEach(md => {
           const monthKey = String(md.monthNum);
           const salesKey = `MONTH_${md.monthNum}` as keyof ShopMonthlySalesResult;
-          const value = row[salesKey] as number | null;
-          const sales = value !== null ? Number(value) || 0 : 0;
+          const tagKey = `TAG_MONTH_${md.monthNum}` as keyof ShopMonthlySalesResult;
+          const salesValue = row[salesKey] as number | null;
+          const tagValue = row[tagKey] as number | null;
+          const sales = salesValue !== null ? Number(salesValue) || 0 : 0;
+          const tagAmt = tagValue !== null ? Number(tagValue) || 0 : 0;
           
           if (row.CHANNEL === 'FR') {
             dealerTotalSales[monthKey] = sales;
+            dealerTotalTagAmt[monthKey] = tagAmt;
           } else if (row.CHANNEL === 'OR') {
             directTotalSales[monthKey] = sales;
+            directTotalTagAmt[monthKey] = tagAmt;
           }
         });
       } else {
@@ -3185,7 +3233,8 @@ export async function getShopMonthlySales(
           shopName: row.SHOP_NAME || '',
           channel: row.CHANNEL || '',
           openMonth: row.OPEN_MONTH || '',
-          monthlySales: monthSales
+          monthlySales: monthSales,
+          monthlyTagAmt: monthTagAmt
         };
         
         if (row.CHANNEL === 'FR') {
@@ -3212,28 +3261,36 @@ export async function getShopMonthlySales(
     
     // 합계 데이터 재계산 (전체 합계)
     dealerTotalSales = {};
+    dealerTotalTagAmt = {};
     directTotalSales = {};
+    directTotalTagAmt = {};
     dealerShopCount = {};
     directShopCount = {};
     
     monthDates.forEach(md => {
       const monthKey = String(md.monthNum);
       dealerTotalSales[monthKey] = 0;
+      dealerTotalTagAmt[monthKey] = 0;
       dealerShopCount[monthKey] = 0;
       directTotalSales[monthKey] = 0;
+      directTotalTagAmt[monthKey] = 0;
       directShopCount[monthKey] = 0;
       
       // 대리상 합계
       dealerShops.forEach(shop => {
         const sales = shop.monthlySales[monthKey] || 0;
+        const tagAmt = shop.monthlyTagAmt?.[monthKey] || 0;
         dealerTotalSales[monthKey] += sales;
+        dealerTotalTagAmt[monthKey] += tagAmt;
         if (sales > 0) dealerShopCount[monthKey]++;
       });
       
       // 직영 합계
       directShops.forEach(shop => {
         const sales = shop.monthlySales[monthKey] || 0;
+        const tagAmt = shop.monthlyTagAmt?.[monthKey] || 0;
         directTotalSales[monthKey] += sales;
+        directTotalTagAmt[monthKey] += tagAmt;
         if (sales > 0) directShopCount[monthKey]++;
       });
     });
@@ -3255,12 +3312,14 @@ export async function getShopMonthlySales(
     return {
       dealer: {
         totalSales: dealerTotalSales,
+        totalTagAmt: dealerTotalTagAmt,
         shopCount: dealerShopCount,
         salesPerShop: dealerSalesPerShop,
         shops: dealerShops
       },
       direct: {
         totalSales: directTotalSales,
+        totalTagAmt: directTotalTagAmt,
         shopCount: directShopCount,
         salesPerShop: directSalesPerShop,
         shops: directShops

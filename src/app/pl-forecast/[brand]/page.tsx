@@ -2807,7 +2807,69 @@ function ShopMonthlySalesTable({
     return Math.round(value).toLocaleString();
   };
   
-  // 월별 컬럼 렌더링
+  // 개별 매장 할인율 계산
+  const calculateDiscountRate = (saleAmt: number | null, tagAmt: number | null): number | null => {
+    if (saleAmt === null || tagAmt === null || tagAmt === 0) return null;
+    return (1 - saleAmt / tagAmt) * 100; // 퍼센트
+  };
+  
+  // 합계 할인율 계산 (전체 합계 기준)
+  const calculateTotalDiscountRate = (totalSales: { [month: string]: number } | undefined, totalTagAmt: { [month: string]: number } | undefined, monthKey: string): number | null => {
+    if (!totalSales || !totalTagAmt) return null;
+    const sales = totalSales[monthKey] ?? 0;
+    const tagAmt = totalTagAmt[monthKey] ?? 0;
+    if (tagAmt === 0) return null;
+    return (1 - sales / tagAmt) * 100; // 퍼센트
+  };
+  
+  // 합계 행의 리테일 매출 셀 렌더링 (같은 셀 안에서 줄바꿈으로 할인율 표시)
+  const renderTotalSalesWithDiscount = (totalSales: { [month: string]: number }, totalTagAmt?: { [month: string]: number }, bgClass: string = '') => {
+    if (!data || !data.months || data.months.length === 0) return null;
+    
+    return data.months.map((month, idx) => {
+      const [y, m] = month.split('-').map(Number);
+      const monthKey = String(m);
+      const sales = totalSales[monthKey] ?? 0;
+      const discountRate = calculateTotalDiscountRate(totalSales, totalTagAmt, monthKey);
+      
+      return (
+        <td key={month} className={`px-3 py-2 text-right text-sm font-mono border-r border-gray-200 ${bgClass}`}>
+          <div className="flex flex-col items-end">
+            <span>{formatNumber(sales)}</span>
+            {discountRate !== null && (
+              <span className="text-xs text-gray-500">({discountRate.toFixed(1)}%)</span>
+            )}
+          </div>
+        </td>
+      );
+    });
+  };
+  
+  // 개별 매장 행의 리테일 매출 셀 렌더링 (같은 셀 안에서 줄바꿈으로 할인율 표시)
+  const renderSalesWithDiscountRate = (monthlySales: { [month: string]: number }, monthlyTagAmt?: { [month: string]: number }) => {
+    if (!data || !data.months || data.months.length === 0) return null;
+    
+    return data.months.map((month, idx) => {
+      const [y, m] = month.split('-').map(Number);
+      const monthKey = String(m);
+      const sales = monthlySales[monthKey] ?? 0;
+      const tagAmt = monthlyTagAmt?.[monthKey] ?? null;
+      const discountRate = calculateDiscountRate(sales, tagAmt);
+      
+      return (
+        <td key={month} className="px-3 py-2 text-right text-sm font-mono border-r border-gray-200">
+          <div className="flex flex-col items-end">
+            <span>{formatNumber(sales)}</span>
+            {discountRate !== null && (
+              <span className="text-xs text-gray-500">({discountRate.toFixed(1)}%)</span>
+            )}
+          </div>
+        </td>
+      );
+    });
+  };
+  
+  // 월별 컬럼 렌더링 (일반 숫자만 표시)
   const renderMonthColumns = (monthlyData: { [month: string]: number | null }) => {
     if (!data || !data.months || data.months.length === 0) return null;
     
@@ -2934,7 +2996,7 @@ function ShopMonthlySalesTable({
               </td>
               <td className="px-3 py-2 text-center border-r border-gray-200">FR</td>
               <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
-              {renderMonthColumns(data.dealer.totalSales)}
+              {renderTotalSalesWithDiscount(data.dealer.totalSales, data.dealer.totalTagAmt, 'bg-blue-100')}
             </tr>
             <tr className="bg-blue-100 border-b-2 border-gray-300 font-bold">
               <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-blue-100 z-10">
@@ -2970,7 +3032,7 @@ function ShopMonthlySalesTable({
                 </td>
                 <td className="px-3 py-2 text-center border-r border-gray-200">{shop.channel}</td>
                 <td className="px-3 py-2 text-center border-r border-gray-200">{shop.openMonth}</td>
-                {renderMonthColumns(shop.monthlySales)}
+                {renderSalesWithDiscountRate(shop.monthlySales, shop.monthlyTagAmt)}
               </tr>
             ))}
             
@@ -2990,7 +3052,7 @@ function ShopMonthlySalesTable({
               </td>
               <td className="px-3 py-2 text-center border-r border-gray-200">OR</td>
               <td className="px-3 py-2 text-center border-r border-gray-200">-</td>
-              {renderMonthColumns(data.direct.totalSales)}
+              {renderTotalSalesWithDiscount(data.direct.totalSales, data.direct.totalTagAmt, 'bg-teal-50')}
             </tr>
             <tr className="bg-teal-50 border-b-2 border-gray-300 font-bold">
               <td className="px-3 py-2 border-r border-gray-200 sticky left-0 bg-teal-50 z-10">
@@ -3026,7 +3088,7 @@ function ShopMonthlySalesTable({
                 </td>
                 <td className="px-3 py-2 text-center border-r border-gray-200">{shop.channel}</td>
                 <td className="px-3 py-2 text-center border-r border-gray-200">{shop.openMonth}</td>
-                {renderMonthColumns(shop.monthlySales)}
+                {renderSalesWithDiscountRate(shop.monthlySales, shop.monthlyTagAmt)}
               </tr>
             ))}
           </tbody>

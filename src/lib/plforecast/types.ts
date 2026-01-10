@@ -295,11 +295,13 @@ export interface ShopMonthlySalesRow {
   channel: string;       // 채널 (FR/OR)
   openMonth: string;     // 오픈월 (YY.MM 형식)
   monthlySales: { [month: string]: number }; // 월별 매출 { '1': 123456, '2': 234567, ... }
+  monthlyTagAmt?: { [month: string]: number }; // 월별 Tag 매출 (tag_amt) - 할인율 계산용
 }
 
 // 정규매장별 월별 리테일 매출 그룹 데이터
 export interface ShopMonthlySalesGroup {
   totalSales: { [month: string]: number };    // 월별 총 매출
+  totalTagAmt?: { [month: string]: number };  // 월별 총 Tag 매출 (tag_amt) - 할인율 계산용
   shopCount: { [month: string]: number };     // 월별 매장수 (매출 > 0인 매장만)
   salesPerShop: { [month: string]: number | null }; // 월별 점당매출
   shops: ShopMonthlySalesRow[];               // 개별 매장 목록
