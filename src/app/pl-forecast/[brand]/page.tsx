@@ -874,7 +874,7 @@ function TierRegionTable({
                   </>
                 )}
                 <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatK(totalSalesAmt)}</td>
-                <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatNumber(totalShopCnt)}</td>
+                <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatNumber(totalShopCnt)}개</td>
                 <td className="py-2 px-2 text-right font-mono text-gray-800 bg-yellow-100 border-r border-gray-100">{formatNumber(totalSalesPerShop)}</td>
                 <td className={`py-2 px-2 text-right font-mono font-semibold bg-yellow-100 border-r border-gray-200 ${
                   totalPrevSalesPerShop > 0 && totalSalesPerShop / totalPrevSalesPerShop >= 1 ? 'text-emerald-600' : 'text-rose-600'
@@ -887,7 +887,7 @@ function TierRegionTable({
                   {formatShopYoy(totalShopCnt, totalPrevShopCnt)}
                 </td>
                 <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatK(totalPrevSalesAmt)}</td>
-                <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(totalPrevShopCnt)}</td>
+                <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(totalPrevShopCnt)}개</td>
                 <td className="py-2 px-2 text-right font-mono text-gray-600">{formatNumber(totalPrevSalesPerShop)}</td>
               </tr>
               {/* 데이터 행 */}
@@ -923,7 +923,7 @@ function TierRegionTable({
                       </>
                     )}
                     <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatK(row.salesAmt || 0)}</td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatNumber(row.shopCnt || 0)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatNumber(row.shopCnt || 0)}개</td>
                     <td className="py-2 px-2 text-right font-mono text-gray-800 bg-blue-50 border-r border-gray-100">{formatNumber(row.salesPerShop || 0)}</td>
                     <td className={`py-2 px-2 text-right font-mono bg-blue-50 border-r border-gray-200 ${
                       (row.prevSalesPerShop || 0) > 0 && (row.salesPerShop || 0) / (row.prevSalesPerShop || 1) >= 1 ? 'text-emerald-600' : 'text-rose-600'
@@ -936,7 +936,7 @@ function TierRegionTable({
                       {formatShopYoy(row.shopCnt || 0, row.prevShopCnt || 0)}
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatK(row.prevSalesAmt || 0)}</td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(row.prevShopCnt || 0)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-600 border-r border-gray-100">{formatNumber(row.prevShopCnt || 0)}개</td>
                     <td className="py-2 px-2 text-right font-mono text-gray-600">{formatNumber(row.prevSalesPerShop || 0)}</td>
                   </tr>
                 );
