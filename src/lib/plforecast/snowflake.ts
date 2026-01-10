@@ -1196,6 +1196,20 @@ const cityKoMap: Record<string, string> = {
   '兰州': '란저우',
   '乌鲁木齐': '우루무치',
   '银川': '인촨',
+  '南通': '난퉁',
+  '大庆': '다칭',
+  '包头': '바오터우',
+  '西宁': '시닝',
+  '呼和浩特': '후허하오터',
+  '海口': '하이커우',
+  '三亚': '싼야',
+  '淮安': '화이안',
+  '秦州': '진저우',
+  '齐齐哈尔': '치치하얼',
+  '延边朝鲜族自治州': '연변조선족자치주',
+  '延边': '연변',
+  '白城': '바이청',
+  '佳木斯': '자무스',
 };
 
 /**
@@ -1372,10 +1386,15 @@ export async function getTierSalesData(
     };
     
     const formatCityName = (cityCn: string): string => {
-      // "市" 제거 후 번역 시도
-      const cityWithoutSuffix = cityCn.replace(/市$/, '');
+      // "市" 또는 "州" 제거 후 번역 시도
+      const cityWithoutSuffix = cityCn.replace(/[市州]$/, '');
       const cityKo = cityKoMap[cityWithoutSuffix] || cityKoMap[cityCn];
-      const displayName = cityKo ? `${cityKo}(${cityWithoutSuffix})` : cityCn;
+      // "延边朝鲜族自治州" 같이 전체 이름인 경우는 원본 표시, 나머지는 "市" 제거한 이름 표시
+      const displayName = cityKo 
+        ? cityCn.includes('自治州') || cityCn === '延边朝鲜族自治州'
+          ? `${cityKo}(${cityCn})`
+          : `${cityKo}(${cityWithoutSuffix})`
+        : cityCn;
       return displayName;
     };
     
@@ -1615,10 +1634,15 @@ export async function getRegionSalesData(
     };
     
     const formatCityName = (cityCn: string): string => {
-      // "市" 제거 후 번역 시도
-      const cityWithoutSuffix = cityCn.replace(/市$/, '');
+      // "市" 또는 "州" 제거 후 번역 시도
+      const cityWithoutSuffix = cityCn.replace(/[市州]$/, '');
       const cityKo = cityKoMap[cityWithoutSuffix] || cityKoMap[cityCn];
-      const displayName = cityKo ? `${cityKo}(${cityWithoutSuffix})` : cityCn;
+      // "延边朝鲜族自治州" 같이 전체 이름인 경우는 원본 표시, 나머지는 "市" 제거한 이름 표시
+      const displayName = cityKo 
+        ? cityCn.includes('自治州') || cityCn === '延边朝鲜族自治州'
+          ? `${cityKo}(${cityCn})`
+          : `${cityKo}(${cityWithoutSuffix})`
+        : cityCn;
       return displayName;
     };
     
