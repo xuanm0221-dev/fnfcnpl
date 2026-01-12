@@ -2385,7 +2385,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
           const totalPyRate = clothingData.length > 0
             ? clothingData.reduce((sum, item) => sum + (item.pyRate || 0), 0) / clothingData.length
             : 0;
-          const totalYoy = totalPyRate && totalPyRate > 0 ? totalCyRate / totalPyRate : null;
+          const totalYoy = totalCyRate !== null && totalPyRate !== null ? totalCyRate - totalPyRate : null;
           
           clothingSales = {
             items: clothingData,

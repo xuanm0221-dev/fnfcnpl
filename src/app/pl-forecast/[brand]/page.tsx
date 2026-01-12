@@ -684,6 +684,13 @@ function TierRegionTable({
   ym: string; 
   retailLastDt: string; 
 }) {
+  // 날짜 포맷 (26.01.11 형식)
+  const formatShortDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    return `${year.slice(2)}.${month}.${day}`;
+  };
+  
   // 숫자 포맷 (천단위 콤마)
   const formatNumber = (value: number): string => {
     return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -707,22 +714,47 @@ function TierRegionTable({
     // 전년이 있으면 증감 + 백분율 표시
     const diff = shopCnt - prevShopCnt;
     const percent = Math.round((shopCnt / prevShopCnt) * 100);
-    const sign = diff >= 0 ? '+' : '△';
-    return `${sign}${Math.abs(diff)}개(${percent}%)`;
+  const sign = diff >= 0 ? '+' : '△';
+  return `${sign}${Math.abs(diff)}개(${percent}%)`;
   };
   
-  // 안전한 데이터 배열 (리테일 매출 내림차순 정렬)
+  // 고정 순서 정의
+  const tierOrder = ['T0', 'T1', 'T2', 'T3', 'T4', 'T5'];
+  const regionOrder = ['华东', '华东/华中', '华南', '华北', '东北', '西南', '西北'];
+  const tradeZoneOrder = ['H', 'F1', 'F2', 'F3', 'F4', 'O1', 'O2', 'O3'];
+  const shopLevelOrder = ['S', 'A', 'B', 'C', 'Outlet', 'Pop-up'];
+  
+  // 고정 순서에 따라 정렬하는 함수
+  const sortByFixedOrder = <T extends { key: string }>(items: T[], order: string[]): T[] => {
+    return [...items].sort((a, b) => {
+      const indexA = order.indexOf(a.key);
+      const indexB = order.indexOf(b.key);
+      
+      // 순서에 있으면 인덱스로 정렬
+      if (indexA !== -1 && indexB !== -1) {
+        return indexA - indexB;
+      }
+      // 둘 다 순서에 없으면 원래 순서 유지
+      if (indexA === -1 && indexB === -1) {
+        return 0;
+      }
+      // 순서에 있는 것이 앞으로
+      return indexA !== -1 ? -1 : 1;
+    });
+  };
+  
+  // 안전한 데이터 배열 (고정 순서 정렬)
   const safeTiers = Array.isArray(data?.tiers) 
-    ? [...data.tiers].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    ? sortByFixedOrder(data.tiers, tierOrder)
     : [];
   const safeRegions = Array.isArray(data?.regions) 
-    ? [...data.regions].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    ? sortByFixedOrder(data.regions, regionOrder)
     : [];
   const safeTradeZones = Array.isArray(data?.tradeZones) 
-    ? [...data.tradeZones].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    ? sortByFixedOrder(data.tradeZones, tradeZoneOrder)
     : [];
   const safeShopLevels = Array.isArray(data?.shopLevels) 
-    ? [...data.shopLevels].sort((a, b) => (b?.salesAmt || 0) - (a?.salesAmt || 0))
+    ? sortByFixedOrder(data.shopLevels, shopLevelOrder)
     : [];
   
   // 티어 합계 계산 - 전체 데이터 사용 (상단 표와 일치)
@@ -818,13 +850,14 @@ function TierRegionTable({
   const shopLevelTotalPrevSalesPerShop = data?.prevTotalSalesPerShop ?? (shopLevelTotalPrevShopCnt > 0 ? shopLevelTotalPrevSalesAmt / shopLevelTotalPrevShopCnt : 0);
 
   // 테이블 렌더링 함수
-  const renderTable = (type: 'tier' | 'region' | 'trade_zone' | 'shop_level', rows: TierRegionSalesRow[], totalSalesAmt: number, totalShopCnt: number, totalSalesPerShop: number, totalPrevSalesAmt: number, totalPrevShopCnt: number, totalPrevSalesPerShop: number) => {
+  const renderTable = (type: 'tier' | 'region' | 'trade_zone' | 'shop_level', rows: TierRegionSalesRow[], totalSalesAmt: number, totalShopCnt: number, totalSalesPerShop: number, totalPrevSalesAmt: number, totalPrevShopCnt: number, totalPrevSalesPerShop: number, lastDt: string) => {
     return (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden h-full flex flex-col">
         {/* 헤더 */}
         <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
           <h3 className="text-sm font-semibold text-gray-700">
             {type === 'tier' ? 'Tier (대리상)' : type === 'region' ? '지역(대리상)' : type === 'trade_zone' ? 'Trade Zone (대리상)' : 'Shop Level (대리상)'}
+            {lastDt && <span className="text-xs font-normal text-gray-500 ml-2">({formatShortDate(lastDt)} 기준)</span>}
           </h3>
         </div>
         
@@ -960,19 +993,19 @@ function TierRegionTable({
       {/* 1행: Tier 표 | 지역 표 */}
       <div className="grid grid-cols-2 gap-4">
         {/* 좌측: Tier 테이블 */}
-        {renderTable('tier', safeTiers, tierTotalSalesAmt, tierTotalShopCnt, tierTotalSalesPerShop, tierTotalPrevSalesAmt, tierTotalPrevShopCnt, tierTotalPrevSalesPerShop)}
+        {renderTable('tier', safeTiers, tierTotalSalesAmt, tierTotalShopCnt, tierTotalSalesPerShop, tierTotalPrevSalesAmt, tierTotalPrevShopCnt, tierTotalPrevSalesPerShop, retailLastDt)}
         
         {/* 우측: 지역 테이블 */}
-        {renderTable('region', safeRegions, regionTotalSalesAmt, regionTotalShopCnt, regionTotalSalesPerShop, regionTotalPrevSalesAmt, regionTotalPrevShopCnt, regionTotalPrevSalesPerShop)}
+        {renderTable('region', safeRegions, regionTotalSalesAmt, regionTotalShopCnt, regionTotalSalesPerShop, regionTotalPrevSalesAmt, regionTotalPrevShopCnt, regionTotalPrevSalesPerShop, retailLastDt)}
       </div>
       
       {/* 2행: Trade Zone 표 | Shop Level 표 */}
       <div className="grid grid-cols-2 gap-4">
         {/* 좌측: Trade Zone 테이블 */}
-        {renderTable('trade_zone', safeTradeZones, tradeZoneTotalSalesAmt, tradeZoneTotalShopCnt, tradeZoneTotalSalesPerShop, tradeZoneTotalPrevSalesAmt, tradeZoneTotalPrevShopCnt, tradeZoneTotalPrevSalesPerShop)}
+        {renderTable('trade_zone', safeTradeZones, tradeZoneTotalSalesAmt, tradeZoneTotalShopCnt, tradeZoneTotalSalesPerShop, tradeZoneTotalPrevSalesAmt, tradeZoneTotalPrevShopCnt, tradeZoneTotalPrevSalesPerShop, retailLastDt)}
         
         {/* 우측: Shop Level 테이블 */}
-        {renderTable('shop_level', safeShopLevels, shopLevelTotalSalesAmt, shopLevelTotalShopCnt, shopLevelTotalSalesPerShop, shopLevelTotalPrevSalesAmt, shopLevelTotalPrevShopCnt, shopLevelTotalPrevSalesPerShop)}
+        {renderTable('shop_level', safeShopLevels, shopLevelTotalSalesAmt, shopLevelTotalShopCnt, shopLevelTotalSalesPerShop, shopLevelTotalPrevSalesAmt, shopLevelTotalPrevShopCnt, shopLevelTotalPrevSalesPerShop, retailLastDt)}
       </div>
     </div>
   );
@@ -2460,6 +2493,11 @@ function ClothingSalesSection({
   
   const formatRate = (value: number | null) => value ? `${value.toFixed(1)}%` : '-';
   const formatYoy = (value: number | null) => value ? `${(value * 100).toFixed(1)}%` : '-';
+  const formatRateYoy = (value: number | null) => {
+    if (value === null) return '-';
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(1)}%`;
+  }; // 의류 판매율 YOY 전용 (이미 백분율 차이)
   const formatK = (value: number) => Math.round(value / 1000).toLocaleString();
   
   // 누적판매 YOY 계산 함수
@@ -2581,9 +2619,9 @@ function ClothingSalesSection({
                       {formatYoy(calcSalesYoy(clothingData.total.cySalesAmt, clothingData.total.pySalesAmt))}
                     </td>
                     <td className={`py-2 px-2 text-right font-mono font-semibold ${
-                      clothingData.total.yoy && clothingData.total.yoy >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                      clothingData.total.yoy && clothingData.total.yoy >= 0 ? 'text-emerald-600' : 'text-rose-600'
                     }`}>
-                      {formatYoy(clothingData.total.yoy)}
+                      {formatRateYoy(clothingData.total.yoy)}
                     </td>
                     <td className={`py-2 px-2 text-right font-mono font-semibold ${
                       calcPoQtyYoy(clothingData.total.cyPoQty, clothingData.total.pyPoQty) && calcPoQtyYoy(clothingData.total.cyPoQty, clothingData.total.pyPoQty)! >= 1 ? 'text-emerald-600' : 'text-rose-600'
@@ -2610,9 +2648,9 @@ function ClothingSalesSection({
                         {formatYoy(calcSalesYoy(item.cySalesAmt, item.pySalesAmt))}
                       </td>
                       <td className={`py-2 px-2 text-right font-mono ${
-                        item.yoy && item.yoy >= 1 ? 'text-emerald-600' : 'text-rose-600'
+                        item.yoy && item.yoy >= 0 ? 'text-emerald-600' : 'text-rose-600'
                       }`}>
-                        {formatYoy(item.yoy)}
+                        {formatRateYoy(item.yoy)}
                       </td>
                       <td className={`py-2 px-2 text-right font-mono ${
                         calcPoQtyYoy(item.cyPoQty, item.pyPoQty) && calcPoQtyYoy(item.cyPoQty, item.pyPoQty)! >= 1 ? 'text-emerald-600' : 'text-rose-600'

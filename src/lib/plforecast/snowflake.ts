@@ -1,4 +1,4 @@
-﻿import snowflake from 'snowflake-sdk';
+import snowflake from 'snowflake-sdk';
 import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow, ChannelActuals, ShopMonthlySalesData, ShopMonthlySalesRow, ShopMonthlySalesGroup } from './types';
 
 // Snowflake 연결 설정
@@ -2796,7 +2796,7 @@ export async function getClothingSalesData(
       
       const cyRate = cyPoAmt > 0 ? (cySalesAmt / cyPoAmt) * 100 : null;
       const pyRate = pyPoAmt > 0 ? (pySalesAmt / pyPoAmt) * 100 : null;
-      const yoy = pyRate && pyRate > 0 ? (cyRate || 0) / pyRate : null;
+      const yoy = cyRate !== null && pyRate !== null ? (cyRate || 0) - (pyRate || 0) : null;
       
       return {
         itemCd: row.ITEM_CD || '',

@@ -265,7 +265,7 @@ export interface ClothingSalesRow {
   itemNm: string;        // 아이템 명칭
   cyRate: number | null; // 당시즌 판매율 (%)
   pyRate: number | null; // 전년시즌 판매율 (%)
-  yoy: number | null;    // 판매율 YOY (당시즌/전년시즌)
+  yoy: number | null;    // 판매율 YOY (당시즌 - 전년시즌, %)
   cySalesAmt: number;    // 당시즌 누적 판매액 (Tag)
   pySalesAmt: number;    // 전년시즌 누적 판매액 (Tag)
   cyPoQty: number;       // 당년 발주수량
