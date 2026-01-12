@@ -875,6 +875,12 @@ export default function PlForecastPage() {
                         <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl-all)" />
                       </svg>
                       <h3 className="text-base text-gray-800 tracking-tight">전체 손익계산서</h3>
+                      {/* 마감 표시 배지 */}
+                      {data.isClosed && (
+                        <span className="ml-3 px-3 py-1 rounded-md bg-emerald-100 text-emerald-700 text-xs font-medium border border-emerald-200">
+                          ✓ Snowflake 마감데이터 적용완료
+                        </span>
+                      )}
                     </div>
                     {/* 누적 토글 버튼 개선 */}
                     <button

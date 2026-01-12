@@ -90,6 +90,7 @@ export interface ApiResponse {
   lastDt: string; // 누적 마지막 날짜 (YYYY-MM-DD)
   accumDays: number; // 누적일수
   monthDays: number; // 당월일수 (달력일수)
+  isClosed: boolean; // 마감 여부 (Snowflake 전체 월 데이터 사용)
   lines: PlLine[];
   summary?: CardSummary; // 카드용 요약 데이터
   charts?: ChartData; // 차트용 데이터 (전체 페이지만)

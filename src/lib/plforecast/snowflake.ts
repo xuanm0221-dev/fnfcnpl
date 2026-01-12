@@ -654,20 +654,31 @@ export function getPrevYearMonth(ym: string): string {
   return `${year - 1}-${String(month).padStart(2, '0')}`;
 }
 
-// 마감일 기준 주차별 날짜 범위 계산 (일요일~토요일)
+// 마감일 기준 주차별 날짜 범위 계산 (월요일~일요일)
 function calcWeekRanges(lastDt: string): { weekNum: number; startDt: string; endDt: string }[] {
-  const last = new Date(lastDt);
+  // 로컬 날짜를 YYYY-MM-DD 형식으로 포맷 (시간대 문제 방지)
+  const formatLocalDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  
+  // KST 시간대로 Date 객체 생성 (시간대 문제 방지)
+  const [year, month, day] = lastDt.split('-').map(Number);
+  const last = new Date(year, month - 1, day);
   const dayOfWeek = last.getDay(); // 0=일요일, 6=토요일
   
-  // 마감일이 포함된 주의 일요일 찾기
-  const currentWeekSunday = new Date(last);
-  currentWeekSunday.setDate(last.getDate() - dayOfWeek);
+  // 마감일이 포함된 주의 월요일 찾기
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const currentWeekMonday = new Date(last);
+  currentWeekMonday.setDate(last.getDate() - daysFromMonday);
   
   const ranges: { weekNum: number; startDt: string; endDt: string }[] = [];
   
   for (let i = 0; i < 4; i++) {
-    const startDt = new Date(currentWeekSunday);
-    startDt.setDate(currentWeekSunday.getDate() - (i * 7));
+    const startDt = new Date(currentWeekMonday);
+    startDt.setDate(currentWeekMonday.getDate() - (i * 7));
     
     const endDt = new Date(startDt);
     endDt.setDate(startDt.getDate() + 6);
@@ -677,8 +688,8 @@ function calcWeekRanges(lastDt: string): { weekNum: number; startDt: string; end
     
     ranges.push({
       weekNum: i + 1,
-      startDt: startDt.toISOString().split('T')[0],
-      endDt: actualEnd.toISOString().split('T')[0],
+      startDt: formatLocalDate(startDt),
+      endDt: formatLocalDate(actualEnd),
     });
   }
   
@@ -686,7 +697,7 @@ function calcWeekRanges(lastDt: string): { weekNum: number; startDt: string; end
   return ranges.reverse();
 }
 
-// 마감일 기준 최근 4주 주간 매출 조회 (일요일~토요일)
+// 마감일 기준 최근 4주 주간 매출 조회 (월요일~일요일)
 interface WeeklySalesResult {
   CUR_SALE: number;
   PREV_SALE: number;

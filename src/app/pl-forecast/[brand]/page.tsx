@@ -2349,6 +2349,18 @@ function ClothingSalesSection({
     }
   };
 
+  // 누적판매 YOY 계산 함수
+  const calcSalesYoy = (cy: number, py: number): number | null => {
+    if (py === 0) return null;
+    return cy / py;
+  };
+  
+  // 발주수량 YOY 계산 함수 (비율: 1.0 = 100%)
+  const calcPoQtyYoy = (cy: number, py: number): number | null => {
+    if (py === 0) return null;
+    return cy / py; // 비율로 반환 (formatYoy에서 백분율로 변환)
+  };
+
   // 정렬된 아이템 목록
   const sortedItems = React.useMemo(() => {
     if (!clothingData || !clothingData.items || !Array.isArray(clothingData.items)) {
@@ -2499,18 +2511,6 @@ function ClothingSalesSection({
     return `${sign}${value.toFixed(1)}%`;
   }; // 의류 판매율 YOY 전용 (이미 백분율 차이)
   const formatK = (value: number) => Math.round(value / 1000).toLocaleString();
-  
-  // 누적판매 YOY 계산 함수
-  const calcSalesYoy = (cy: number, py: number): number | null => {
-    if (py === 0) return null;
-    return cy / py;
-  };
-  
-  // 발주수량 YOY 계산 함수 (비율: 1.0 = 100%)
-  const calcPoQtyYoy = (cy: number, py: number): number | null => {
-    if (py === 0) return null;
-    return cy / py; // 비율로 반환 (formatYoy에서 백분율로 변환)
-  };
   
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -3727,6 +3727,12 @@ export default function BrandPlForecastPage() {
                         <rect x="20" y="12" width="5" height="12" rx="1" fill="url(#blueGradient-pl)" />
                       </svg>
                       <h3 className="text-base text-gray-800 tracking-tight">{brandLabel} 손익계산서</h3>
+                      {/* 마감 표시 배지 */}
+                      {data?.isClosed && (
+                        <span className="ml-3 px-3 py-1 rounded-md bg-emerald-100 text-emerald-700 text-xs font-medium border border-emerald-200">
+                          ✓ Snowflake 마감데이터 적용완료
+                        </span>
+                      )}
                     </div>
                     {/* 누적 토글 버튼 개선 */}
                     <button

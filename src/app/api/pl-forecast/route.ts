@@ -47,6 +47,23 @@ import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan'
 import { codeToLabel } from '@/lib/plforecast/brand';
 import { getKstYesterdayDate, getKstCurrentYm } from '@/lib/plforecast/date';
 
+// 마감된 월 리스트 (Snowflake에 전체 데이터가 있는 월)
+const CLOSED_MONTHS = ['2025-12'];
+
+// 마감 여부 판단
+function isClosedMonth(ym: string): boolean {
+  return CLOSED_MONTHS.includes(ym);
+}
+
+// 마감된 월의 경우 forecast를 accum으로 덮어쓰기 (재귀)
+function applyClosedMonthForecast(lines: PlLine[]): PlLine[] {
+  return lines.map(line => ({
+    ...line,
+    forecast: line.accum, // 마감된 월은 forecast = accum
+    children: line.children ? applyClosedMonthForecast(line.children) : undefined,
+  }));
+}
+
 // 계정맵핑 파싱 (캐시)
 let accountMappings: AccountMapping[] | null = null;
 function getAccountMappings(): AccountMapping[] {
@@ -1268,14 +1285,17 @@ async function buildChartData(
     { name: '영업이익', value: operatingProfit?.forecast || 0, type: 'total' },
   ];
   
-  // 3. 주차별/누적 추이 데이터 (최근 4주)
+  // 3. 주차별/누적 추이 데이터 (최근 4주) - 리테일 매출은 전일까지 조회
   let weeklyTrend: WeeklyTrendData[] = [];
   let weeklyAccumTrend: WeeklyTrendData[] = [];
   
   try {
+    // 리테일 매출은 Snowflake 최신 데이터(전일)까지 조회
+    const retailLastDt = getKstYesterdayDate();
+    
     // 주차별 매출 (각 주의 매출)
-    console.log('Fetching weekly sales for lastDt:', lastDt);
-    const weeklyData = await getWeeklySales(lastDt, brandCodes);
+    console.log('Fetching weekly sales for retailLastDt:', retailLastDt, '(손익 마감일:', lastDt, ')');
+    const weeklyData = await getWeeklySales(retailLastDt, brandCodes);
     console.log('Weekly data result:', JSON.stringify(weeklyData));
     weeklyTrend = weeklyData.map(d => {
       const startLabel = d.startDt.substring(5, 10).replace('-', '/');
@@ -1288,7 +1308,7 @@ async function buildChartData(
     });
     
     // 누적 매출 (4주 누적)
-    const accumData = await getWeeklyAccumSales(lastDt, brandCodes);
+    const accumData = await getWeeklyAccumSales(retailLastDt, brandCodes);
     console.log('Accum data result:', JSON.stringify(accumData));
     weeklyAccumTrend = accumData.map(d => {
       const startLabel = d.startDt.substring(5, 10).replace('-', '/');
@@ -1987,6 +2007,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     const cySeason = searchParams.get('cySeason') || getDefaultClothingSeason(ym);
     const pySeason = searchParams.get('pySeason') || getPreviousClothingSeason(cySeason);
 
+    // 마감 여부 판단
+    const isClosed = isClosedMonth(ym);
+    console.log(`[DEBUG] ${ym} 마감 여부:`, isClosed);
+
     // 목표 CSV 로드
     const targetCsv = getTargetCsv(ym);
     const mappings = getAccountMappings();
@@ -2021,6 +2045,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         lastDt: '',
         accumDays: 0,
         monthDays,
+        isClosed: false,
         lines: [],
         error: `유효하지 않은 브랜드: ${brand}`,
       }, {
@@ -2033,11 +2058,25 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     }
 
     // 마지막 날짜 조회
-    const lastDates = await getLastDates(ym, brandCodes);
-    
-    // 첫 번째 브랜드의 lastDt 사용 (전체의 경우 가장 늦은 날짜) - 실제 데이터가 있는 마지막 날짜
     let lastDt = '';
     let accumDays = 0;
+    let lastDates: Record<BrandCode, string> = {} as Record<BrandCode, string>;
+    
+    if (isClosed) {
+      // 마감된 월: 해당 월의 마지막 날 사용
+      const [year, month] = ym.split('-').map(Number);
+      const lastDay = new Date(year, month, 0).getDate();
+      lastDt = `${ym}-${String(lastDay).padStart(2, '0')}`;
+      accumDays = lastDay;
+      console.log(`[DEBUG] 마감된 월 ${ym} - lastDt: ${lastDt}, accumDays: ${accumDays}`);
+      // 모든 브랜드에 대해 동일한 lastDt 사용
+      for (const code of brandCodes) {
+        lastDates[code] = lastDt;
+      }
+    } else {
+      // 마감 전: Snowflake에서 실제 마지막 날짜 조회
+      lastDates = await getLastDates(ym, brandCodes);
+    }
     
     // 각 브랜드별 데이터 조회
     const brandDataList: Awaited<ReturnType<typeof calcBrandData>>[] = [];
@@ -2046,16 +2085,18 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     for (const code of brandCodes) {
       const codeDt = lastDates[code] || '';
       
-      // 마감일 표시는 실제 데이터가 있는 마지막 날짜 사용
-      if (!lastDt || codeDt > lastDt) {
-        lastDt = codeDt;
-      }
-      
-      // accumDays는 실제 마감일(codeDt) 기준으로 계산
-      if (codeDt) {
-        const actualAccumDays = parseInt(codeDt.split('-')[2], 10) || 0;
-        if (actualAccumDays > accumDays) {
-          accumDays = actualAccumDays;
+      if (!isClosed) {
+        // 마감 전: 마감일 표시는 실제 데이터가 있는 마지막 날짜 사용
+        if (!lastDt || codeDt > lastDt) {
+          lastDt = codeDt;
+        }
+        
+        // accumDays는 실제 마감일(codeDt) 기준으로 계산
+        if (codeDt) {
+          const actualAccumDays = parseInt(codeDt.split('-')[2], 10) || 0;
+          if (actualAccumDays > accumDays) {
+            accumDays = actualAccumDays;
+          }
         }
       }
       
@@ -2168,6 +2209,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         lastDt: '',
         accumDays: 0,
         monthDays,
+        isClosed: false,
         lines: [],
         error: '실적 데이터가 없습니다.',
       }, {
@@ -2415,13 +2457,17 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       }
     }
 
+    // 마감된 월의 경우 forecast를 accum으로 덮어쓰기
+    const finalLines = isClosed ? applyClosedMonthForecast(lines) : lines;
+
     return NextResponse.json({
       ym,
       brand,
       lastDt,
       accumDays,
       monthDays,
-      lines,
+      isClosed,
+      lines: finalLines,
       summary,
       charts,
       channelTable,
@@ -2445,6 +2491,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       lastDt: '',
       accumDays: 0,
       monthDays: 0,
+      isClosed: false,
       lines: [],
       error: error instanceof Error ? error.message : 'Unknown error',
     }, {
