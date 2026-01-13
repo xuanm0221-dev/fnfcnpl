@@ -109,7 +109,8 @@ async function calcBrandData(
   brandCode: BrandCode,
   mappings: AccountMapping[],
   targets: TargetRow[],
-  lastDt: string
+  lastDt: string,
+  isClosed: boolean = false
 ): Promise<{
   prevYear: Record<string, number>;
   prevYearAccum: Record<string, number>;
@@ -123,30 +124,58 @@ async function calcBrandData(
   const monthDays = getMonthDays(ym);
 
   // 병렬 조회
-  const [prevYear, prevYearAccum, accumResult] = await Promise.all([
-    getPrevYearActuals(prevYm, brandCode, items), // 전년도 월 전체
-    getPrevYearActualsAccum(prevYm, lastDt, brandCode, items), // 전년도 누적
-    getAccumActuals(ym, lastDt, brandCode, items),
-  ]);
+  let prevYear: Record<string, number>;
+  let prevYearAccum: Record<string, number>;
+  let accum: Record<string, number>;
+  let actualAccumDays: number;
+  
+  if (isClosed) {
+    // 마감된 월: Snowflake에서 당월 전체 데이터 조회 (직접비/영업비 포함)
+    const [prevYearResult, prevYearAccumResult, accumSnowflake] = await Promise.all([
+      getPrevYearActuals(prevYm, brandCode, items), // 전년도 월 전체
+      getPrevYearActualsAccum(prevYm, lastDt, brandCode, items), // 전년도 누적
+      getPrevYearActuals(ym, brandCode, items), // 당월 전체 (Snowflake)
+    ]);
+    prevYear = prevYearResult;
+    prevYearAccum = prevYearAccumResult;
+    accum = accumSnowflake;
+    actualAccumDays = monthDays; // 마감된 월은 전체 일수
+    console.log(`[calcBrandData] 마감된 월 ${ym} Snowflake 조회 완료 - 직접비/영업비 포함`);
+  } else {
+    // 마감 전: CSV에서 누적 데이터 조회
+    const [prevYearResult, prevYearAccumResult, accumResult] = await Promise.all([
+      getPrevYearActuals(prevYm, brandCode, items), // 전년도 월 전체
+      getPrevYearActualsAccum(prevYm, lastDt, brandCode, items), // 전년도 누적
+      getAccumActuals(ym, lastDt, brandCode, items), // CSV에서 누적
+    ]);
+    prevYear = prevYearResult;
+    prevYearAccum = prevYearAccumResult;
+    accum = accumResult.accum;
+    actualAccumDays = accumResult.accumDays;
+  }
 
   // 디버깅: 데이터 확인
   console.log('[calcBrandData] 데이터 조회 완료:', {
     brandCode,
     prevYm,
     lastDt,
+    isClosed,
     prevYearKeys: Object.keys(prevYear).length,
     prevYearAccumKeys: Object.keys(prevYearAccum).length,
+    accumKeys: Object.keys(accum).length,
     prevYearActSale: prevYear['ACT_SALE_AMT'],
     prevYearAccumActSale: prevYearAccum['ACT_SALE_AMT'],
+    accumActSale: accum['ACT_SALE_AMT'],
     prevYearCogs: prevYear['ACT_COGS'],
     prevYearAccumCogs: prevYearAccum['ACT_COGS'],
+    accumCogs: accum['ACT_COGS'],
   });
 
   return {
     prevYear,
     prevYearAccum,
-    accum: accumResult.accum,
-    accumDays: accumResult.accumDays,
+    accum: accum,
+    accumDays: actualAccumDays,
     monthDays,
     targets,
   };
@@ -1173,19 +1202,15 @@ function buildCardSummary(
   const discountRateAccum = tagSaleAccum > 0 ? 1 - (actSaleAccum / tagSaleAccum) : null;
   const discountRateForecast = tagSaleForecast > 0 ? 1 - (actSaleForecast / tagSaleForecast) : null;
 
-  // 실판(V-) 기준 이익율
-  const vatExcAccum = actSaleVatExc?.accum || 0;
-  const vatExcForecast = actSaleVatExc?.forecast || 0;
+  // 직접이익 이익율 (실판 V+ 기준: 직접이익 × 1.13 / 실판V+)
+  const directProfitRateAccum = actSaleAccum > 0 ? (directProfitAccum * 1.13) / actSaleAccum : null;
+  const directProfitRateForecast = actSaleForecast > 0 ? (directProfitForecast * 1.13) / actSaleForecast : null;
 
-  // 직접이익 이익율
-  const directProfitRateAccum = vatExcAccum > 0 ? directProfitAccum / vatExcAccum : null;
-  const directProfitRateForecast = vatExcForecast > 0 ? directProfitForecast / vatExcForecast : null;
-
-  // 영업이익 이익율
+  // 영업이익 이익율 (실판 V+ 기준: 영업이익 × 1.13 / 실판V+)
   const opProfitAccum = operatingProfit?.accum || 0;
   const opProfitForecast = operatingProfit?.forecast || 0;
-  const opProfitRateAccum = vatExcAccum > 0 ? opProfitAccum / vatExcAccum : null;
-  const opProfitRateForecast = vatExcForecast > 0 ? opProfitForecast / vatExcForecast : null;
+  const opProfitRateAccum = actSaleAccum > 0 ? (opProfitAccum * 1.13) / actSaleAccum : null;
+  const opProfitRateForecast = actSaleForecast > 0 ? (opProfitForecast * 1.13) / actSaleForecast : null;
 
   // 직접이익 진척률 = 누적/목표
   const directProfitProgressAccum = directProfitTarget !== 0 ? directProfitAccum / directProfitTarget : null;
@@ -2102,7 +2127,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       
       // calcBrandData 호출 시 실제 마감일(codeDt)만 사용 (누적 조회는 실제 마감일 기준)
       if (codeDt) {
-        const bData = await calcBrandData(ym, code, mappings, targets, codeDt);
+        const bData = await calcBrandData(ym, code, mappings, targets, codeDt, isClosed);
         brandDataList.push(bData);
       }
     }
@@ -2341,9 +2366,6 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       );
     }
 
-    // 카드 요약 데이터 계산 (lines가 비어있지 않을 때만)
-    const summary = lines && lines.length > 0 ? buildCardSummary(lines, mergedData, context) : undefined;
-
     // 차트 데이터 (전체 페이지만, 브랜드별 필터링 지원)
     let charts: ChartData | undefined;
     if (brand === 'all' && brandDataMap.size > 0) {
@@ -2459,6 +2481,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
 
     // 마감된 월의 경우 forecast를 accum으로 덮어쓰기
     const finalLines = isClosed ? applyClosedMonthForecast(lines) : lines;
+
+    // 카드 요약 데이터 계산 (finalLines 기준으로 계산하여 테이블과 일치)
+    const summary = finalLines && finalLines.length > 0 ? buildCardSummary(finalLines, mergedData, context) : undefined;
 
     return NextResponse.json({
       ym,
