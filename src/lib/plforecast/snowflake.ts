@@ -1,5 +1,5 @@
 import snowflake from 'snowflake-sdk';
-import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow, ChannelActuals, ShopMonthlySalesData, ShopMonthlySalesRow, ShopMonthlySalesGroup } from './types';
+import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow, ChannelActuals, ShopMonthlySalesData, ShopMonthlySalesRow, ShopMonthlySalesGroup, CategorySalesRow } from './types';
 
 // Snowflake 연결 설정
 function getConnection(): Promise<snowflake.Connection> {
@@ -2487,6 +2487,202 @@ export async function getCategorySalesData(
     });
     
     return result;
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+/**
+ * 카테고리별 판매매출 조회 (브랜드 전체)
+ * - 당월 누적 (월초~lastDt의 전일)과 전년 동기간 누적을 조회
+ */
+export async function getCategorySalesByMonth(
+  brdCd: string,
+  ym: string,
+  lastDt: string
+): Promise<CategorySalesRow[]> {
+  const connection = await getConnection();
+  
+  try {
+    const year = parseInt(lastDt.substring(0, 4));
+    const month = lastDt.substring(5, 7);
+    const day = lastDt.substring(8, 10);
+    
+    // 당월 누적: 월초 ~ lastDt의 전일
+    const cyStartDt = `${year}-${month}-01`;
+    const cyEndDt = lastDt; // lastDt는 이미 전일까지의 데이터
+    
+    // 전년 동기간: 전년 월초 ~ 전년 동일일
+    const pyStartDt = `${year - 1}-${month}-01`;
+    const pyEndDt = `${year - 1}-${month}-${day}`;
+    
+    // 기준연도 추출
+    const baseYear = ym.substring(0, 4);
+    const baseYearShort = baseYear.substring(2, 4); // '26'
+    const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '25'
+    const prevPrevYearShort = String(parseInt(baseYearShort) - 2).padStart(2, '0'); // '24'
+    const prevPrevPrevYearShort = String(parseInt(baseYearShort) - 3).padStart(2, '0'); // '23'
+    
+    const sql = `
+      WITH retail_sales AS (
+        SELECT 
+          s.sale_dt,
+          COALESCE(p.sesn, s.sesn) as sesn,
+          COALESCE(p.prdt_hrrc1_nm, '') as prdt_hrrc1_nm,
+          COALESCE(p.prdt_hrrc2_nm, '') as prdt_hrrc2_nm,
+          s.tag_amt
+        FROM CHN.dw_sale s
+        LEFT JOIN sap_fnf.mst_prdt p ON s.prdt_cd = p.prdt_cd
+        WHERE s.brd_cd = ?
+          AND (
+            (s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}')
+            OR (s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}')
+          )
+          AND COALESCE(p.sesn, s.sesn) IS NOT NULL
+          AND COALESCE(p.sesn, s.sesn) <> 'X'
+      )
+      SELECT 
+        CASE
+          -- 1. 차기시즌: > 25 (26, 27, 28...)
+          WHEN prdt_hrrc1_nm = '의류' 
+            AND LEFT(sesn, 2) > '${prevYearShort}' THEN '차기시즌'
+          -- 2. 25F
+          WHEN prdt_hrrc1_nm = '의류' 
+            AND sesn = '${prevYearShort}F' THEN '${prevYearShort}F의류'
+          -- 3. 25S
+          WHEN prdt_hrrc1_nm = '의류' 
+            AND sesn = '${prevYearShort}S' THEN '${prevYearShort}S의류'
+          -- 4. 24SF
+          WHEN prdt_hrrc1_nm = '의류' 
+            AND sesn IN ('${prevPrevYearShort}S', '${prevPrevYearShort}F') THEN '${prevPrevYearShort}SF의류'
+          -- 5. 과시즌: < 24 (23, 22, 21...)
+          WHEN prdt_hrrc1_nm = '의류' 
+            AND LEFT(sesn, 2) < '${prevPrevYearShort}' THEN '과시즌 의류'
+          -- 6. 신발
+          WHEN prdt_hrrc1_nm = 'ACC' 
+            AND prdt_hrrc2_nm = 'Shoes' THEN '신발'
+          -- 7. 모자
+          WHEN prdt_hrrc1_nm = 'ACC' 
+            AND prdt_hrrc2_nm = 'Headwear' THEN '모자'
+          -- 8. 가방
+          WHEN prdt_hrrc1_nm = 'ACC' 
+            AND prdt_hrrc2_nm = 'Bag' THEN '가방'
+          -- 9. 기타
+          WHEN prdt_hrrc1_nm = 'ACC' THEN '기타'
+          ELSE 'others'
+        END as category,
+        
+        -- 당년도 당월 누적
+        SUM(CASE 
+          WHEN sale_dt >= DATE '${cyStartDt}' AND sale_dt <= DATE '${cyEndDt}' 
+          THEN tag_amt ELSE 0 
+        END) as cy_accum_amt,
+        
+        -- 전년도 동기간 누적 (의류는 -1년 시즌, 악세사리는 날짜만)
+        SUM(CASE 
+          -- 1. 차기시즌: > 24 (25, 26, 27...)
+          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
+            AND prdt_hrrc1_nm = '의류' 
+            AND LEFT(sesn, 2) > '${prevPrevYearShort}'
+          THEN tag_amt
+          -- 2. 25F → 24F
+          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
+            AND prdt_hrrc1_nm = '의류' 
+            AND sesn = '${prevPrevYearShort}F'
+          THEN tag_amt
+          -- 3. 25S → 24S
+          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
+            AND prdt_hrrc1_nm = '의류' 
+            AND sesn = '${prevPrevYearShort}S'
+          THEN tag_amt
+          -- 4. 24SF → 23SF
+          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
+            AND prdt_hrrc1_nm = '의류' 
+            AND sesn IN ('${prevPrevPrevYearShort}S', '${prevPrevPrevYearShort}F')
+          THEN tag_amt
+          -- 5. 과시즌: < 23 (22, 21, 20...)
+          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
+            AND prdt_hrrc1_nm = '의류' 
+            AND LEFT(sesn, 2) < '${prevPrevPrevYearShort}'
+          THEN tag_amt
+          -- 6-9. 악세사리: 날짜만
+          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
+            AND prdt_hrrc1_nm = 'ACC'
+          THEN tag_amt
+          ELSE 0 
+        END) as py_accum_amt
+        
+      FROM retail_sales
+      GROUP BY category
+      HAVING category != 'others' AND category != '과시즌 의류'
+      ORDER BY 
+        CASE category
+          WHEN '차기시즌' THEN 1
+          WHEN '${prevYearShort}F의류' THEN 2
+          WHEN '${prevYearShort}S의류' THEN 3
+          WHEN '${prevPrevYearShort}SF의류' THEN 4
+          WHEN '신발' THEN 5
+          WHEN '모자' THEN 6
+          WHEN '가방' THEN 7
+          WHEN '기타' THEN 8
+          ELSE 9
+        END
+    `;
+    
+    console.log('[getCategorySalesByMonth] 파라미터:', {
+      brdCd,
+      ym,
+      lastDt,
+      baseYearShort,
+      prevYearShort,
+      prevPrevYearShort,
+      prevPrevPrevYearShort,
+      cyStartDt,
+      cyEndDt,
+      pyStartDt,
+      pyEndDt
+    });
+    
+    let rows: any[];
+    try {
+      rows = await executeQuery<any>(connection, sql, [brdCd]);
+      console.log('[getCategorySalesByMonth] 쿼리 실행 성공, 결과:', {
+        rowCount: rows.length,
+        rows: rows.map(r => ({
+          category: r?.CATEGORY,
+          cyAccumAmt: r?.CY_ACCUM_AMT,
+          pyAccumAmt: r?.PY_ACCUM_AMT
+        }))
+      });
+    } catch (queryErr) {
+      console.error('[getCategorySalesByMonth] 쿼리 실행 오류:', queryErr);
+      console.error('[getCategorySalesByMonth] SQL 쿼리:', sql.substring(0, 1000));
+      console.error('[getCategorySalesByMonth] 파라미터:', [brdCd]);
+      throw queryErr;
+    }
+    
+    const result: CategorySalesRow[] = rows.map(row => {
+      const cyAccumAmt = Number(row.CY_ACCUM_AMT) || 0;
+      const pyAccumAmt = Number(row.PY_ACCUM_AMT) || 0;
+      const yoy = pyAccumAmt > 0 ? (cyAccumAmt / pyAccumAmt) * 100 : null;
+      
+      return {
+        category: row.CATEGORY || '',
+        cyAccumAmt,
+        pyAccumAmt,
+        yoy
+      };
+    });
+    
+    console.log('[getCategorySalesByMonth] 최종 결과:', {
+      count: result.length,
+      result
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('[getCategorySalesByMonth] 오류:', error);
+    return [];
   } finally {
     await destroyConnection(connection);
   }

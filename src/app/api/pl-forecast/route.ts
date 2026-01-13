@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from 'next/server';
-import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, TierRegionSalesData, TierRegionSalesRow } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandCode, LineDefinition, AccountMapping, TargetRow, CardSummary, ChartData, BrandSalesData, BrandRadarData, WaterfallData, WeeklyTrendData, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, TierRegionSalesData, TierRegionSalesRow, CategorySalesRow } from '@/lib/plforecast/types';
 import { COST_CALCULATION_MAP } from '@/lib/plforecast/types';
 import { lineDefinitions, vatExcludedItem } from '@/lib/plforecast/lineDefinitions';
 import { allBrandCodes, isValidBrandCode } from '@/lib/plforecast/brand';
@@ -42,6 +42,7 @@ import {
   getShopLevelSalesData,
   getClothingSalesData,
   getClothingSalesLastDt,
+  getCategorySalesByMonth,
 } from '@/lib/plforecast/snowflake';
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
@@ -2479,6 +2480,22 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       }
     }
 
+    // 카테고리별 판매매출 조회 (의류 판매율이 있는 브랜드만)
+    let categorySales: CategorySalesRow[] | undefined = undefined;
+    if (brand !== 'all' && ['M', 'I', 'X', 'V', 'W'].includes(brand) && clothingLastDt) {
+      try {
+        console.log('[DEBUG] 카테고리별 판매매출 조회 시작:', { brand, ym, clothingLastDt });
+        categorySales = await getCategorySalesByMonth(brand, ym, clothingLastDt);
+        console.log('[DEBUG] 카테고리별 판매매출 조회 완료:', {
+          count: categorySales?.length,
+          categories: categorySales?.map(c => c.category)
+        });
+      } catch (error) {
+        console.error('카테고리별 판매매출 조회 오류:', error);
+        // 에러 발생 시에도 categorySales는 undefined로 유지
+      }
+    }
+
     // 마감된 월의 경우 forecast를 accum으로 덮어쓰기
     const finalLines = isClosed ? applyClosedMonthForecast(lines) : lines;
 
@@ -2501,6 +2518,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       tierRegionData,
       clothingSales,
       clothingLastDt,
+      categorySales,
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',

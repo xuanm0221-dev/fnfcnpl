@@ -2,12 +2,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail, ShopMonthlySalesData } from '@/lib/plforecast/types';
+import type { ApiResponse, PlLine, BrandSlug, ChannelTableData, ChannelRowData, ChannelPlanTable, ChannelActualTable, RetailSalesTableData, RetailSalesRow, ShopSalesDetail, TierRegionSalesData, TierRegionSalesRow, ClothingSalesData, ClothingSalesRow, ClothingItemDetail, ShopMonthlySalesData, CategorySalesRow } from '@/lib/plforecast/types';
 import { brandTabs, isValidBrandSlug, slugToCode, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import { getKstCurrentYm } from '@/lib/plforecast/date';
 import { calculateAdjustedProgressRate } from '@/lib/plforecast/progressRateAdjustment';
 import { ResponsiveContainer, Treemap } from 'recharts';
+import AnalysisSection from '@/components/AnalysisSection';
 
 // 현재 월 계산 (YYYY-MM)
 // 한국 시간대(KST) 기준으로 계산
@@ -2270,7 +2271,7 @@ function generateSeasonList(): string[] {
   return seasons;
 }
 
-// 기본 시즌 계산
+// 기본 시즌 계산 (현재 날짜 기준)
 function getDefaultSeason(): string {
   const now = new Date();
   const month = now.getMonth() + 1;
@@ -2285,12 +2286,139 @@ function getDefaultSeason(): string {
   }
 }
 
+// 기본 시즌 계산 (ym 기준) - 25년 12월~26년 3월은 25F
+function getDefaultSeasonByYm(ym: string): string {
+  const month = parseInt(ym.substring(5, 7));
+  const year = parseInt(ym.substring(0, 4));
+  const shortYear = year.toString().substring(2);
+  
+  // 25년 12월 ~ 26년 3월: 25F
+  if (year === 2025 && month === 12) {
+    return '25F';
+  }
+  if (year === 2026 && month >= 1 && month <= 3) {
+    return '25F';
+  }
+  
+  // 그 외: 1-6월은 전년도 F시즌, 7-12월은 당해년도 S시즌
+  if (month >= 1 && month <= 6) {
+    const prevYear = (year - 1).toString().substring(2);
+    return `${prevYear}F`;
+  } else {
+    return `${shortYear}S`;
+  }
+}
+
 // 전년 시즌 계산
 function getPreviousSeason(currentSeason: string): string {
   const year = parseInt(currentSeason.substring(0, 2));
   const season = currentSeason.substring(2);
   const prevYear = year - 1;
   return `${prevYear.toString().padStart(2, '0')}${season}`;
+}
+
+// 카테고리별 판매매출 테이블 컴포넌트
+function CategorySalesTable({
+  data,
+  lastDt
+}: {
+  data: CategorySalesRow[];
+  lastDt: string;
+}) {
+  // 카테고리 순서 정의
+  const categoryOrder = [
+    '차기시즌',
+    '25F의류',
+    '25S의류',
+    '24SF의류',
+    '과시즌 의류',
+    '신발',
+    '모자',
+    '가방',
+    '기타'
+  ];
+
+  // 정렬된 데이터
+  const sortedData = [...data].sort((a, b) => {
+    const aIndex = categoryOrder.indexOf(a.category);
+    const bIndex = categoryOrder.indexOf(b.category);
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
+
+  // 합계 계산
+  const total = data.reduce(
+    (acc, row) => ({
+      cyAccumAmt: acc.cyAccumAmt + row.cyAccumAmt,
+      pyAccumAmt: acc.pyAccumAmt + row.pyAccumAmt
+    }),
+    { cyAccumAmt: 0, pyAccumAmt: 0 }
+  );
+  const totalYoy = total.pyAccumAmt > 0 
+    ? (total.cyAccumAmt / total.pyAccumAmt) * 100 
+    : null;
+
+  // K 단위 포맷 (천 위안)
+  const formatK = (value: number) => {
+    const k = Math.round(value / 1000);
+    return k.toLocaleString();
+  };
+
+  // YOY 포맷 (백분율 표시법: 당년/전년×100)
+  const formatYoy = (value: number | null) => {
+    if (value === null) return '-';
+    return `${value.toFixed(1)}%`;
+  };
+
+  // YOY 색상 (100% 기준)
+  const getYoyColor = (value: number | null) => {
+    if (value === null) return 'text-gray-500';
+    return value >= 100 ? 'text-green-600' : 'text-red-600';
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+        <h3 className="text-sm font-semibold text-gray-700">
+          카테고리별 판매매출 ({formatDateShort(lastDt)} 까지)
+        </h3>
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-left px-3 py-2 font-semibold text-gray-700">카테고리</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-700">당년도 당월 누적</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-700">전년도 동기간 누적</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-700">YOY</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedData.map((row, idx) => (
+              <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-3 py-2 text-gray-700">{row.category}</td>
+                <td className="px-3 py-2 text-right text-gray-900">{formatK(row.cyAccumAmt)}K</td>
+                <td className="px-3 py-2 text-right text-gray-900">{formatK(row.pyAccumAmt)}K</td>
+                <td className={`px-3 py-2 text-right font-medium ${getYoyColor(row.yoy)}`}>
+                  {formatYoy(row.yoy)}
+                </td>
+              </tr>
+            ))}
+            {/* 합계 행 */}
+            <tr className="bg-blue-50 border-t-2 border-blue-200 font-semibold">
+              <td className="px-3 py-2 text-gray-800">합계</td>
+              <td className="px-3 py-2 text-right text-gray-900">{formatK(total.cyAccumAmt)}K</td>
+              <td className="px-3 py-2 text-right text-gray-900">{formatK(total.pyAccumAmt)}K</td>
+              <td className={`px-3 py-2 text-right font-medium ${getYoyColor(totalYoy)}`}>
+                {formatYoy(totalYoy)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 // 의류 판매율 테이블 및 차트 컴포넌트
@@ -2308,9 +2436,12 @@ function ClothingSalesSection({
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [itemDetails, setItemDetails] = useState<ClothingItemDetail[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedSeason, setSelectedSeason] = useState<string>(getDefaultSeason());
+  // ym 기준으로 초기 시즌 설정
+  const initialSeason = getDefaultSeasonByYm(ym);
+  const [selectedSeason, setSelectedSeason] = useState<string>(initialSeason);
   const [clothingData, setClothingData] = useState<ClothingSalesData | null>(data);
   const [dataLoading, setDataLoading] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
   
   const cySeason = selectedSeason;
   const pySeason = getPreviousSeason(selectedSeason);
@@ -2324,6 +2455,44 @@ function ClothingSalesSection({
   const [detailSortColumn, setDetailSortColumn] = useState<'cyRate' | 'cySalesQty' | 'cyStockQty' | 'poQty' | null>('cySalesQty');
   const [detailSortDirection, setDetailSortDirection] = useState<'asc' | 'desc'>('desc');
   
+  // 초기 마운트 시 또는 ym 변경 시 올바른 시즌 데이터 로드
+  useEffect(() => {
+    const currentInitialSeason = getDefaultSeasonByYm(ym);
+    setSelectedSeason(currentInitialSeason);
+    setHasInitialized(false);
+    
+    // 항상 올바른 시즌으로 데이터 로드 (초기 데이터가 다른 시즌일 수 있음)
+    const loadInitialData = async () => {
+      setDataLoading(true);
+      try {
+        const newCySeason = currentInitialSeason;
+        const newPySeason = getPreviousSeason(currentInitialSeason);
+        const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandCode}&cySeason=${newCySeason}&pySeason=${newPySeason}`);
+        const json = await res.json();
+        
+        // clothingSales가 있으면 사용 (전체 API 응답에 error가 있어도)
+        if (json.clothingSales && json.clothingSales.items && json.clothingSales.items.length > 0) {
+          setClothingData(json.clothingSales);
+        } else {
+          // 데이터가 없는 경우 (정상일 수 있음)
+          setClothingData(null);
+        }
+        
+        // 전체 API 에러는 조용히 처리 (의류 판매율과 무관할 수 있음)
+        // "실적 데이터가 없습니다"는 PL 데이터가 없는 것이므로 의류 판매율과는 무관
+      } catch (error) {
+        // 네트워크 에러 등만 콘솔에 표시
+        console.warn('의류 판매율 데이터 조회 오류:', error);
+        setClothingData(null);
+      } finally {
+        setDataLoading(false);
+        setHasInitialized(true);
+      }
+    };
+    
+    loadInitialData();
+  }, [ym, brandCode]); // ym 또는 brandCode가 변경될 때마다 초기화
+  
   // 시즌 변경 핸들러
   const handleSeasonChange = async (newSeason: string) => {
     setSelectedSeason(newSeason);
@@ -2333,16 +2502,19 @@ function ClothingSalesSection({
       const newPySeason = getPreviousSeason(newSeason);
       const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandCode}&cySeason=${newCySeason}&pySeason=${newPySeason}`);
       const json = await res.json();
-      if (json.error) {
-        console.error('의류 판매율 데이터 조회 오류:', json.error);
-        setClothingData(null);
-      } else if (json.clothingSales) {
+      
+      // clothingSales가 있으면 사용 (전체 API 응답에 error가 있어도)
+      if (json.clothingSales && json.clothingSales.items && json.clothingSales.items.length > 0) {
         setClothingData(json.clothingSales);
       } else {
+        // 데이터가 없는 경우 (정상일 수 있음)
         setClothingData(null);
       }
+      
+      // 전체 API 에러는 조용히 처리 (의류 판매율과 무관할 수 있음)
     } catch (error) {
-      console.error('의류 판매율 데이터 조회 오류:', error);
+      // 네트워크 에러 등만 콘솔에 표시
+      console.warn('의류 판매율 데이터 조회 오류:', error);
       setClothingData(null);
     } finally {
       setDataLoading(false);
@@ -3148,6 +3320,7 @@ export default function BrandPlForecastPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showAccum, setShowAccum] = useState(false);
+  const [isLegendExpanded, setIsLegendExpanded] = useState(false);
   
   // 매장별 상세 모달 상태
   const [showShopModal, setShowShopModal] = useState(false);
@@ -3185,7 +3358,11 @@ export default function BrandPlForecastPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandCode}`);
+        // 기본 시즌 계산 (의류 판매율용) - ym 기준으로 계산
+        const defaultSeason = getDefaultSeasonByYm(ym);
+        const defaultPySeason = getPreviousSeason(defaultSeason);
+        
+        const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandCode}&cySeason=${defaultSeason}&pySeason=${defaultPySeason}`);
         const json: ApiResponse = await res.json();
         if (json.error) {
           setError(json.error);
@@ -3828,10 +4005,20 @@ export default function BrandPlForecastPage() {
 
               {/* 범례 - 손익표 아래 개선 */}
               <div className="mt-4 p-4 bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-200 shadow-sm text-xs">
-                <div className="flex items-center gap-2 mb-3">
+                <button
+                  className="flex items-center gap-2 mb-3 w-full text-left hover:opacity-80 transition-opacity"
+                  onClick={() => setIsLegendExpanded(!isLegendExpanded)}
+                >
                   <div className="w-1 h-5 bg-gradient-to-b from-indigo-500 to-indigo-600 rounded"></div>
-                  <div className="font-bold text-gray-800">월말예상 계산 방식</div>
-                </div>
+                  <div className="font-bold text-gray-800 flex-1">월말예상 손익 계산방식</div>
+                  <span className={`transform transition-transform duration-200 ${isLegendExpanded ? 'rotate-90' : ''}`}>
+                    ▶
+                  </span>
+                  <span className="text-gray-500 text-[10px]">
+                    {isLegendExpanded ? '접기' : '상세보기'}
+                  </span>
+                </button>
+                {isLegendExpanded && (
                 <div className="space-y-3 pl-3">
                   <div className="bg-white rounded-lg p-3 border border-gray-100 shadow-sm">
                     <div className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
@@ -3945,7 +4132,23 @@ export default function BrandPlForecastPage() {
                     <div className="font-semibold text-gray-800">달성율: 월말예상 ÷ 목표 × 100%</div>
                   </div>
                 </div>
+                )}
               </div>
+              
+              {/* AI 분석 섹션 */}
+              {data && (
+                <AnalysisSection data={data} brandLabel={brandLabel} ym={ym} />
+              )}
+              
+              {/* 카테고리별 판매매출 */}
+              {data && data.categorySales && data.categorySales.length > 0 && (
+                <div className="mt-6">
+                  <CategorySalesTable 
+                    data={data.categorySales} 
+                    lastDt={data.clothingLastDt || data.lastDt}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -100,6 +100,7 @@ export interface ApiResponse {
   tierRegionData?: TierRegionSalesData; // 티어별/지역별 점당매출 (MLB, MLB KIDS, DISCOVERY만)
   clothingSales?: ClothingSalesData; // 의류 판매율 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
   clothingLastDt?: string; // 의류 판매율 기준일 (Snowflake 최신 날짜)
+  categorySales?: CategorySalesRow[]; // 카테고리별 판매매출 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
   error?: string;
 }
 
@@ -277,6 +278,14 @@ export interface ClothingSalesRow {
 export interface ClothingSalesData {
   items: ClothingSalesRow[]; // 아이템별
   total: ClothingSalesRow;   // 전체 합계
+}
+
+// 카테고리별 판매매출 행 데이터
+export interface CategorySalesRow {
+  category: string; // 카테고리명 (차기시즌, 25F의류, 25S의류, 24SF의류, 과시즌 의류, 신발, 모자, 가방, 기타)
+  cyAccumAmt: number; // 당년도 당월 누적 (월초~lastDt의 전일까지)
+  pyAccumAmt: number; // 전년도 동기간 누적
+  yoy: number | null; // 전년비 (%)
 }
 
 // 의류 아이템 상세 (product 단위)
