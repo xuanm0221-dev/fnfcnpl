@@ -261,7 +261,19 @@ function mergePlLines(brandLinesList: PlLine[][]): PlLine[] {
       forecast: 0,
       yoyRate: null,
       achvRate: null,
-      children: undefined, // 2레벨까지만 처리 (필요시 확장)
+      // Level 2 children도 복사 (직접비 > 기타, 영업비 > 기타의 하위 항목)
+      children: child.children ? child.children.map(grandChild => ({
+        ...grandChild,
+        prevYear: 0,
+        prevYearAccum: 0,
+        prevYearProgressRate: null,
+        target: 0,
+        accum: 0,
+        forecast: 0,
+        yoyRate: null,
+        achvRate: null,
+        children: undefined, // Level 3까지만 처리
+      })) : undefined,
     })) : undefined,
   }));
 
@@ -284,6 +296,20 @@ function mergePlLines(brandLinesList: PlLine[][]): PlLine[] {
 
   // 계산 필드 재계산 (합산된 리프 노드 값 기반)
   for (const line of mergedLines) {
+    // Level 2 children (grandChildren)이 있는 경우 먼저 부모(child)의 합 재계산
+    if (line.children) {
+      for (const child of line.children) {
+        if (child.children && child.children.length > 0 && child.isCalculated) {
+          // grandChildren의 합을 child에 반영 (직접비 > 기타, 영업비 > 기타 등)
+          child.prevYear = child.children.reduce((sum, gc) => sum + (gc.prevYear ?? 0), 0);
+          child.prevYearAccum = child.children.reduce((sum, gc) => sum + (gc.prevYearAccum ?? 0), 0);
+          child.accum = child.children.reduce((sum, gc) => sum + (gc.accum ?? 0), 0);
+          child.target = child.children.reduce((sum, gc) => sum + (gc.target ?? 0), 0);
+          child.forecast = child.children.reduce((sum, gc) => sum + (gc.forecast ?? 0), 0);
+        }
+      }
+    }
+    
     // 부모 노드는 children의 합으로 재계산 (children이 있는 경우)
     if (line.children && line.children.length > 0) {
       const sumPrevYear = line.children.reduce((sum, c) => sum + (c.prevYear || 0), 0);
@@ -440,6 +466,25 @@ function mergePlLines(brandLinesList: PlLine[][]): PlLine[] {
           if (isNaN(child.achvRate) || !isFinite(child.achvRate)) child.achvRate = null;
         } else {
           child.achvRate = null;
+        }
+        
+        // grandChildren (Level 2)도 재계산
+        if (child.children) {
+          for (const grandChild of child.children) {
+            grandChild.prevYearProgressRate = calculatePrevYearProgressRate(grandChild.prevYear, grandChild.prevYearAccum ?? null);
+            if (grandChild.forecast !== null && grandChild.prevYear !== null && grandChild.prevYear !== 0) {
+              grandChild.yoyRate = (grandChild.forecast / grandChild.prevYear) - 1;
+              if (isNaN(grandChild.yoyRate) || !isFinite(grandChild.yoyRate)) grandChild.yoyRate = null;
+            } else {
+              grandChild.yoyRate = null;
+            }
+            if (grandChild.forecast !== null && grandChild.target !== null && grandChild.target !== 0) {
+              grandChild.achvRate = grandChild.forecast / grandChild.target;
+              if (isNaN(grandChild.achvRate) || !isFinite(grandChild.achvRate)) grandChild.achvRate = null;
+            } else {
+              grandChild.achvRate = null;
+            }
+          }
         }
       }
     }
@@ -1109,6 +1154,10 @@ function buildPlLine(
             // 변동비인데 채널 데이터가 없거나 채널 정보가 없으면 null
             forecast = null;
           }
+        }
+        // 평가감: 목표 그대로 사용 (고정비 처리)
+        else if (def.level1 === '평가감') {
+          forecast = target;
         }
         // 기타: 일할 계산
         else {

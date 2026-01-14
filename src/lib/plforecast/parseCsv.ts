@@ -225,30 +225,21 @@ export function parseChannelPlanData(
     return { onlineDirect, onlineDealer, offlineDirect, offlineDealer, total };
   };
 
-  // 매출원가 합산 (매출원가 + 평가감)
+  // 매출원가 (순수 COGS만, 평가감 제외)
   const getCogsRowData = (): ChannelRowData => {
     const cogsRow = records.find((r) => r['level1'] === '매출원가');
-    const evalGainRows = records.filter((r) => r['level1'] === '평가감');
     
-    const sumValues = (rows: Array<Record<string, string>>, colName: string): number | null => {
-      let sum = 0;
-      let hasValue = false;
-      for (const row of rows) {
-        const val = parseTargetValueInternal(row[colName]);
-        if (val !== null) {
-          sum += val;
-          hasValue = true;
-        }
-      }
-      return hasValue ? sum : null;
-    };
+    if (!cogsRow) {
+      return { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    }
     
-    const onlineDirect = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('onlineDirect'));
-    const onlineDealer = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('onlineDealer'));
-    const offlineDirect = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('offlineDirect'));
-    const offlineDealer = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, getColName('offlineDealer'));
-    const total = sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, ` ${brandCode} `) 
-      ?? sumValues([cogsRow, ...evalGainRows].filter(Boolean) as Array<Record<string, string>>, brandCode);
+    const onlineDirect = parseTargetValueInternal(cogsRow[getColName('onlineDirect')]);
+    const onlineDealer = parseTargetValueInternal(cogsRow[getColName('onlineDealer')]);
+    const offlineDirect = parseTargetValueInternal(cogsRow[getColName('offlineDirect')]);
+    const offlineDealer = parseTargetValueInternal(cogsRow[getColName('offlineDealer')]);
+    
+    // 총합계는 브랜드 전체 컬럼 사용
+    const total = parseTargetValueInternal(cogsRow[` ${brandCode} `] || cogsRow[brandCode]);
     
     return { onlineDirect, onlineDealer, offlineDirect, offlineDealer, total };
   };
