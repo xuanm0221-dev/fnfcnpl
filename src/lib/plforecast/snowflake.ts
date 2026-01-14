@@ -2953,30 +2953,38 @@ export async function getClothingSalesData(
           )
         GROUP BY prdt.item_cd, sesn_year
       ),
-      item_list AS (
-        SELECT DISTINCT item_cd FROM po_data
-        UNION
-        SELECT DISTINCT item_cd FROM sales_data
+      base AS (
+        SELECT 
+          po.item_cd AS ITEM_CD,
+          COALESCE(itm.item_nm, po.item_cd) AS ITEM_NM,
+          SUM(CASE WHEN po.sesn_year = ? THEN po.po_qty ELSE 0 END) AS CY_PO_QTY,
+          SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) AS CY_PO_AMT,
+          SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) AS CY_SALES_AMT,
+          SUM(CASE WHEN po.sesn_year = ? THEN po.po_qty ELSE 0 END) AS PY_PO_QTY,
+          SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
+          SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
+        FROM po_data po
+        INNER JOIN sales_data s ON po.item_cd = s.item_cd
+        LEFT JOIN prcs.dw_item itm ON po.item_cd = itm.item
+        GROUP BY po.item_cd, itm.item_nm
+        HAVING (SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) > 0 
+               AND SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) >= 0)
+            OR (SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) > 0 
+               AND SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) >= 0)
       )
+      SELECT * FROM base
+      UNION ALL
       SELECT 
-        il.item_cd AS ITEM_CD,
-        COALESCE(itm.item_nm, il.item_cd) AS ITEM_NM,
-        SUM(CASE WHEN po.sesn_year = ? THEN po.po_qty ELSE 0 END) AS CY_PO_QTY,
-        SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) AS CY_PO_AMT,
-        SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) AS CY_SALES_AMT,
-        SUM(CASE WHEN po.sesn_year = ? THEN po.po_qty ELSE 0 END) AS PY_PO_QTY,
-        SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
-        SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
-      FROM item_list il
-      LEFT JOIN po_data po ON il.item_cd = po.item_cd
-      LEFT JOIN sales_data s ON il.item_cd = s.item_cd
-      LEFT JOIN prcs.dw_item itm ON il.item_cd = itm.item
-      GROUP BY il.item_cd, itm.item_nm
-      HAVING SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) > 0 
-          OR SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) > 0
-          OR SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) > 0
-          OR SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) > 0
-      ORDER BY CY_SALES_AMT DESC
+        'TOTAL' AS ITEM_CD,
+        'Total' AS ITEM_NM,
+        SUM(CY_PO_QTY) AS CY_PO_QTY,
+        SUM(CY_PO_AMT) AS CY_PO_AMT,
+        SUM(CY_SALES_AMT) AS CY_SALES_AMT,
+        SUM(PY_PO_QTY) AS PY_PO_QTY,
+        SUM(PY_PO_AMT) AS PY_PO_AMT,
+        SUM(PY_SALES_AMT) AS PY_SALES_AMT
+      FROM base
+      ORDER BY CASE WHEN ITEM_CD = 'TOTAL' THEN 1 ELSE 99 END, CY_SALES_AMT DESC
     `;
     
     const rows = await executeQuery<ClothingSalesDbRow>(connection, sql, [
@@ -2984,7 +2992,7 @@ export async function getClothingSalesData(
       brdCd, cySeason, pySeason, cySeason, pySeason, // sales_data
       cySeason, cySeason, cySeason, // SELECT CY
       pySeason, pySeason, pySeason, // SELECT PY
-      cySeason, pySeason, cySeason, pySeason // HAVING
+      cySeason, cySeason, pySeason, pySeason // HAVING
     ]);
     
     // null 또는 undefined 체크

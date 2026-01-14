@@ -2481,32 +2481,48 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         
         // null/undefined 체크 및 배열 체크 강화
         if (clothingData && Array.isArray(clothingData) && clothingData.length > 0) {
-          // 전체 합계 계산
-          let totalCyPoAmt = 0;
-          let totalCySalesAmt = 0;
-          let totalPyPoAmt = 0;
-          let totalPySalesAmt = 0;
-          let totalCyPoQty = 0;
-          let totalPyPoQty = 0;
+          // SQL 결과에서 TOTAL 행 찾기
+          const totalRow = clothingData.find(item => item.itemCd === 'TOTAL');
+          const itemsOnly = clothingData.filter(item => item.itemCd !== 'TOTAL');
           
-          clothingData.forEach(item => {
-            totalCySalesAmt += item.cySalesAmt || 0;
-            totalPySalesAmt += item.pySalesAmt || 0;
-            totalCyPoQty += item.cyPoQty || 0;
-            totalPyPoQty += item.pyPoQty || 0;
-          });
-          
-          const totalCyRate = clothingData.length > 0 
-            ? clothingData.reduce((sum, item) => sum + (item.cyRate || 0), 0) / clothingData.length 
-            : 0;
-          const totalPyRate = clothingData.length > 0
-            ? clothingData.reduce((sum, item) => sum + (item.pyRate || 0), 0) / clothingData.length
-            : 0;
-          const totalYoy = totalCyRate !== null && totalPyRate !== null ? totalCyRate - totalPyRate : null;
-          
-          clothingSales = {
-            items: clothingData,
-            total: {
+          // TOTAL 행이 SQL에 있으면 그것을 사용, 없으면 계산
+          let total;
+          if (totalRow) {
+            // SQL에서 계산된 TOTAL 사용
+            total = {
+              itemCd: 'TOTAL',
+              itemNm: '의류전체',
+              cyRate: totalRow.cyRate,
+              pyRate: totalRow.pyRate,
+              yoy: totalRow.yoy,
+              cySalesAmt: totalRow.cySalesAmt,
+              pySalesAmt: totalRow.pySalesAmt,
+              cyPoQty: totalRow.cyPoQty,
+              pyPoQty: totalRow.pyPoQty,
+            };
+          } else {
+            // 기존 로직: 개별 아이템 합산
+            let totalCySalesAmt = 0;
+            let totalPySalesAmt = 0;
+            let totalCyPoQty = 0;
+            let totalPyPoQty = 0;
+            
+            itemsOnly.forEach(item => {
+              totalCySalesAmt += item.cySalesAmt || 0;
+              totalPySalesAmt += item.pySalesAmt || 0;
+              totalCyPoQty += item.cyPoQty || 0;
+              totalPyPoQty += item.pyPoQty || 0;
+            });
+            
+            const totalCyRate = itemsOnly.length > 0 
+              ? itemsOnly.reduce((sum, item) => sum + (item.cyRate || 0), 0) / itemsOnly.length 
+              : 0;
+            const totalPyRate = itemsOnly.length > 0
+              ? itemsOnly.reduce((sum, item) => sum + (item.pyRate || 0), 0) / itemsOnly.length
+              : 0;
+            const totalYoy = totalCyRate !== null && totalPyRate !== null ? totalCyRate - totalPyRate : null;
+            
+            total = {
               itemCd: 'TOTAL',
               itemNm: '의류전체',
               cyRate: totalCyRate,
@@ -2516,7 +2532,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
               pySalesAmt: totalPySalesAmt,
               cyPoQty: totalCyPoQty,
               pyPoQty: totalPyPoQty,
-            },
+            };
+          }
+          
+          clothingSales = {
+            items: itemsOnly,
+            total: total,
           };
         } else {
           console.log('[DEBUG] 의류 판매율 데이터가 없거나 빈 배열입니다:', {
