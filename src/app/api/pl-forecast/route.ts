@@ -43,6 +43,7 @@ import {
   getClothingSalesData,
   getClothingSalesLastDt,
   getCategorySalesByMonth,
+  getDealerSupportActuals,
 } from '@/lib/plforecast/snowflake';
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
@@ -119,6 +120,9 @@ async function calcBrandData(
   accumDays: number;
   monthDays: number;
   targets: TargetRow[];
+  dealerSupportPrevYear: number;
+  dealerSupportAccum: number;
+  dealerSupportPrevYearAccum: number;
 }> {
   const prevYm = getPrevYearMonth(ym);
   const items = getAllItems(mappings);
@@ -155,6 +159,10 @@ async function calcBrandData(
     actualAccumDays = accumResult.accumDays;
   }
 
+  // 대리상지원금 조회 (OUTSRC_PROC_CST - MILE_SALE_AMT + SMPL_BUY_CST)
+  const dealerSupport = await getDealerSupportActuals(ym, lastDt, brandCode);
+  const dealerSupportPrevYearData = await getDealerSupportActuals(prevYm, lastDt, brandCode);
+
   // 디버깅: 데이터 확인
   console.log('[calcBrandData] 데이터 조회 완료:', {
     brandCode,
@@ -170,6 +178,9 @@ async function calcBrandData(
     prevYearCogs: prevYear['ACT_COGS'],
     prevYearAccumCogs: prevYearAccum['ACT_COGS'],
     accumCogs: accum['ACT_COGS'],
+    dealerSupportPrevYear: dealerSupport.prevYear,
+    dealerSupportAccum: dealerSupport.accum,
+    dealerSupportPrevYearAccum: dealerSupportPrevYearData.accum,
   });
 
   return {
@@ -179,6 +190,9 @@ async function calcBrandData(
     accumDays: actualAccumDays,
     monthDays,
     targets,
+    dealerSupportPrevYear: dealerSupport.prevYear,
+    dealerSupportAccum: dealerSupport.accum,
+    dealerSupportPrevYearAccum: dealerSupportPrevYearData.accum,
   };
 }
 
@@ -486,6 +500,9 @@ function buildPlLine(
     accum: Record<string, number>;
     accumDays: number;
     monthDays: number;
+    dealerSupportPrevYear: number;
+    dealerSupportAccum: number;
+    dealerSupportPrevYearAccum: number;
   },
   mappings: AccountMapping[],
   targets: TargetRow[],
@@ -905,13 +922,12 @@ function buildPlLine(
       const cogsDPAcc = sumByLevel(data.accum, mappings, '매출원가')
         + sumByLevel(data.accum, mappings, '평가감');
       
-      const directDPPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems);
-      const directDPAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      const directDPPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems) + data.dealerSupportPrevYear;
+      const directDPAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems) + data.dealerSupportAccum;
       
       // prevYear와 accum 계산 (NaN, Infinity 체크)
-      // 누적에서 직접비가 없으므로 (CSV에 없음), 직접이익 = 매출총이익
       const calculatedPrevYear = ((vatIncDPPY / 1.13) - cogsDPPY) - directDPPY;
-      const calculatedAccum = (vatIncDPAcc / 1.13) - cogsDPAcc; // 직접비 없으므로 매출총이익과 동일
+      const calculatedAccum = ((vatIncDPAcc / 1.13) - cogsDPAcc) - directDPAcc;
       prevYear = isNaN(calculatedPrevYear) || !isFinite(calculatedPrevYear) ? null : calculatedPrevYear;
       accum = isNaN(calculatedAccum) || !isFinite(calculatedAccum) ? null : calculatedAccum;
       
@@ -928,7 +944,7 @@ function buildPlLine(
         .filter(item => !dealerSupportItems.includes(item))
         .map(item => ({ item, value: data.prevYearAccum[item] || 0 }))
         .filter(({ value }) => value !== 0);
-      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems) + data.dealerSupportPrevYearAccum;
       
       // 디버깅: prevYearAccum 계산 확인
       console.log('[directProfit] prevYearAccum 계산:', {
@@ -977,16 +993,15 @@ function buildPlLine(
       const cogsAcc = sumByLevel(data.accum, mappings, '매출원가')
         + sumByLevel(data.accum, mappings, '평가감');
       
-      const directPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems);
-      const directAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      const directPY = sumByLevel(data.prevYear, mappings, '직접비', undefined, undefined, dealerSupportItems) + data.dealerSupportPrevYear;
+      const directAcc = sumByLevel(data.accum, mappings, '직접비', undefined, undefined, dealerSupportItems) + data.dealerSupportAccum;
       
       const opexPY = sumByLevel(data.prevYear, mappings, '영업비');
       const opexAcc = sumByLevel(data.accum, mappings, '영업비');
       
       // prevYear와 accum 계산 (NaN, Infinity 체크)
-      // 누적에서 직접비, 영업비가 없으므로 (CSV에 없음), 영업이익 = 매출총이익
       const calculatedPrevYear = ((vatIncPY / 1.13) - cogsPY) - directPY - opexPY;
-      const calculatedAccum = (vatIncAcc / 1.13) - cogsAcc; // 직접비, 영업비 없으므로 매출총이익과 동일
+      const calculatedAccum = ((vatIncAcc / 1.13) - cogsAcc) - directAcc - opexAcc;
       prevYear = isNaN(calculatedPrevYear) || !isFinite(calculatedPrevYear) ? null : calculatedPrevYear;
       accum = isNaN(calculatedAccum) || !isFinite(calculatedAccum) ? null : calculatedAccum;
       
@@ -997,7 +1012,7 @@ function buildPlLine(
       const grossProfitPrevYearAccum = (vatIncOPPrevYearAccum / 1.13) - cogsOPPrevYearAccum;
       
       // 직접비 합계 계산: sumByLevel 결과를 그대로 사용 (없으면 0 반환)
-      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems);
+      const directCostSumPrevYearAccum = sumByLevel(data.prevYearAccum, mappings, '직접비', undefined, undefined, dealerSupportItems) + data.dealerSupportPrevYearAccum;
       const directProfitPrevYearAccum = grossProfitPrevYearAccum - directCostSumPrevYearAccum;
       
       // 영업비 합계 계산: sumByLevel 결과를 그대로 사용 (없으면 0 반환)
@@ -1032,6 +1047,22 @@ function buildPlLine(
       forecast = isNaN(calculatedForecast) || !isFinite(calculatedForecast) ? null : calculatedForecast;
       break;
     }
+
+    case 'dealerSupport':
+      // 대리상지원금 특별 계산 (OUTSRC_PROC_CST - MILE_SALE_AMT + SMPL_BUY_CST)
+      prevYear = data.dealerSupportPrevYear;
+      accum = data.dealerSupportAccum;
+      prevYearAccum = data.dealerSupportPrevYearAccum;
+      
+      // 목표: level1/level2로 조회
+      target = getTarget(def.level1, def.level2, def.level3);
+      
+      // (전년)진척률 계산
+      prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
+      
+      // 월말예상: 고정비로 처리 (목표 그대로)
+      forecast = target;
+      break;
 
     default:
       // 일반 항목 (level1/level2/level3 조건으로 합산)
@@ -2187,6 +2218,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
             accum: bData.accum,
             accumDays: bData.accumDays,
             monthDays,
+            dealerSupportPrevYear: bData.dealerSupportPrevYear,
+            dealerSupportAccum: bData.dealerSupportAccum,
+            dealerSupportPrevYearAccum: bData.dealerSupportPrevYearAccum,
           };
           // channelData를 포함하여 완전한 lines 생성
           const bLines = lineDefinitions.map((def) =>
@@ -2217,6 +2251,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
             accum: bData.accum,
             accumDays: bData.accumDays,
             monthDays,
+            dealerSupportPrevYear: bData.dealerSupportPrevYear,
+            dealerSupportAccum: bData.dealerSupportAccum,
+            dealerSupportPrevYearAccum: bData.dealerSupportPrevYearAccum,
           };
           const bLines = lineDefinitions.map((def) =>
             buildPlLine(def, bMerged, mappings, targets, code, bContext)
@@ -2254,6 +2291,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       accum: Record<string, number>;
       accumDays: number;
       monthDays: number;
+      dealerSupportPrevYear: number;
+      dealerSupportAccum: number;
+      dealerSupportPrevYearAccum: number;
     };
 
     if (brand === 'all') {
@@ -2261,6 +2301,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       const merged: Record<string, number> = {};
       const mergedPrevYearAccum: Record<string, number> = {};
       const mergedAccum: Record<string, number> = {};
+      let mergedDealerSupportPrevYear = 0;
+      let mergedDealerSupportAccum = 0;
+      let mergedDealerSupportPrevYearAccum = 0;
 
       for (const bd of brandDataList) {
         for (const [item, val] of Object.entries(bd.prevYear)) {
@@ -2272,6 +2315,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         for (const [item, val] of Object.entries(bd.accum)) {
           mergedAccum[item] = (mergedAccum[item] || 0) + val;
         }
+        mergedDealerSupportPrevYear += bd.dealerSupportPrevYear;
+        mergedDealerSupportAccum += bd.dealerSupportAccum;
+        mergedDealerSupportPrevYearAccum += bd.dealerSupportPrevYearAccum;
       }
 
       mergedData = {
@@ -2280,6 +2326,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         accum: mergedAccum,
         accumDays,
         monthDays,
+        dealerSupportPrevYear: mergedDealerSupportPrevYear,
+        dealerSupportAccum: mergedDealerSupportAccum,
+        dealerSupportPrevYearAccum: mergedDealerSupportPrevYearAccum,
       };
     } else {
       // 개별 브랜드
@@ -2290,6 +2339,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         accum: bd.accum,
         accumDays: bd.accumDays,
         monthDays,
+        dealerSupportPrevYear: bd.dealerSupportPrevYear,
+        dealerSupportAccum: bd.dealerSupportAccum,
+        dealerSupportPrevYearAccum: bd.dealerSupportPrevYearAccum,
       };
     }
 

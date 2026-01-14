@@ -3,6 +3,21 @@
 import React, { useState } from 'react';
 import { Treemap, ResponsiveContainer } from 'recharts';
 
+// 배경색 밝기 계산 후 텍스트 색상 결정
+function getTextColor(bgColorHex: string): string {
+  // hex를 RGB로 변환
+  const hex = bgColorHex.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16) / 255;
+  const g = parseInt(hex.substring(2, 4), 16) / 255;
+  const b = parseInt(hex.substring(4, 6), 16) / 255;
+  
+  // 상대 밝기 계산 (WCAG 공식)
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  
+  // 밝기 기준으로 텍스트 색 결정
+  return luminance >= 0.45 ? '#1f2937' : '#ffffff';
+}
+
 // 지역명 매핑
 const REGION_MAP: { [key: string]: string } = {
   '西北': '서북',
@@ -43,11 +58,13 @@ interface TreemapContentProps {
 function TreemapContent(props: TreemapContentProps) {
   const { x = 0, y = 0, width = 0, height = 0, name, salesPerShop, salesK, shopCnt, prevSalesPerShop, prevSalesK, prevShopCnt, yoy, color, onClick } = props;
   
+  const textColor = getTextColor(color || '#4F46E5');
+  
   if (width < 100 || height < 80) {
     return (
       <g onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
         <rect x={x} y={y} width={width} height={height} fill={color || '#4F46E5'} stroke="#fff" strokeWidth={3} rx={8} />
-        <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={16} fontWeight="bold">
+        <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fill={textColor} fontSize={16} fontWeight="bold">
           {name}
         </text>
       </g>
@@ -60,13 +77,13 @@ function TreemapContent(props: TreemapContentProps) {
   return (
     <g onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
       <rect x={x} y={y} width={width} height={height} fill={color || '#4F46E5'} stroke="#fff" strokeWidth={3} rx={8} />
-      <text x={x + 16} y={y + 28} fill="#fff" fontSize={18} fontWeight="bold">{name}</text>
-      <text x={x + 16} y={y + 52} fill="#fff" fontSize={15} fontWeight="600">월말예상 점당: {formatNum(salesPerShop || 0)}</text>
-      <text x={x + 16} y={y + 72} fill="rgba(255,255,255,0.9)" fontSize={12}>[{formatNum(salesK || 0)}K, {shopCnt}개]</text>
+      <text x={x + 16} y={y + 28} fill={textColor} fontSize={18} fontWeight="bold">{name}</text>
+      <text x={x + 16} y={y + 52} fill={textColor} fontSize={15} fontWeight="600">월말예상 점당: {formatNum(salesPerShop || 0)}</text>
+      <text x={x + 16} y={y + 72} fill={textColor} fontSize={12}>[{formatNum(salesK || 0)}K, {shopCnt}개]</text>
       {height > 100 && (
         <>
-          <text x={x + 16} y={y + 92} fill="rgba(255,255,255,0.85)" fontSize={11}>전년: {formatNum(prevSalesPerShop || 0)}</text>
-          <text x={x + 16} y={y + 108} fill="rgba(255,255,255,0.75)" fontSize={10}>[{formatNum(prevSalesK || 0)}K, {prevShopCnt}개]</text>
+          <text x={x + 16} y={y + 92} fill={textColor} fontSize={11}>전년: {formatNum(prevSalesPerShop || 0)}</text>
+          <text x={x + 16} y={y + 108} fill={textColor} fontSize={10}>[{formatNum(prevSalesK || 0)}K, {prevShopCnt}개]</text>
         </>
       )}
       {height > 125 && (
@@ -200,6 +217,8 @@ function CategoryTreemapContent({ colors, onClick }: { colors: (index: number) =
     const formatNum = (v: number) => (v / 1000).toFixed(0);
     const formatYoy = (v: number | null) => v ? `${((v - 1) * 100).toFixed(1)}%` : '-';
     
+    const textColor = getTextColor(colors(index));
+    
     const handleClick = () => {
       if (onClick) onClick(name);
     };
@@ -208,7 +227,7 @@ function CategoryTreemapContent({ colors, onClick }: { colors: (index: number) =
       return (
         <g onClick={handleClick} style={{ cursor: 'pointer' }}>
           <rect x={x} y={y} width={width} height={height} fill={colors(index)} stroke="#fff" strokeWidth={3} rx={8} />
-          <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={14} fontWeight="bold">
+          <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fill={textColor} fontSize={14} fontWeight="bold">
             {name}
           </text>
         </g>
@@ -218,9 +237,9 @@ function CategoryTreemapContent({ colors, onClick }: { colors: (index: number) =
     return (
       <g onClick={handleClick} style={{ cursor: 'pointer' }}>
         <rect x={x} y={y} width={width} height={height} fill={colors(index)} stroke="#fff" strokeWidth={3} rx={8} />
-        <text x={x + 12} y={y + 24} fill="#fff" fontSize={16} fontWeight="bold">{name}</text>
-        <text x={x + 12} y={y + 46} fill="#fff" fontSize={13}>당년: {formatNum(cySalesAmt)}K</text>
-        <text x={x + 12} y={y + 64} fill="rgba(255,255,255,0.9)" fontSize={12}>전년: {formatNum(pySalesAmt)}K</text>
+        <text x={x + 12} y={y + 24} fill={textColor} fontSize={16} fontWeight="bold">{name}</text>
+        <text x={x + 12} y={y + 46} fill={textColor} fontSize={13}>당년: {formatNum(cySalesAmt)}K</text>
+        <text x={x + 12} y={y + 64} fill={textColor} fontSize={12}>전년: {formatNum(pySalesAmt)}K</text>
         {height > 85 && (
           <text x={x + 12} y={y + 84} fill="#FCD34D" fontSize={12} fontWeight="bold">YOY: {formatYoy(yoy)}</text>
         )}

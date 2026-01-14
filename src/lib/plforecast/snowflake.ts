@@ -611,7 +611,6 @@ export async function getPrevYearChannelFullMonth(
 }
 
 // 대리상지원금 전용 조회 (OUTSRC_PROC_CST + SMPL_BUY_CST - MILE_SALE_AMT)
-// 주의: 누적(accum)은 CSV에서 데이터가 없으므로 항상 0 반환
 export async function getDealerSupportActuals(
   ym: string,
   lastDt: string,
@@ -633,8 +632,16 @@ export async function getDealerSupportActuals(
     const prevRows = await executeQuery<{ DEALER_SUPPORT: number }>(connection, prevSql, [prevYm, brandCode]);
     const prevYear = prevRows.length > 0 ? Number(prevRows[0].DEALER_SUPPORT) || 0 : 0;
     
-    // 당월 누적: CSV에 직접비/영업비 데이터가 없으므로 항상 0
-    const accum = 0;
+    // 당월 누적 (Snowflake에서 조회)
+    const accumSql = `
+      SELECT COALESCE(SUM(OUTSRC_PROC_CST), 0) + COALESCE(SUM(SMPL_BUY_CST), 0) - COALESCE(SUM(MILE_SALE_AMT), 0) as DEALER_SUPPORT
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND pst_dt <= ?
+        AND brd_cd = ?
+    `;
+    const accumRows = await executeQuery<{ DEALER_SUPPORT: number }>(connection, accumSql, [ym, lastDt, brandCode]);
+    const accum = accumRows.length > 0 ? Number(accumRows[0].DEALER_SUPPORT) || 0 : 0;
     
     return { prevYear, accum };
   } finally {
@@ -2518,19 +2525,25 @@ export async function getCategorySalesByMonth(
     
     // 기준연도 추출
     const baseYear = ym.substring(0, 4);
-    const baseYearShort = baseYear.substring(2, 4); // '26'
-    const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '25'
-    const prevPrevYearShort = String(parseInt(baseYearShort) - 2).padStart(2, '0'); // '24'
-    const prevPrevPrevYearShort = String(parseInt(baseYearShort) - 3).padStart(2, '0'); // '23'
+    const baseMonth = parseInt(ym.substring(5, 7));
+    // FW 시즌은 9월~익년 2월이므로, 1~2월은 전년도 시즌 사용
+    const seasonYear = (baseMonth <= 2) 
+      ? String(parseInt(baseYear) - 1) 
+      : baseYear;
+    const baseYearShort = seasonYear.substring(2, 4); // '25'
+    const nextYearShort = String(parseInt(baseYearShort) + 1).padStart(2, '0'); // '26' (차기시즌용)
+    const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '24'
+    const prevPrevYearShort = String(parseInt(baseYearShort) - 2).padStart(2, '0'); // '23'
+    const prevPrevPrevYearShort = String(parseInt(baseYearShort) - 3).padStart(2, '0'); // '22'
     
     const sql = `
       WITH category_dim AS (
         SELECT column1 as sort_order, column2 as category
         FROM (VALUES
           (1, '차기시즌'),
-          (2, '${prevYearShort}F의류'),
-          (3, '${prevYearShort}S의류'),
-          (4, '${prevPrevYearShort}SF의류'),
+          (2, '${baseYearShort}F의류'),
+          (3, '${baseYearShort}S의류'),
+          (4, '${prevYearShort}SF의류'),
           (5, '과시즌의류'),
           (6, '신발'),
           (7, '모자'),
@@ -2565,10 +2578,10 @@ export async function getCategorySalesByMonth(
           -- 당월(CY) 카테고리 매핑
           CASE
             -- 의류(WEAR) - 당월
-            WHEN parent_kind = 'WEAR' AND LEFT(sesn, 2) > '${prevYearShort}' THEN '차기시즌'
-            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevYearShort}F' THEN '${prevYearShort}F의류'
-            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevYearShort}S' THEN '${prevYearShort}S의류'
-            WHEN parent_kind = 'WEAR' AND UPPER(sesn) IN ('${prevPrevYearShort}S', '${prevPrevYearShort}F') THEN '${prevPrevYearShort}SF의류'
+            WHEN parent_kind = 'WEAR' AND LEFT(sesn, 2) > '${baseYearShort}' THEN '차기시즌'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${baseYearShort}F' THEN '${baseYearShort}F의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${baseYearShort}S' THEN '${baseYearShort}S의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) IN ('${prevYearShort}S', '${prevYearShort}F') THEN '${prevYearShort}SF의류'
             WHEN parent_kind = 'WEAR' THEN '과시즌의류'
             -- 악세사리(ACC)
             WHEN parent_kind = 'ACC' AND prdt_kind = 'SHOES' THEN '신발'
@@ -2580,10 +2593,10 @@ export async function getCategorySalesByMonth(
           -- 전년(PY) 카테고리 매핑 (의류는 시즌 -1, 악세사리는 동일)
           CASE
             -- 의류(WEAR) - 전년 (시즌 -1)
-            WHEN parent_kind = 'WEAR' AND LEFT(sesn, 2) > '${prevPrevYearShort}' THEN '차기시즌'
-            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevPrevYearShort}F' THEN '${prevYearShort}F의류'
-            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevPrevYearShort}S' THEN '${prevYearShort}S의류'
-            WHEN parent_kind = 'WEAR' AND UPPER(sesn) IN ('${prevPrevPrevYearShort}S', '${prevPrevPrevYearShort}F') THEN '${prevPrevYearShort}SF의류'
+            WHEN parent_kind = 'WEAR' AND LEFT(sesn, 2) > '${prevYearShort}' THEN '차기시즌'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevYearShort}F' THEN '${baseYearShort}F의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevYearShort}S' THEN '${baseYearShort}S의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) IN ('${prevPrevYearShort}S', '${prevPrevYearShort}F') THEN '${prevYearShort}SF의류'
             WHEN parent_kind = 'WEAR' THEN '과시즌의류'
             -- 악세사리(ACC) - 동일 기준
             WHEN parent_kind = 'ACC' AND prdt_kind = 'SHOES' THEN '신발'
