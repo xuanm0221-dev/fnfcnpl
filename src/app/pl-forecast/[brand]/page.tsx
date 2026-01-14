@@ -2734,17 +2734,17 @@ function ClothingSalesSection({
                     </th>
                     <th 
                       className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
-                      onClick={() => handleMainSort('cyRate')}
-                    >
-                      당시즌 판매율
-                      <SortIcon column="cyRate" currentColumn={mainSortColumn} direction={mainSortDirection} />
-                    </th>
-                    <th 
-                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
                       onClick={() => handleMainSort('pySalesAmt')}
                     >
                       Tag 누적판매({pySeason})
                       <SortIcon column="pySalesAmt" currentColumn={mainSortColumn} direction={mainSortDirection} />
+                    </th>
+                    <th 
+                      className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleMainSort('cyRate')}
+                    >
+                      당시즌 판매율
+                      <SortIcon column="cyRate" currentColumn={mainSortColumn} direction={mainSortDirection} />
                     </th>
                     <th 
                       className="py-2 px-2 text-right font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 select-none"
@@ -2782,8 +2782,8 @@ function ClothingSalesSection({
                     <td className="py-2 px-3 text-left text-gray-800">{clothingData.total.itemCd}</td>
                     <td className="py-2 px-3 text-left text-gray-800">{clothingData.total.itemNm}</td>
                     <td className="py-2 px-2 text-right font-mono text-gray-800">{formatK(clothingData.total.cySalesAmt)}</td>
-                    <td className="py-2 px-2 text-right font-mono text-gray-800">{formatRate(clothingData.total.cyRate)}</td>
                     <td className="py-2 px-2 text-right font-mono text-gray-600">{formatK(clothingData.total.pySalesAmt)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-800">{formatRate(clothingData.total.cyRate)}</td>
                     <td className="py-2 px-2 text-right font-mono text-gray-600">{formatRate(clothingData.total.pyRate)}</td>
                     <td className={`py-2 px-2 text-right font-mono font-semibold ${
                       calcSalesYoy(clothingData.total.cySalesAmt, clothingData.total.pySalesAmt) && calcSalesYoy(clothingData.total.cySalesAmt, clothingData.total.pySalesAmt)! >= 1 ? 'text-emerald-600' : 'text-rose-600'
@@ -2811,8 +2811,8 @@ function ClothingSalesSection({
                       <td className="py-2 px-3 text-left text-gray-700">{item.itemCd}</td>
                       <td className="py-2 px-3 text-left text-gray-700">{item.itemNm}</td>
                       <td className="py-2 px-2 text-right font-mono text-gray-700">{formatK(item.cySalesAmt)}</td>
-                      <td className="py-2 px-2 text-right font-mono text-gray-700">{formatRate(item.cyRate)}</td>
                       <td className="py-2 px-2 text-right font-mono text-gray-600">{formatK(item.pySalesAmt)}</td>
+                      <td className="py-2 px-2 text-right font-mono text-gray-700">{formatRate(item.cyRate)}</td>
                       <td className="py-2 px-2 text-right font-mono text-gray-600">{formatRate(item.pyRate)}</td>
                       <td className={`py-2 px-2 text-right font-mono ${
                         calcSalesYoy(item.cySalesAmt, item.pySalesAmt) && calcSalesYoy(item.cySalesAmt, item.pySalesAmt)! >= 1 ? 'text-emerald-600' : 'text-rose-600'

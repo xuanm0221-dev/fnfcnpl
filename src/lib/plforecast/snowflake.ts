@@ -2524,109 +2524,96 @@ export async function getCategorySalesByMonth(
     const prevPrevPrevYearShort = String(parseInt(baseYearShort) - 3).padStart(2, '0'); // '23'
     
     const sql = `
-      WITH retail_sales AS (
+      WITH category_dim AS (
+        SELECT column1 as sort_order, column2 as category
+        FROM (VALUES
+          (1, '차기시즌'),
+          (2, '${prevYearShort}F의류'),
+          (3, '${prevYearShort}S의류'),
+          (4, '${prevPrevYearShort}SF의류'),
+          (5, '과시즌의류'),
+          (6, '신발'),
+          (7, '모자'),
+          (8, '가방'),
+          (9, '기타')
+        )
+      ),
+      sales_data AS (
         SELECT 
           s.sale_dt,
-          COALESCE(p.sesn, s.sesn) as sesn,
-          COALESCE(p.prdt_hrrc1_nm, '') as prdt_hrrc1_nm,
-          COALESCE(p.prdt_hrrc2_nm, '') as prdt_hrrc2_nm,
-          s.tag_amt
+          s.sesn,
+          UPPER(scs.parent_prdt_kind_nm_en) as parent_kind,
+          UPPER(scs.prdt_kind_nm_en) as prdt_kind,
+          s.sale_amt
         FROM CHN.dw_sale s
-        LEFT JOIN sap_fnf.mst_prdt p ON s.prdt_cd = p.prdt_cd
+        LEFT JOIN CHN.mst_prdt_scs scs ON s.prdt_scs_cd = scs.prdt_scs_cd
         WHERE s.brd_cd = ?
           AND (
             (s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}')
             OR (s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}')
           )
-          AND COALESCE(p.sesn, s.sesn) IS NOT NULL
-          AND COALESCE(p.sesn, s.sesn) <> 'X'
+          AND s.sesn IS NOT NULL
+          AND s.sesn <> ''
+      ),
+      categorized_sales AS (
+        SELECT
+          sale_dt,
+          sesn,
+          parent_kind,
+          prdt_kind,
+          sale_amt,
+          -- 당월(CY) 카테고리 매핑
+          CASE
+            -- 의류(WEAR) - 당월
+            WHEN parent_kind = 'WEAR' AND LEFT(sesn, 2) > '${prevYearShort}' THEN '차기시즌'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevYearShort}F' THEN '${prevYearShort}F의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevYearShort}S' THEN '${prevYearShort}S의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) IN ('${prevPrevYearShort}S', '${prevPrevYearShort}F') THEN '${prevPrevYearShort}SF의류'
+            WHEN parent_kind = 'WEAR' THEN '과시즌의류'
+            -- 악세사리(ACC)
+            WHEN parent_kind = 'ACC' AND prdt_kind = 'SHOES' THEN '신발'
+            WHEN parent_kind = 'ACC' AND prdt_kind = 'HEADWEAR' THEN '모자'
+            WHEN parent_kind = 'ACC' AND prdt_kind = 'BAG' THEN '가방'
+            WHEN parent_kind = 'ACC' THEN '기타'
+            ELSE NULL
+          END as cy_category,
+          -- 전년(PY) 카테고리 매핑 (의류는 시즌 -1, 악세사리는 동일)
+          CASE
+            -- 의류(WEAR) - 전년 (시즌 -1)
+            WHEN parent_kind = 'WEAR' AND LEFT(sesn, 2) > '${prevPrevYearShort}' THEN '차기시즌'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevPrevYearShort}F' THEN '${prevYearShort}F의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) = '${prevPrevYearShort}S' THEN '${prevYearShort}S의류'
+            WHEN parent_kind = 'WEAR' AND UPPER(sesn) IN ('${prevPrevPrevYearShort}S', '${prevPrevPrevYearShort}F') THEN '${prevPrevYearShort}SF의류'
+            WHEN parent_kind = 'WEAR' THEN '과시즌의류'
+            -- 악세사리(ACC) - 동일 기준
+            WHEN parent_kind = 'ACC' AND prdt_kind = 'SHOES' THEN '신발'
+            WHEN parent_kind = 'ACC' AND prdt_kind = 'HEADWEAR' THEN '모자'
+            WHEN parent_kind = 'ACC' AND prdt_kind = 'BAG' THEN '가방'
+            WHEN parent_kind = 'ACC' THEN '기타'
+            ELSE NULL
+          END as py_category
+        FROM sales_data
       )
       SELECT 
-        CASE
-          -- 1. 차기시즌: > 25 (26, 27, 28...)
-          WHEN prdt_hrrc1_nm = '의류' 
-            AND LEFT(sesn, 2) > '${prevYearShort}' THEN '차기시즌'
-          -- 2. 25F
-          WHEN prdt_hrrc1_nm = '의류' 
-            AND sesn = '${prevYearShort}F' THEN '${prevYearShort}F의류'
-          -- 3. 25S
-          WHEN prdt_hrrc1_nm = '의류' 
-            AND sesn = '${prevYearShort}S' THEN '${prevYearShort}S의류'
-          -- 4. 24SF
-          WHEN prdt_hrrc1_nm = '의류' 
-            AND sesn IN ('${prevPrevYearShort}S', '${prevPrevYearShort}F') THEN '${prevPrevYearShort}SF의류'
-          -- 5. 과시즌: < 24 (23, 22, 21...)
-          WHEN prdt_hrrc1_nm = '의류' 
-            AND LEFT(sesn, 2) < '${prevPrevYearShort}' THEN '과시즌 의류'
-          -- 6. 신발
-          WHEN prdt_hrrc1_nm = 'ACC' 
-            AND prdt_hrrc2_nm = 'Shoes' THEN '신발'
-          -- 7. 모자
-          WHEN prdt_hrrc1_nm = 'ACC' 
-            AND prdt_hrrc2_nm = 'Headwear' THEN '모자'
-          -- 8. 가방
-          WHEN prdt_hrrc1_nm = 'ACC' 
-            AND prdt_hrrc2_nm = 'Bag' THEN '가방'
-          -- 9. 기타
-          WHEN prdt_hrrc1_nm = 'ACC' THEN '기타'
-          ELSE 'others'
-        END as category,
-        
-        -- 당년도 당월 누적
-        SUM(CASE 
-          WHEN sale_dt >= DATE '${cyStartDt}' AND sale_dt <= DATE '${cyEndDt}' 
-          THEN tag_amt ELSE 0 
-        END) as cy_accum_amt,
-        
-        -- 전년도 동기간 누적 (의류는 -1년 시즌, 악세사리는 날짜만)
-        SUM(CASE 
-          -- 1. 차기시즌: > 24 (25, 26, 27...)
-          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
-            AND prdt_hrrc1_nm = '의류' 
-            AND LEFT(sesn, 2) > '${prevPrevYearShort}'
-          THEN tag_amt
-          -- 2. 25F → 24F
-          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
-            AND prdt_hrrc1_nm = '의류' 
-            AND sesn = '${prevPrevYearShort}F'
-          THEN tag_amt
-          -- 3. 25S → 24S
-          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
-            AND prdt_hrrc1_nm = '의류' 
-            AND sesn = '${prevPrevYearShort}S'
-          THEN tag_amt
-          -- 4. 24SF → 23SF
-          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
-            AND prdt_hrrc1_nm = '의류' 
-            AND sesn IN ('${prevPrevPrevYearShort}S', '${prevPrevPrevYearShort}F')
-          THEN tag_amt
-          -- 5. 과시즌: < 23 (22, 21, 20...)
-          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
-            AND prdt_hrrc1_nm = '의류' 
-            AND LEFT(sesn, 2) < '${prevPrevPrevYearShort}'
-          THEN tag_amt
-          -- 6-9. 악세사리: 날짜만
-          WHEN sale_dt >= DATE '${pyStartDt}' AND sale_dt <= DATE '${pyEndDt}'
-            AND prdt_hrrc1_nm = 'ACC'
-          THEN tag_amt
+        dim.category,
+        COALESCE(SUM(CASE 
+          WHEN cs.sale_dt >= DATE '${cyStartDt}' 
+            AND cs.sale_dt <= DATE '${cyEndDt}'
+            AND cs.cy_category = dim.category
+          THEN cs.sale_amt 
           ELSE 0 
-        END) as py_accum_amt
-        
-      FROM retail_sales
-      GROUP BY category
-      HAVING category != 'others' AND category != '과시즌 의류'
-      ORDER BY 
-        CASE category
-          WHEN '차기시즌' THEN 1
-          WHEN '${prevYearShort}F의류' THEN 2
-          WHEN '${prevYearShort}S의류' THEN 3
-          WHEN '${prevPrevYearShort}SF의류' THEN 4
-          WHEN '신발' THEN 5
-          WHEN '모자' THEN 6
-          WHEN '가방' THEN 7
-          WHEN '기타' THEN 8
-          ELSE 9
-        END
+        END), 0) as cy_accum_amt,
+        COALESCE(SUM(CASE 
+          WHEN cs.sale_dt >= DATE '${pyStartDt}' 
+            AND cs.sale_dt <= DATE '${pyEndDt}'
+            AND cs.py_category = dim.category
+          THEN cs.sale_amt 
+          ELSE 0 
+        END), 0) as py_accum_amt
+      FROM category_dim dim
+      LEFT JOIN categorized_sales cs ON 1=1
+      GROUP BY dim.category, dim.sort_order
+      ORDER BY dim.sort_order
     `;
     
     console.log('[getCategorySalesByMonth] 파라미터:', {
