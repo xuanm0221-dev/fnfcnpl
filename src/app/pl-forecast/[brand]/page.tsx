@@ -1012,6 +1012,23 @@ function TierRegionTable({
   );
 }
 
+// 배경색 밝기에 따른 글씨 색상 계산
+function getTextColorFromRgb(rgbColor: string): string {
+  // rgb(r, g, b) 형식에서 RGB 값 추출
+  const match = rgbColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (!match) return '#ffffff'; // 기본값
+  
+  const r = parseInt(match[1]) / 255;
+  const g = parseInt(match[2]) / 255;
+  const b = parseInt(match[3]) / 255;
+  
+  // 상대 밝기 계산 (WCAG 공식)
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  
+  // 밝기 기준: 0.45 이상이면 진한 회색, 미만이면 흰색
+  return luminance >= 0.45 ? '#1f2937' : '#ffffff';
+}
+
 // 트리맵 커스텀 컨텐츠 컴포넌트 (개선된 디자인)
 interface TreemapContentProps {
   x?: number;
@@ -1044,6 +1061,9 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
   const finalDiscountRate = discountRate !== undefined ? discountRate : (payload?.discountRate ?? null);
   const finalDiscountRateYoy = discountRateYoy !== undefined ? discountRateYoy : (payload?.discountRateYoy ?? null);
   
+  // 배경색에 따른 글씨 색상 계산
+  const textColor = getTextColorFromRgb(color || '#8884d8');
+  
   // 타일 간 간격 (2px - 하얀색 구분선)
   const gap = 2;
   const innerX = x + gap;
@@ -1060,7 +1080,7 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
         <text 
           x={innerX + 12} 
           y={innerY + 20} 
-          fill="#fff" 
+          fill={textColor} 
           fontSize={14} 
           fontWeight="normal"
           stroke="none"
@@ -1129,7 +1149,7 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
       <text 
         x={innerX + 8} 
         y={startY} 
-        fill="#fff" 
+        fill={textColor} 
         fontSize={titleFontSize} 
         fontWeight="normal"
         stroke="none"
@@ -1142,7 +1162,7 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
       {innerHeight > 80 && (
         <foreignObject x={innerX + 8} y={contentStartY} width={innerWidth - 16} height={innerHeight - (contentStartY - innerY) - 12}>
           {/* @ts-ignore - xmlns 속성은 foreignObject 내부에서 필요하지만 TypeScript가 인식하지 못함 */}
-          <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: '#fff', fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
+          <div xmlns="http://www.w3.org/1999/xhtml" style={{ color: textColor, fontSize, fontFamily: 'inherit', lineHeight: '1.4' }}>
             <div>당월누적 실판&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{salesK}K ({salesYoyPercent !== null ? `${salesYoyPercent}%` : '-'})</div>
             <div>할인율 (YOY)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{finalDiscountRate !== null && finalDiscountRate !== undefined ? `${finalDiscountRate.toFixed(1)}%` : '-'} {finalDiscountRateYoy !== null && finalDiscountRateYoy !== undefined ? `(${finalDiscountRateYoy >= 0 ? '+' : ''}${finalDiscountRateYoy.toFixed(1)}%)` : ''}</div>
             <div>월말예상 점당&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{formatNum(salesPerShop || 0)} ({salesPerShopYoyPercent !== null ? `${salesPerShopYoyPercent}%` : '-'})</div>
@@ -1165,14 +1185,14 @@ function CategoryTreemapInline({
   onBack,
   onCategoryClick
 }: {
-  type: 'tier' | 'region';
+  type: 'tier' | 'region' | 'tradeZone' | 'shopLevel';
   keyName: string;
   labelKo?: string;
   brandCode: string;
   ym: string;
   lastDt: string;
   onBack: () => void;
-  onCategoryClick: (categoryName: string, type: 'tier' | 'region') => void;
+  onCategoryClick: (categoryName: string, type: 'tier' | 'region' | 'tradeZone' | 'shopLevel') => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<{ category: string; cySalesAmt: number; pySalesAmt: number; yoy: number | null; discountRate: number | null; prevDiscountRate: number | null; discountRateYoy: number | null }[]>([]);
@@ -1770,7 +1790,7 @@ function ProductSalesModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  type: 'tier' | 'region';
+  type: 'tier' | 'region' | 'tradeZone' | 'shopLevel';
   keyName: string;
   categoryName: string;
   brandCode: string;
@@ -1890,9 +1910,27 @@ function TierRegionTreemap({
 }) {
   const [selectedTier, setSelectedTier] = useState<{ key: string; labelKo?: string } | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<{ key: string; labelKo?: string } | null>(null);
+  const [selectedTradeZone, setSelectedTradeZone] = useState<{ key: string; labelKo?: string } | null>(null);
+  const [selectedShopLevel, setSelectedShopLevel] = useState<{ key: string; labelKo?: string } | null>(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedCategoryType, setSelectedCategoryType] = useState<'tier' | 'region' | null>(null);
+  const [selectedCategoryType, setSelectedCategoryType] = useState<'tier' | 'region' | 'tradeZone' | 'shopLevel' | null>(null);
+  
+  // 고정 순서 정의
+  const tradeZoneOrder = ['H', 'F1', 'F2', 'F3', 'F4', 'O1', 'O2', 'O3'];
+  const shopLevelOrder = ['S', 'A', 'B', 'C', 'Outlet', 'Pop-up'];
+  
+  // 고정 순서에 따라 정렬하는 함수
+  const sortByFixedOrder = <T extends { name: string }>(items: T[], order: string[]): T[] => {
+    return [...items].sort((a, b) => {
+      const aIndex = order.indexOf(a.name);
+      const bIndex = order.indexOf(b.name);
+      if (aIndex === -1 && bIndex === -1) return 0;
+      if (aIndex === -1) return 1;
+      if (bIndex === -1) return -1;
+      return aIndex - bIndex;
+    });
+  };
   
   // 파스텔 색상 변환 함수
   const toPastel = (r: number, g: number, b: number): [number, number, number] => {
@@ -1965,6 +2003,8 @@ function TierRegionTreemap({
   // 안전한 데이터 배열 (null 체크)
   const safeTiers = Array.isArray(data?.tiers) ? data.tiers : [];
   const safeRegions = Array.isArray(data?.regions) ? data.regions : [];
+  const safeTradeZones = Array.isArray(data?.tradeZones) ? data.tradeZones : [];
+  const safeShopLevels = Array.isArray(data?.shopLevels) ? data.shopLevels : [];
   
   // 티어 데이터 변환
   const tierTreemapData = safeTiers.map((tier) => {
@@ -2035,12 +2075,72 @@ function TierRegionTreemap({
       return bSalesAmt - aSalesAmt;
     }); // 당월누적 실판 기준 내림차순 정렬
   
+  // Trade Zone 데이터 변환
+  const tradeZoneTreemapDataUnsorted = safeTradeZones.map((zone) => {
+    if (!zone) return null;
+    const prevShopCnt = zone.prevShopCnt || 0;
+    const prevSalesPerShop = zone.prevSalesPerShop || 0;
+    const prevCumSalesAmt = zone.prevCumSalesAmt || 0;
+    const yoy = prevCumSalesAmt > 0 ? (zone.salesAmt || 0) / prevCumSalesAmt : undefined;
+    return {
+      name: zone.key,
+      displayName: zone.key,
+      size: zone.salesAmt || 0,
+      salesPerShop: zone.salesPerShop || 0,
+      salesK: Math.round((zone.salesAmt || 0) / 1000).toLocaleString(),
+      shopCnt: zone.shopCnt || 0,
+      prevSalesPerShop: prevSalesPerShop,
+      prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(),
+      prevShopCnt: prevShopCnt,
+      yoy,
+      discountRate: zone.discountRate,
+      discountRateYoy: zone.discountRateYoy,
+      color: getYoyColor(yoy),
+      labelKo: zone.labelKo,
+    };
+  }).filter((item): item is NonNullable<typeof item> => item !== null);
+  const tradeZoneTreemapData = sortByFixedOrder(tradeZoneTreemapDataUnsorted, tradeZoneOrder);
+  
+  // Shop Level 데이터 변환
+  const shopLevelTreemapDataUnsorted = safeShopLevels.map((level) => {
+    if (!level) return null;
+    const prevShopCnt = level.prevShopCnt || 0;
+    const prevSalesPerShop = level.prevSalesPerShop || 0;
+    const prevCumSalesAmt = level.prevCumSalesAmt || 0;
+    const yoy = prevCumSalesAmt > 0 ? (level.salesAmt || 0) / prevCumSalesAmt : undefined;
+    return {
+      name: level.key,
+      displayName: level.key,
+      size: level.salesAmt || 0,
+      salesPerShop: level.salesPerShop || 0,
+      salesK: Math.round((level.salesAmt || 0) / 1000).toLocaleString(),
+      shopCnt: level.shopCnt || 0,
+      prevSalesPerShop: prevSalesPerShop,
+      prevSalesK: Math.round(prevCumSalesAmt / 1000).toLocaleString(),
+      prevShopCnt: prevShopCnt,
+      yoy,
+      discountRate: level.discountRate,
+      discountRateYoy: level.discountRateYoy,
+      color: getYoyColor(yoy),
+      labelKo: level.labelKo,
+    };
+  }).filter((item): item is NonNullable<typeof item> => item !== null);
+  const shopLevelTreemapData = sortByFixedOrder(shopLevelTreemapDataUnsorted, shopLevelOrder);
+  
   const handleTierClick = (data: { name: string; labelKo?: string }) => {
     setSelectedTier({ key: data.name, labelKo: data.labelKo });
   };
   
   const handleRegionClick = (data: { name: string; labelKo?: string }) => {
     setSelectedRegion({ key: data.name, labelKo: data.labelKo });
+  };
+  
+  const handleTradeZoneClick = (data: { name: string; labelKo?: string }) => {
+    setSelectedTradeZone({ key: data.name, labelKo: data.labelKo });
+  };
+  
+  const handleShopLevelClick = (data: { name: string; labelKo?: string }) => {
+    setSelectedShopLevel({ key: data.name, labelKo: data.labelKo });
   };
   
   const handleTierBack = () => {
@@ -2051,7 +2151,15 @@ function TierRegionTreemap({
     setSelectedRegion(null);
   };
   
-  const handleCategoryClick = (categoryName: string, type: 'tier' | 'region') => {
+  const handleTradeZoneBack = () => {
+    setSelectedTradeZone(null);
+  };
+  
+  const handleShopLevelBack = () => {
+    setSelectedShopLevel(null);
+  };
+  
+  const handleCategoryClick = (categoryName: string, type: 'tier' | 'region' | 'tradeZone' | 'shopLevel') => {
     setSelectedCategory(categoryName);
     setSelectedCategoryType(type);
     setCategoryModalOpen(true);
@@ -2083,7 +2191,8 @@ function TierRegionTreemap({
   return (
     <div className="bg-white rounded-none border border-gray-300 shadow-none overflow-hidden">
       <div className="p-2">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* 1행: 티어/지역 트리맵 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
           {/* 티어별 트리맵 */}
           <div>
             <div className="mb-2 text-center">
@@ -2150,6 +2259,81 @@ function TierRegionTreemap({
                     stroke="none"
                     content={<TreemapContent />}
                     onClick={(data) => data && handleRegionClick(data as { name: string; labelKo?: string })}
+                  />
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* 2행: Trade Zone/Shop Level 트리맵 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+          {/* Trade Zone별 트리맵 */}
+          <div>
+            <div className="mb-2 text-center">
+              <h4 className="text-sm font-semibold text-gray-700">대리상 Trade Zone별 점당매출</h4>
+              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
+                <span>당해 기간: {formatPeriod()}</span>
+                <span>전년 기간: {formatPrevPeriod()}</span>
+              </div>
+            </div>
+            {selectedTradeZone ? (
+              <CategoryTreemapInline
+                type="tradeZone"
+                keyName={selectedTradeZone.key}
+                labelKo={selectedTradeZone.labelKo}
+                brandCode={brandCode}
+                ym={ym}
+                lastDt={lastDt}
+                onBack={handleTradeZoneBack}
+                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'tradeZone')}
+              />
+            ) : (
+              <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
+                <ResponsiveContainer width="100%" height="100%">
+                  <Treemap
+                    data={tradeZoneTreemapData}
+                    dataKey="size"
+                    aspectRatio={4 / 3}
+                    stroke="none"
+                    content={<TreemapContent />}
+                    onClick={(data) => data && handleTradeZoneClick(data as { name: string; labelKo?: string })}
+                  />
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+          
+          {/* Shop Level별 트리맵 */}
+          <div>
+            <div className="mb-2 text-center">
+              <h4 className="text-sm font-semibold text-gray-700">대리상 Shop Level별 점당매출</h4>
+              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
+                <span>당해 기간: {formatPeriod()}</span>
+                <span>전년 기간: {formatPrevPeriod()}</span>
+              </div>
+            </div>
+            {selectedShopLevel ? (
+              <CategoryTreemapInline
+                type="shopLevel"
+                keyName={selectedShopLevel.key}
+                labelKo={selectedShopLevel.labelKo}
+                brandCode={brandCode}
+                ym={ym}
+                lastDt={lastDt}
+                onBack={handleShopLevelBack}
+                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'shopLevel')}
+              />
+            ) : (
+              <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
+                <ResponsiveContainer width="100%" height="100%">
+                  <Treemap
+                    data={shopLevelTreemapData}
+                    dataKey="size"
+                    aspectRatio={4 / 3}
+                    stroke="none"
+                    content={<TreemapContent />}
+                    onClick={(data) => data && handleShopLevelClick(data as { name: string; labelKo?: string })}
                   />
                 </ResponsiveContainer>
               </div>
@@ -2249,7 +2433,12 @@ function TierRegionTreemap({
             setSelectedCategoryType(null);
           }}
           type={selectedCategoryType}
-          keyName={selectedCategoryType === 'tier' ? selectedTier?.key || '' : selectedRegion?.key || ''}
+          keyName={
+            selectedCategoryType === 'tier' ? selectedTier?.key || '' :
+            selectedCategoryType === 'region' ? selectedRegion?.key || '' :
+            selectedCategoryType === 'tradeZone' ? selectedTradeZone?.key || '' :
+            selectedShopLevel?.key || ''
+          }
           categoryName={selectedCategory}
           brandCode={brandCode}
           ym={ym}

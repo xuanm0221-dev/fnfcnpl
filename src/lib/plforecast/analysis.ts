@@ -45,7 +45,7 @@ export function generateProfitAnalysis(
   // 실판매출
   const actSaleForecast = summary.actSale.forecastValue || 0;
   const actSaleTargetRate = summary.actSale.targetRate || 0;
-  const actSaleYoy = summary.actSale.yoyRate || 0;
+  const actSaleYoy = summary.actSale.yoyRate !== null ? summary.actSale.yoyRate + 1 : null;
   lines.push(
     `실판매액은 **${formatEok(actSaleForecast)}억 위안**으로 목표 대비 **${formatPercent(actSaleTargetRate)}**, 전년 대비 **${formatPercent(actSaleYoy)}** 수준${status.suffix}.`
   );
@@ -69,7 +69,7 @@ export function generateProfitAnalysis(
   const directProfitForecast = summary.directProfit.forecastValue || 0;
   const directProfitRate = summary.directProfit.forecastRate || 0;
   const directProfitTargetRate = summary.directProfit.targetRate || 0;
-  const directProfitYoy = summary.directProfit.yoyRate || 0;
+  const directProfitYoy = summary.directProfit.yoyRate !== null ? summary.directProfit.yoyRate + 1 : null;
   lines.push(
     `직접이익은 **${formatEok(directProfitForecast)}억 위안(${formatPercent(directProfitRate)})**으로 목표 대비 **${formatPercent(directProfitTargetRate)}**, 전년 대비 **${formatPercent(directProfitYoy)}** ${status.verb}.`
   );
@@ -78,7 +78,7 @@ export function generateProfitAnalysis(
   const opProfitForecast = summary.operatingProfit.forecastValue || 0;
   const opProfitRate = summary.operatingProfit.forecastRate || 0;
   const opProfitTargetRate = summary.operatingProfit.targetRate || 0;
-  const opProfitYoy = summary.operatingProfit.yoyRate || 0;
+  const opProfitYoy = summary.operatingProfit.yoyRate !== null ? summary.operatingProfit.yoyRate + 1 : null;
   lines.push(
     `영업이익은 **${formatEok(opProfitForecast)}억 위안(${formatPercent(opProfitRate)})**으로 목표 대비 **${formatPercent(opProfitTargetRate)}**, 전년 대비 **${formatPercent(opProfitYoy)}** ${status.verb}.`
   );

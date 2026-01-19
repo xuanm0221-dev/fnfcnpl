@@ -2262,7 +2262,7 @@ export function isRetailSalesBrand(brandCode: string): boolean {
  * 범례 (Legend)
  * ========================================
  * CSV 파일 경로: D:\로컬파일\월중손익\목표retail
- * 생성 시간: 2026. 1. 14. 오후 3:22:15
+ * 생성 시간: 2026. 1. 19. 오후 12:44:40
  * 포함된 월: 2025-12.csv, 2026-01.csv
  * 총 파일 수: 2개
  * 

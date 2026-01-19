@@ -993,7 +993,7 @@ export async function getRetailSalesData(
       ),
       cy_sales AS (
         SELECT 
-          COALESCE(SUM(css.shop_sales_amt), 0) as sales_amt,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as sales_amt,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
         FROM cy_shop_sales css
       ),
@@ -1012,7 +1012,7 @@ export async function getRetailSalesData(
       ),
       ly_cum_sales AS (
         SELECT 
-          COALESCE(SUM(lcs.shop_sales_amt), 0) as sales_amt,
+          COALESCE(SUM(CASE WHEN lcs.brd_nm = ? THEN lcs.shop_sales_amt ELSE 0 END), 0) as sales_amt,
           COUNT(DISTINCT CASE WHEN lcs.brd_nm = ? THEN lcs.shop_id END) as shop_cnt
         FROM ly_cum_shop_sales lcs
       ),
@@ -1031,7 +1031,7 @@ export async function getRetailSalesData(
       ),
       ly_full_sales AS (
         SELECT 
-          COALESCE(SUM(lfs.shop_sales_amt), 0) as sales_amt,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as sales_amt,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as shop_cnt
         FROM ly_full_shop_sales lfs
       )
@@ -1048,9 +1048,9 @@ export async function getRetailSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName,        // cy_sales
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,  // ly_cum_sales
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,  // ly_full_sales
+      lastDt, lastDt, brandCode, shopBrandName, shopBrandName,        // cy_sales (sales_amt, shop_cnt)
+      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName,  // ly_cum_sales (sales_amt, shop_cnt)
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName,  // ly_full_sales (sales_amt, shop_cnt)
     ];
     
     const rows = await executeQuery<RetailSalesResult>(connection, sql, binds);
@@ -1306,8 +1306,8 @@ export async function getTierSalesData(
       cy_tier AS (
         SELECT 
           vs.city_tier_nm as GROUP_KEY,
-          COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
@@ -1330,8 +1330,8 @@ export async function getTierSalesData(
       ly_tier AS (
         SELECT 
           vs.city_tier_nm as GROUP_KEY,
-          COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
@@ -1354,8 +1354,8 @@ export async function getTierSalesData(
       ly_full_tier AS (
         SELECT 
           vs.city_tier_nm as GROUP_KEY,
-          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
@@ -1391,9 +1391,9 @@ export async function getTierSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName, shopBrandName,
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
+      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName, shopBrandName,  // tier_cities, cy_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -1554,8 +1554,8 @@ export async function getRegionSalesData(
       cy_region AS (
         SELECT 
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
@@ -1578,8 +1578,8 @@ export async function getRegionSalesData(
       ly_region AS (
         SELECT 
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
@@ -1602,8 +1602,8 @@ export async function getRegionSalesData(
       ly_full_region AS (
         SELECT 
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
@@ -1639,9 +1639,9 @@ export async function getRegionSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName, shopBrandName,
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
+      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName, shopBrandName,  // region_cities, cy_region (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_region (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_region (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -1795,8 +1795,8 @@ export async function getTradeZoneSalesData(
       cy_trade_zone AS (
         SELECT 
           COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
@@ -1819,8 +1819,8 @@ export async function getTradeZoneSalesData(
       ly_trade_zone AS (
         SELECT 
           COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
@@ -1843,8 +1843,8 @@ export async function getTradeZoneSalesData(
       ly_full_trade_zone AS (
         SELECT 
           COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
@@ -1879,9 +1879,9 @@ export async function getTradeZoneSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName,
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
+      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // cy_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -1995,8 +1995,8 @@ export async function getShopLevelSalesData(
       cy_shop_level AS (
         SELECT 
           COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(css.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(css.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
@@ -2019,8 +2019,8 @@ export async function getShopLevelSalesData(
       ly_shop_level AS (
         SELECT 
           COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(lss.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lss.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
@@ -2043,8 +2043,8 @@ export async function getShopLevelSalesData(
       ly_full_shop_level AS (
         SELECT 
           COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
-          COALESCE(SUM(lfs.shop_sales_amt), 0) as SALES_AMT,
-          COALESCE(SUM(lfs.shop_tag_amt), 0) as TAG_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
+          COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
           COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
@@ -2079,9 +2079,9 @@ export async function getShopLevelSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName,
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName,
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName,
+      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // cy_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
+      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -2207,7 +2207,7 @@ interface CategorySalesDbRow {
  * 카테고리별 판매 데이터 조회 (7개 카테고리)
  */
 export async function getCategorySalesData(
-  type: 'tier' | 'region',
+  type: 'tier' | 'region' | 'tradeZone' | 'shopLevel',
   key: string,
   brdCd: string,
   ym: string,
@@ -2230,7 +2230,17 @@ export async function getCategorySalesData(
     const nextYearShort = String(parseInt(baseYearShort) + 1).padStart(2, '0'); // '26'
     const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '24'
     
-    const regionOrTierFilter = type === 'tier' ? 'd.city_tier_nm' : 'd.sale_region_nm';
+    // 컬럼명 결정
+    let regionOrTierFilter: string;
+    if (type === 'tier') {
+      regionOrTierFilter = 'd.city_tier_nm';
+    } else if (type === 'region') {
+      regionOrTierFilter = 'd.sale_region_nm';
+    } else if (type === 'tradeZone') {
+      regionOrTierFilter = 'd.trade_zone_nm';
+    } else {  // shopLevel
+      regionOrTierFilter = 'd.shop_level_nm';
+    }
     
     // 디버깅: 파라미터 값 로깅
     console.log('[getCategorySalesData] 파라미터:', {
@@ -2699,7 +2709,7 @@ interface ProductSalesDbRow {
  * 카테고리별 상품 판매 데이터 조회
  */
 export async function getCategoryProductSales(
-  type: 'tier' | 'region',
+  type: 'tier' | 'region' | 'tradeZone' | 'shopLevel',
   key: string,
   category: string,
   brdCd: string,
@@ -2723,7 +2733,17 @@ export async function getCategoryProductSales(
     const nextYearShort = String(parseInt(baseYearShort) + 1).padStart(2, '0'); // '26'
     const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '24'
     
-    const regionOrTierFilter = type === 'tier' ? 'd.city_tier_nm' : 'd.sale_region_nm';
+    // 컬럼명 결정
+    let regionOrTierFilter: string;
+    if (type === 'tier') {
+      regionOrTierFilter = 'd.city_tier_nm';
+    } else if (type === 'region') {
+      regionOrTierFilter = 'd.sale_region_nm';
+    } else if (type === 'tradeZone') {
+      regionOrTierFilter = 'd.trade_zone_nm';
+    } else {  // shopLevel
+      regionOrTierFilter = 'd.shop_level_nm';
+    }
     
     let categoryFilter = '';
     if (category === 'Shoes') {

@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const ym = searchParams.get('ym');
   const lastDt = searchParams.get('lastDt');
   const brandCode = searchParams.get('brandCode');
-  const type = searchParams.get('type') as 'tier' | 'region';
+  const type = searchParams.get('type') as 'tier' | 'region' | 'tradeZone' | 'shopLevel';
   const key = searchParams.get('key');
 
   if (!ym || !lastDt || !brandCode || !type || !key) {
