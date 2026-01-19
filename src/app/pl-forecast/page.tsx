@@ -540,7 +540,11 @@ export default function PlForecastPage() {
               <span className="text-gray-500">당월일수</span>
               <span className="text-gray-900 font-mono">{data.monthDays}일</span>
             </div>
-            
+            <div className="flex items-center gap-2 ml-4">
+              <span className="text-xs text-indigo-600 font-medium">
+                npm run update-csv 실행 및 업데이트
+              </span>
+            </div>
             
             <div className="ml-auto text-gray-500 text-xs">
               단위: CNY K (천 위안)
@@ -680,7 +684,30 @@ export default function PlForecastPage() {
                           <Radar name="전년비" dataKey="prevYear" stroke="#f97316" fill="#f97316" fillOpacity={0.3} />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
                           <Tooltip 
-                            formatter={(value) => [`${Number(value || 0).toFixed(1)}%`, '']}
+                            content={({ active, payload, label }) => {
+                              if (!active || !payload || !payload.length) return null;
+                              
+                              // payload에서 target과 prevYear 찾기
+                              const targetData = payload.find(p => p.dataKey === 'target');
+                              const prevYearData = payload.find(p => p.dataKey === 'prevYear');
+                              
+                              const targetValue = targetData?.value ? Number(targetData.value).toFixed(1) : '0.0';
+                              const prevYearValue = prevYearData?.value ? Number(prevYearData.value).toFixed(1) : '0.0';
+                              
+                              return (
+                                <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+                                  <div className="font-semibold text-gray-900 mb-2">{label}</div>
+                                  <div className="space-y-1 text-sm">
+                                    <div className="text-gray-700">
+                                      <span className="text-gray-500">목표대비:</span> <span className="font-medium">{targetValue}%</span>
+                                    </div>
+                                    <div className="text-gray-700">
+                                      <span className="text-gray-500">전년비:</span> <span className="font-medium">{prevYearValue}%</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }}
                             contentStyle={{ fontSize: 11 }}
                           />
                         </RadarChart>

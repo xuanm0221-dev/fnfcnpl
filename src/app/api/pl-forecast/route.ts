@@ -1358,11 +1358,14 @@ async function buildChartData(
         operatingProfit: opProfit?.forecast || 0,
       });
       
-      brandRadar.push({
-        brand: codeToLabel(code),
-        target: (actSale?.achvRate || 0) * 100,
-        prevYear: ((actSale?.yoyRate || 0) + 1) * 100,
-      });
+      // Duvetica('V')와 Supra('W')는 레이더 차트에서 제외
+      if (code !== 'V' && code !== 'W') {
+        brandRadar.push({
+          brand: codeToLabel(code),
+          target: (actSale?.achvRate || 0) * 100,
+          prevYear: ((actSale?.yoyRate || 0) + 1) * 100,
+        });
+      }
     }
   }
   

@@ -3698,6 +3698,11 @@ export default function BrandPlForecastPage() {
               <span className="text-gray-500">당월일수</span>
               <span className="text-gray-900 font-mono">{data.monthDays}일</span>
             </div>
+            <div className="flex items-center gap-2 ml-4">
+              <span className="text-xs text-indigo-600 font-medium">
+                npm run update-csv 실행 및 업데이트
+              </span>
+            </div>
             
             <div className="ml-auto text-gray-500 text-xs">
               단위: CNY K (천 위안)
