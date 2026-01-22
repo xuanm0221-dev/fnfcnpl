@@ -1735,20 +1735,19 @@ async function buildTierRegionData(
   if (!shopBrandName) return null;
   
   try {
-    // 대리상 오프라인 점당매출 데이터 조회 (전년 합계 데이터용)
-    const retailSalesData = await getRetailSalesData(ym, retailLastDt, brandCode, shopBrandName);
-    
-    // 티어별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
-    const tierData = await getTierSalesData(ym, retailLastDt, brandCode, shopBrandName);
-    
-    // 지역별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
-    const regionData = await getRegionSalesData(ym, retailLastDt, brandCode, shopBrandName);
-    
-    // Trade Zone별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
-    const tradeZoneData = await getTradeZoneSalesData(ym, retailLastDt, brandCode, shopBrandName);
-    
-    // Shop Level별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
-    const shopLevelData = await getShopLevelSalesData(ym, retailLastDt, brandCode, shopBrandName);
+    // 🚀 병렬 처리: 5개의 독립적인 데이터 조회를 동시에 실행하여 속도 개선
+    const [retailSalesData, tierData, regionData, tradeZoneData, shopLevelData] = await Promise.all([
+      // 대리상 오프라인 점당매출 데이터 조회 (전년 합계 데이터용)
+      getRetailSalesData(ym, retailLastDt, brandCode, shopBrandName),
+      // 티어별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+      getTierSalesData(ym, retailLastDt, brandCode, shopBrandName),
+      // 지역별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+      getRegionSalesData(ym, retailLastDt, brandCode, shopBrandName),
+      // Trade Zone별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+      getTradeZoneSalesData(ym, retailLastDt, brandCode, shopBrandName),
+      // Shop Level별 데이터 조회 (매출: 상품 브랜드만 필터, 매장수: 매장 브랜드 + 해당 상품 브랜드 매출 > 0)
+      getShopLevelSalesData(ym, retailLastDt, brandCode, shopBrandName)
+    ]);
     
     // 안전한 배열 체크
     const safeTierCurrent = Array.isArray(tierData?.current) ? tierData.current : [];
@@ -2471,58 +2470,76 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       );
     }
 
-    // 차트 데이터 (전체 페이지만, 브랜드별 필터링 지원)
-    let charts: ChartData | undefined;
-    if (brand === 'all' && brandDataMap.size > 0) {
-      charts = await buildChartData(ym, lastDt, brandDataMap, lines, brandCodes);
-    } else if (brand !== 'all') {
-      // 브랜드별 차트 데이터도 생성 (주차별 매출 추이용)
-      // brandDataMap이 비어있어도 주차별 매출 데이터는 조회 가능
-      const singleBrandCode = brand as BrandCode;
-      // 빈 brandDataMap을 전달하되, 주차별 매출 데이터만 조회
-      const emptyBrandDataMap = new Map<BrandCode, { lines: PlLine[]; prevYear: Record<string, number>; accum: Record<string, number> }>();
-      charts = await buildChartData(ym, lastDt, emptyBrandDataMap, lines, [singleBrandCode]);
-    }
+    // 🚀 병렬 처리: 독립적인 데이터 조회를 동시에 실행하여 속도 개선
+    const parallelTasks: [
+      Promise<ChartData | undefined>,
+      Promise<ChannelTableData | undefined>,
+      Promise<{ data: RetailSalesTableData; retailLastDt: string } | null>,
+      Promise<string | null>
+    ] = [
+      // 차트 데이터 (전체 페이지만, 브랜드별 필터링 지원)
+      (async () => {
+        if (brand === 'all' && brandDataMap.size > 0) {
+          return await buildChartData(ym, lastDt, brandDataMap, lines, brandCodes);
+        } else if (brand !== 'all') {
+          const singleBrandCode = brand as BrandCode;
+          const emptyBrandDataMap = new Map<BrandCode, { lines: PlLine[]; prevYear: Record<string, number>; accum: Record<string, number> }>();
+          return await buildChartData(ym, lastDt, emptyBrandDataMap, lines, [singleBrandCode]);
+        }
+        return undefined;
+      })(),
+      
+      // 채널별 테이블 데이터 (브랜드별 페이지만)
+      (async () => {
+        if (brand !== 'all' && lastDt) {
+          return await buildChannelTableData(ym, lastDt, brand as BrandCode, targetCsv);
+        }
+        return undefined;
+      })(),
+      
+      // 점당매출 테이블 데이터 (MLB, MLB KIDS, DISCOVERY만)
+      (async () => {
+        if (brand !== 'all' && isRetailSalesBrand(brand)) {
+          return await buildRetailSalesTable(ym, brand as BrandCode);
+        }
+        return null;
+      })(),
+      
+      // 의류 판매율 마지막 날짜 조회 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
+      (async () => {
+        const clothingBrands = ['M', 'I', 'X', 'V', 'W'];
+        if (brand !== 'all' && clothingBrands.includes(brand)) {
+          const lastDt = await getClothingSalesLastDt(brand, ym, cySeason, pySeason);
+          return lastDt || getMonthEndDate(ym);
+        }
+        return null;
+      })()
+    ];
     
-    // 채널별 테이블 데이터 (브랜드별 페이지만)
-    let channelTable: ChannelTableData | undefined;
-    if (brand !== 'all' && lastDt) {
-      channelTable = await buildChannelTableData(ym, lastDt, brand as BrandCode, targetCsv);
-    }
+    const [charts, channelTable, retailResult, clothingLastDt] = await Promise.all(parallelTasks);
     
-    // 점당매출 테이블 데이터 (MLB, MLB KIDS, DISCOVERY만)
-    // 주의: 점당매출은 Snowflake에서 직접 최신 날짜를 조회 (CSV와 독립적)
+    // 점당매출 결과 처리 및 티어별/지역별 데이터 조회
     let retailSalesTable: RetailSalesTableData | undefined;
     let retailLastDt: string | undefined;
     let tierRegionData: TierRegionSalesData | undefined;
     
-    if (brand !== 'all' && isRetailSalesBrand(brand)) {
-      const retailResult = await buildRetailSalesTable(ym, brand as BrandCode);
-      if (retailResult) {
-        retailSalesTable = retailResult.data;
-        retailLastDt = retailResult.retailLastDt;
-        
-        // 티어별/지역별 데이터도 함께 조회
-        const tierRegion = await buildTierRegionData(ym, retailResult.retailLastDt, brand as BrandCode);
-        if (tierRegion) {
-          tierRegionData = tierRegion;
-        }
+    if (retailResult) {
+      retailSalesTable = retailResult.data;
+      retailLastDt = retailResult.retailLastDt;
+      
+      // 티어별/지역별 데이터도 함께 조회 (retailLastDt 의존성)
+      const tierRegion = await buildTierRegionData(ym, retailResult.retailLastDt, brand as BrandCode);
+      if (tierRegion) {
+        tierRegionData = tierRegion;
       }
     }
     
-    // 의류 판매율 데이터 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
+    // 의류 판매율 데이터 조회
     const clothingBrands = ['M', 'I', 'X', 'V', 'W'];
     let clothingSales: { items: any[]; total: any } | undefined;
-    let clothingLastDt: string | undefined;
     
-    if (brand !== 'all' && clothingBrands.includes(brand)) {
+    if (brand !== 'all' && clothingBrands.includes(brand) && clothingLastDt) {
       try {
-        // Snowflake에서 실제 최신 날짜 조회 (CSV와 독립적)
-        clothingLastDt = await getClothingSalesLastDt(brand, ym, cySeason, pySeason);
-        // 조회 실패 시 fallback: 월말만 사용 (CSV 날짜 사용 안 함)
-        if (!clothingLastDt) {
-          clothingLastDt = getMonthEndDate(ym);
-        }
         console.log('[DEBUG] 의류 판매율 조회 시작:', { brand, clothingLastDt, cySeason, pySeason });
         const clothingData = await getClothingSalesData(brand, clothingLastDt, cySeason, pySeason);
         console.log('[DEBUG] 의류 판매율 조회 완료:', {
@@ -2642,7 +2659,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       retailLastDt,
       tierRegionData,
       clothingSales,
-      clothingLastDt,
+      clothingLastDt: clothingLastDt || undefined,
       categorySales,
     }, {
       headers: {

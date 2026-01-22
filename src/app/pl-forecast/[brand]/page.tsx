@@ -991,22 +991,22 @@ function TierRegionTable({
 
   return (
     <div className="space-y-4">
-      {/* 1행: Tier 표 | 지역 표 */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* 좌측: Tier 테이블 */}
-        {renderTable('tier', safeTiers, tierTotalSalesAmt, tierTotalShopCnt, tierTotalSalesPerShop, tierTotalPrevSalesAmt, tierTotalPrevShopCnt, tierTotalPrevSalesPerShop, retailLastDt)}
-        
-        {/* 우측: 지역 테이블 */}
-        {renderTable('region', safeRegions, regionTotalSalesAmt, regionTotalShopCnt, regionTotalSalesPerShop, regionTotalPrevSalesAmt, regionTotalPrevShopCnt, regionTotalPrevSalesPerShop, retailLastDt)}
-      </div>
-      
-      {/* 2행: Trade Zone 표 | Shop Level 표 */}
+      {/* 1행: Trade Zone 표 | Shop Level 표 */}
       <div className="grid grid-cols-2 gap-4">
         {/* 좌측: Trade Zone 테이블 */}
         {renderTable('trade_zone', safeTradeZones, tradeZoneTotalSalesAmt, tradeZoneTotalShopCnt, tradeZoneTotalSalesPerShop, tradeZoneTotalPrevSalesAmt, tradeZoneTotalPrevShopCnt, tradeZoneTotalPrevSalesPerShop, retailLastDt)}
         
         {/* 우측: Shop Level 테이블 */}
         {renderTable('shop_level', safeShopLevels, shopLevelTotalSalesAmt, shopLevelTotalShopCnt, shopLevelTotalSalesPerShop, shopLevelTotalPrevSalesAmt, shopLevelTotalPrevShopCnt, shopLevelTotalPrevSalesPerShop, retailLastDt)}
+      </div>
+      
+      {/* 2행: Tier 표 | 지역 표 */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* 좌측: Tier 테이블 */}
+        {renderTable('tier', safeTiers, tierTotalSalesAmt, tierTotalShopCnt, tierTotalSalesPerShop, tierTotalPrevSalesAmt, tierTotalPrevShopCnt, tierTotalPrevSalesPerShop, retailLastDt)}
+        
+        {/* 우측: 지역 테이블 */}
+        {renderTable('region', safeRegions, regionTotalSalesAmt, regionTotalShopCnt, regionTotalSalesPerShop, regionTotalPrevSalesAmt, regionTotalPrevShopCnt, regionTotalPrevSalesPerShop, retailLastDt)}
       </div>
     </div>
   );
@@ -2191,83 +2191,8 @@ function TierRegionTreemap({
   return (
     <div className="bg-white rounded-none border border-gray-300 shadow-none overflow-hidden">
       <div className="p-2">
-        {/* 1행: 티어/지역 트리맵 */}
+        {/* 1행: Trade Zone/Shop Level 트리맵 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-          {/* 티어별 트리맵 */}
-          <div>
-            <div className="mb-2 text-center">
-              <h4 className="text-sm font-semibold text-gray-700">대리상 Tier별 점당매출</h4>
-              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
-                <span>당해 기간: {formatPeriod()}</span>
-                <span>전년 기간: {formatPrevPeriod()}</span>
-              </div>
-            </div>
-            {selectedTier ? (
-              <CategoryTreemapInline
-                type="tier"
-                keyName={selectedTier.key}
-                labelKo={selectedTier.labelKo}
-                brandCode={brandCode}
-                ym={ym}
-                lastDt={lastDt}
-                onBack={handleTierBack}
-                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'tier')}
-              />
-            ) : (
-              <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
-                <ResponsiveContainer width="100%" height="100%">
-                  <Treemap
-                    data={tierTreemapData}
-                    dataKey="size"
-                    aspectRatio={4 / 3}
-                    stroke="none"
-                    content={<TreemapContent />}
-                    onClick={(data) => data && handleTierClick(data as { name: string; labelKo?: string })}
-                  />
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-          
-          {/* 지역별 트리맵 */}
-          <div>
-            <div className="mb-2 text-center">
-              <h4 className="text-sm font-semibold text-gray-700">대리상 지역별 점당매출</h4>
-              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
-                <span>당해 기간: {formatPeriod()}</span>
-                <span>전년 기간: {formatPrevPeriod()}</span>
-              </div>
-            </div>
-            {selectedRegion ? (
-              <CategoryTreemapInline
-                type="region"
-                keyName={selectedRegion.key}
-                labelKo={selectedRegion.labelKo}
-                brandCode={brandCode}
-                ym={ym}
-                lastDt={lastDt}
-                onBack={handleRegionBack}
-                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'region')}
-              />
-            ) : (
-              <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
-                <ResponsiveContainer width="100%" height="100%">
-                  <Treemap
-                    data={regionTreemapData}
-                    dataKey="size"
-                    aspectRatio={4 / 3}
-                    stroke="none"
-                    content={<TreemapContent />}
-                    onClick={(data) => data && handleRegionClick(data as { name: string; labelKo?: string })}
-                  />
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* 2행: Trade Zone/Shop Level 트리맵 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
           {/* Trade Zone별 트리맵 */}
           <div>
             <div className="mb-2 text-center">
@@ -2334,6 +2259,81 @@ function TierRegionTreemap({
                     stroke="none"
                     content={<TreemapContent />}
                     onClick={(data) => data && handleShopLevelClick(data as { name: string; labelKo?: string })}
+                  />
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* 2행: 티어/지역 트리맵 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+          {/* 티어별 트리맵 */}
+          <div>
+            <div className="mb-2 text-center">
+              <h4 className="text-sm font-semibold text-gray-700">대리상 Tier별 점당매출</h4>
+              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
+                <span>당해 기간: {formatPeriod()}</span>
+                <span>전년 기간: {formatPrevPeriod()}</span>
+              </div>
+            </div>
+            {selectedTier ? (
+              <CategoryTreemapInline
+                type="tier"
+                keyName={selectedTier.key}
+                labelKo={selectedTier.labelKo}
+                brandCode={brandCode}
+                ym={ym}
+                lastDt={lastDt}
+                onBack={handleTierBack}
+                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'tier')}
+              />
+            ) : (
+              <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
+                <ResponsiveContainer width="100%" height="100%">
+                  <Treemap
+                    data={tierTreemapData}
+                    dataKey="size"
+                    aspectRatio={4 / 3}
+                    stroke="none"
+                    content={<TreemapContent />}
+                    onClick={(data) => data && handleTierClick(data as { name: string; labelKo?: string })}
+                  />
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+          
+          {/* 지역별 트리맵 */}
+          <div>
+            <div className="mb-2 text-center">
+              <h4 className="text-sm font-semibold text-gray-700">대리상 지역별 점당매출</h4>
+              <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1">
+                <span>당해 기간: {formatPeriod()}</span>
+                <span>전년 기간: {formatPrevPeriod()}</span>
+              </div>
+            </div>
+            {selectedRegion ? (
+              <CategoryTreemapInline
+                type="region"
+                keyName={selectedRegion.key}
+                labelKo={selectedRegion.labelKo}
+                brandCode={brandCode}
+                ym={ym}
+                lastDt={lastDt}
+                onBack={handleRegionBack}
+                onCategoryClick={(categoryName) => handleCategoryClick(categoryName, 'region')}
+              />
+            ) : (
+              <div className="h-[320px] border border-gray-300 rounded-none overflow-hidden">
+                <ResponsiveContainer width="100%" height="100%">
+                  <Treemap
+                    data={regionTreemapData}
+                    dataKey="size"
+                    aspectRatio={4 / 3}
+                    stroke="none"
+                    content={<TreemapContent />}
+                    onClick={(data) => data && handleRegionClick(data as { name: string; labelKo?: string })}
                   />
                 </ResponsiveContainer>
               </div>
