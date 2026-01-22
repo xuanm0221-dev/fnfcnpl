@@ -157,8 +157,11 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 
 // 채널별 매출 진척률 테이블 컴포넌트
-function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string }) {
+function ChannelTable({ data, lastDt, ym }: { data: ChannelTableData; lastDt: string; ym: string }) {
   const { plan, actual } = data;
+  
+  // ym에서 월 추출 (YYYY-MM 형식에서 MM만 추출)
+  const month = ym ? parseInt(ym.split('-')[1], 10) : 12;
   
   // 채널 순서
   const channels: Array<'onlineDirect' | 'onlineDealer' | 'offlineDirect' | 'offlineDealer'> = 
@@ -187,6 +190,7 @@ function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string
   const formatRateDiff = (value: number | null): string => {
     if (value === null) return '-';
     const pct = value * 100;
+    // 마이너스는 자동으로 '-' 표시됨, 플러스는 '+' 표시
     return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%p`;
   };
   
@@ -203,13 +207,13 @@ function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string
   }> = [
     { key: 'tagSale', label: 'Tag가 매출' },
     { key: 'actSaleVatInc', label: '실판 매출(V+)', category: '매출액' },
-    { key: 'actSaleVatIncRate', label: '(할인율)', isRate: true },
+    { key: 'actSaleVatIncRate', label: '(할인율)', isRate: true, isRateDiff: true },
     { key: 'actSaleVatExc', label: '실판 매출(V-)', category: '매출액', highlight: true },
     { key: 'cogs', label: '매출원가', category: '매출원가' },
-    { key: 'cogsRate', label: '(원가율)', isRate: true },
+    { key: 'cogsRate', label: '(원가율)', isRate: true, isRateDiff: true },
     { key: 'tagCogsRate', label: '(Tag 대비 원가율)', category: '매출원가', isRate: true, isRateDiff: true },
     { key: 'grossProfit', label: '매출총이익', highlight: true },
-    { key: 'grossProfitRate', label: '(매출총이익률)', isRate: true },
+    { key: 'grossProfitRate', label: '(매출총이익률)', isRate: true, isRateDiff: true },
   ];
 
   return (
@@ -236,7 +240,7 @@ function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string
                   <div className="text-[10px]">{CHANNEL_LABELS[ch].split(' ')[1]}</div>
                 </th>
               ))}
-              <th className="py-2 px-1 text-center font-medium text-gray-700 border-r border-gray-300 bg-blue-100 whitespace-nowrap text-[10px]">12월<br/>계획합계</th>
+              <th className="py-2 px-1 text-center font-medium text-gray-700 border-r border-gray-300 bg-blue-100 whitespace-nowrap text-[10px]">{month}월<br/>계획합계</th>
               {/* 진척률 */}
               {channels.map((ch) => (
                 <th key={`actual-${ch}`} className="py-2 px-1 text-center font-medium text-gray-600 border-r border-gray-100 bg-green-50 whitespace-nowrap">
@@ -244,7 +248,7 @@ function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string
                   <div className="text-[10px]">{CHANNEL_LABELS[ch].split(' ')[1]}</div>
                 </th>
               ))}
-              <th className="py-2 px-1 text-center font-medium text-gray-700 border-r border-gray-200 bg-green-100 whitespace-nowrap text-[10px]">12월<br/>실적합계</th>
+              <th className="py-2 px-1 text-center font-medium text-gray-700 border-r border-gray-200 bg-green-100 whitespace-nowrap text-[10px]">{month}월<br/>실적합계</th>
               <th className="py-2 px-1 text-center font-medium text-gray-700 bg-amber-100 whitespace-nowrap text-[10px]">진척률</th>
             </tr>
           </thead>
@@ -300,7 +304,7 @@ function ChannelTable({ data, lastDt }: { data: ChannelTableData; lastDt: string
       </div>
       
       <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 text-[10px] text-gray-500">
-        단위: K (천 위안) / 진척률 = 12월 실적합계 ÷ 12월 계획합계
+        단위: K (천 위안) / 진척률 = {month}월 실적합계 ÷ {month}월 계획합계
       </div>
     </div>
   );
@@ -3987,7 +3991,7 @@ export default function BrandPlForecastPage() {
               {/* 채널별 매출 진척률 테이블 */}
               {data.channelTable && (
                 <div className="mt-6">
-                  <ChannelTable data={data.channelTable} lastDt={data.lastDt} />
+                  <ChannelTable data={data.channelTable} lastDt={data.lastDt} ym={data.ym} />
                 </div>
               )}
               

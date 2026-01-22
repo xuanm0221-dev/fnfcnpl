@@ -1556,7 +1556,9 @@ async function buildChannelTableData(
     },
     actSaleVatIncRate: {
       ...actSaleVatIncRate,
-      progressRate: calcProgressRate(actSaleVatIncRate.total, plan.actSaleVatIncRate.total),
+      progressRate: (actSaleVatIncRate.total !== null && plan.actSaleVatIncRate.total !== null) 
+        ? actSaleVatIncRate.total - plan.actSaleVatIncRate.total 
+        : null,
     },
     actSaleVatExc: {
       ...actuals.actSaleVatExc,
@@ -1568,7 +1570,9 @@ async function buildChannelTableData(
     },
     cogsRate: {
       ...actualCogsRate,
-      progressRate: calcProgressRate(actualCogsRate.total, plan.cogsRate.total),
+      progressRate: (actualCogsRate.total !== null && plan.cogsRate.total !== null) 
+        ? actualCogsRate.total - plan.cogsRate.total 
+        : null,
     },
     tagCogsRate: {
       ...actualTagCogsRate,
@@ -1580,7 +1584,9 @@ async function buildChannelTableData(
     },
     grossProfitRate: {
       ...actualGrossProfitRate,
-      progressRate: calcProgressRate(actualGrossProfitRate.total, plan.grossProfitRate.total),
+      progressRate: (actualGrossProfitRate.total !== null && plan.grossProfitRate.total !== null) 
+        ? actualGrossProfitRate.total - plan.grossProfitRate.total 
+        : null,
     },
   };
   
