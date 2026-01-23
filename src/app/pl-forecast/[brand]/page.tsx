@@ -1016,15 +1016,51 @@ function TierRegionTable({
   );
 }
 
+// Hex 색상을 RGB로 변환
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  // #rrggbb 형식
+  const match = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (match) {
+    return {
+      r: parseInt(match[1], 16),
+      g: parseInt(match[2], 16),
+      b: parseInt(match[3], 16)
+    };
+  }
+  // #rgb 형식 (짧은 형식)
+  const shortMatch = hex.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
+  if (shortMatch) {
+    return {
+      r: parseInt(shortMatch[1] + shortMatch[1], 16),
+      g: parseInt(shortMatch[2] + shortMatch[2], 16),
+      b: parseInt(shortMatch[3] + shortMatch[3], 16)
+    };
+  }
+  return null;
+}
+
 // 배경색 밝기에 따른 글씨 색상 계산
-function getTextColorFromRgb(rgbColor: string): string {
-  // rgb(r, g, b) 형식에서 RGB 값 추출
-  const match = rgbColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-  if (!match) return '#ffffff'; // 기본값
+function getTextColorFromRgb(color: string): string {
+  let r: number, g: number, b: number;
   
-  const r = parseInt(match[1]) / 255;
-  const g = parseInt(match[2]) / 255;
-  const b = parseInt(match[3]) / 255;
+  // rgb(r, g, b) 형식 처리
+  const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (rgbMatch) {
+    r = parseInt(rgbMatch[1]) / 255;
+    g = parseInt(rgbMatch[2]) / 255;
+    b = parseInt(rgbMatch[3]) / 255;
+  } else {
+    // hex 형식 처리
+    const rgb = hexToRgb(color);
+    if (rgb) {
+      r = rgb.r / 255;
+      g = rgb.g / 255;
+      b = rgb.b / 255;
+    } else {
+      // 파싱 실패 시 기본값 (어두운 배경 가정)
+      return '#ffffff';
+    }
+  }
   
   // 상대 밝기 계산 (WCAG 공식)
   const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -1065,8 +1101,9 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
   const finalDiscountRate = discountRate !== undefined ? discountRate : (payload?.discountRate ?? null);
   const finalDiscountRateYoy = discountRateYoy !== undefined ? discountRateYoy : (payload?.discountRateYoy ?? null);
   
-  // 배경색에 따른 글씨 색상 계산
-  const textColor = getTextColorFromRgb(color || '#8884d8');
+  // 배경색에 따른 글씨 색상 계산 (color prop 또는 payload.color 사용)
+  const backgroundColor = color || payload?.color || '#8884d8';
+  const textColor = getTextColorFromRgb(backgroundColor);
   
   // 타일 간 간격 (2px - 하얀색 구분선)
   const gap = 2;
@@ -1080,7 +1117,7 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
     return (
       <g>
         <rect x={innerX} y={innerY} width={innerWidth} height={innerHeight} 
-              fill={color || '#8884d8'} stroke="#fff" strokeWidth={1} rx={0} />
+              fill={backgroundColor} stroke="#fff" strokeWidth={1} rx={0} />
         <text 
           x={innerX + 12} 
           y={innerY + 20} 
@@ -1147,7 +1184,7 @@ function TreemapContent(props: TreemapContentProps & { payload?: any }) {
     <g>
       {/* 타일 배경 (간격 포함, 라운드 제거) */}
       <rect x={innerX} y={innerY} width={innerWidth} height={innerHeight} 
-            fill={color || '#8884d8'} stroke="#fff" strokeWidth={1} rx={0} />
+            fill={backgroundColor} stroke="#fff" strokeWidth={1} rx={0} />
       
       {/* 1줄: 카테고리명 */}
       <text 
@@ -1947,7 +1984,7 @@ function TierRegionTreemap({
   
   // YOY 기반 그라데이션 색상 계산 (7단계, 파스텔 톤)
   const getYoyColor = (yoy: number | undefined): string => {
-    if (!yoy || yoy === 0) return '#8884d8'; // 기본색
+    if (!yoy || yoy === 0) return 'rgb(136, 132, 216)'; // 기본색 (#8884d8의 rgb 변환)
     
     const yoyPercent = yoy * 100; // 100% 기준
     
@@ -2018,8 +2055,10 @@ function TierRegionTreemap({
     const prevSalesPerShop = tier.prevSalesPerShop || 0;
     // 전년 누적 데이터 (실판 YOY 계산용)
     const prevCumSalesAmt = tier.prevCumSalesAmt || 0;
-    // 실판 YOY 계산 (색상용, 당월누적 vs 전년 누적)
+    // 실판 YOY 계산 (표시용, 당월누적 vs 전년 누적)
     const yoy = prevCumSalesAmt > 0 ? (tier.salesAmt || 0) / prevCumSalesAmt : undefined;
+    // 점당매출 YOY 계산 (색상용, 월말예상 점당 vs 전년 월전체 점당)
+    const yoyForColor = prevSalesPerShop > 0 ? (tier.salesPerShop || 0) / prevSalesPerShop : undefined;
     return {
       name: tier.key,
       displayName: tier.key,
@@ -2033,7 +2072,7 @@ function TierRegionTreemap({
       yoy,
       discountRate: tier.discountRate,
       discountRateYoy: tier.discountRateYoy,
-      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상 (실판 기준)
+      color: getYoyColor(yoyForColor), // YOY 기반 그라데이션 색상 (월말예상 점당 기준)
       labelKo: tier.labelKo,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null)
@@ -2052,8 +2091,10 @@ function TierRegionTreemap({
     const prevSalesPerShop = region.prevSalesPerShop || 0;
     // 전년 누적 데이터 (실판 YOY 계산용)
     const prevCumSalesAmt = region.prevCumSalesAmt || 0;
-    // 실판 YOY 계산 (색상용, 당월누적 vs 전년 누적)
+    // 실판 YOY 계산 (표시용, 당월누적 vs 전년 누적)
     const yoy = prevCumSalesAmt > 0 ? (region.salesAmt || 0) / prevCumSalesAmt : undefined;
+    // 점당매출 YOY 계산 (색상용, 월말예상 점당 vs 전년 월전체 점당)
+    const yoyForColor = prevSalesPerShop > 0 ? (region.salesPerShop || 0) / prevSalesPerShop : undefined;
     return {
       name: region.key,
       displayName: region.labelKo ? `${region.labelKo}(${region.key})` : region.key,
@@ -2067,7 +2108,7 @@ function TierRegionTreemap({
       yoy,
       discountRate: region.discountRate,
       discountRateYoy: region.discountRateYoy,
-      color: getYoyColor(yoy), // YOY 기반 그라데이션 색상 (실판 기준)
+      color: getYoyColor(yoyForColor), // YOY 기반 그라데이션 색상 (월말예상 점당 기준)
       cities: region.cities,
       labelKo: region.labelKo,
     };
@@ -2086,6 +2127,7 @@ function TierRegionTreemap({
     const prevSalesPerShop = zone.prevSalesPerShop || 0;
     const prevCumSalesAmt = zone.prevCumSalesAmt || 0;
     const yoy = prevCumSalesAmt > 0 ? (zone.salesAmt || 0) / prevCumSalesAmt : undefined;
+    const yoyForColor = prevSalesPerShop > 0 ? (zone.salesPerShop || 0) / prevSalesPerShop : undefined;
     return {
       name: zone.key,
       displayName: zone.key,
@@ -2099,11 +2141,16 @@ function TierRegionTreemap({
       yoy,
       discountRate: zone.discountRate,
       discountRateYoy: zone.discountRateYoy,
-      color: getYoyColor(yoy),
+      color: getYoyColor(yoyForColor),
       labelKo: zone.labelKo,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
-  const tradeZoneTreemapData = sortByFixedOrder(tradeZoneTreemapDataUnsorted, tradeZoneOrder);
+  const tradeZoneTreemapData = tradeZoneTreemapDataUnsorted.sort((a, b) => {
+    // 당월누적 실판 기준으로 정렬 (salesAmt)
+    const aSalesAmt = parseFloat(a.salesK?.replace(/,/g, '') || '0') * 1000;
+    const bSalesAmt = parseFloat(b.salesK?.replace(/,/g, '') || '0') * 1000;
+    return bSalesAmt - aSalesAmt;
+  }); // 당월누적 실판 기준 내림차순 정렬
   
   // Shop Level 데이터 변환
   const shopLevelTreemapDataUnsorted = safeShopLevels.map((level) => {
@@ -2112,6 +2159,7 @@ function TierRegionTreemap({
     const prevSalesPerShop = level.prevSalesPerShop || 0;
     const prevCumSalesAmt = level.prevCumSalesAmt || 0;
     const yoy = prevCumSalesAmt > 0 ? (level.salesAmt || 0) / prevCumSalesAmt : undefined;
+    const yoyForColor = prevSalesPerShop > 0 ? (level.salesPerShop || 0) / prevSalesPerShop : undefined;
     return {
       name: level.key,
       displayName: level.key,
@@ -2125,7 +2173,7 @@ function TierRegionTreemap({
       yoy,
       discountRate: level.discountRate,
       discountRateYoy: level.discountRateYoy,
-      color: getYoyColor(yoy),
+      color: getYoyColor(yoyForColor),
       labelKo: level.labelKo,
     };
   }).filter((item): item is NonNullable<typeof item> => item !== null);
