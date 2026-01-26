@@ -245,6 +245,8 @@ export interface TierRegionSalesRow {
   discountRate: number | null; // 당년 할인율 (%)
   prevDiscountRate: number | null; // 전년 할인율 (%)
   discountRateYoy: number | null; // 할인율 YOY (당년 - 전년, %)
+  /** Trade Zone / Shop Level 1위 행용: 카테고리별 매출 상위 (level 2 많이 팔린 내용) */
+  topCategories?: { category: string; cySalesAmt: number }[];
 }
 
 // 티어별/지역별 점당매출 데이터

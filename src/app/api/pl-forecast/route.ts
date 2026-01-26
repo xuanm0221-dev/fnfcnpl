@@ -43,6 +43,7 @@ import {
   getClothingSalesData,
   getClothingSalesLastDt,
   getCategorySalesByMonth,
+  getCategorySalesData,
   getDealerSupportActuals,
 } from '@/lib/plforecast/snowflake';
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
@@ -2085,6 +2086,40 @@ async function buildTierRegionData(
       return result;
     }).filter((item): item is NonNullable<typeof item> => item !== null)
       .sort((a, b) => a.key.localeCompare(b.key));
+    
+    // Trade Zone / Shop Level 1위에 level2(카테고리) pre-fetch (AI 분석용)
+    const sortedTZ = [...tradeZones].sort((a, b) => (b.salesPerShop || 0) - (a.salesPerShop || 0));
+    const sortedSL = [...shopLevels].sort((a, b) => (b.salesPerShop || 0) - (a.salesPerShop || 0));
+    const topTZ = sortedTZ[0];
+    const topSL = sortedSL[0];
+    const catPromises: Promise<void>[] = [];
+    if (topTZ?.key) {
+      catPromises.push(
+        getCategorySalesData('tradeZone', topTZ.key, brandCode, ym, retailLastDt)
+          .then((cats) => {
+            const top = [...cats]
+              .sort((a, b) => (b.cySalesAmt || 0) - (a.cySalesAmt || 0))
+              .slice(0, 3)
+              .map((c) => ({ category: c.category, cySalesAmt: c.cySalesAmt }));
+            if (top.length > 0) topTZ.topCategories = top;
+          })
+          .catch((e) => console.warn('[buildTierRegionData] Trade Zone 카테고리 조회 실패:', e))
+      );
+    }
+    if (topSL?.key) {
+      catPromises.push(
+        getCategorySalesData('shopLevel', topSL.key, brandCode, ym, retailLastDt)
+          .then((cats) => {
+            const top = [...cats]
+              .sort((a, b) => (b.cySalesAmt || 0) - (a.cySalesAmt || 0))
+              .slice(0, 3)
+              .map((c) => ({ category: c.category, cySalesAmt: c.cySalesAmt }));
+            if (top.length > 0) topSL.topCategories = top;
+          })
+          .catch((e) => console.warn('[buildTierRegionData] Shop Level 카테고리 조회 실패:', e))
+      );
+    }
+    await Promise.all(catPromises);
     
     // 전년 합계 데이터 계산 (대리상 오프라인 점당매출과 일치)
     const prevTotalSalesAmt = retailSalesData.lyFullSalesAmt; // 전년 월전체 매출

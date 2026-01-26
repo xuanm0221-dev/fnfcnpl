@@ -46,6 +46,38 @@ function AnalysisCard({ title, content, variant = 'default' }: AnalysisCardProps
 
   const style = variantStyles[variant];
 
+  // [[키워드]] 별 색상 (점당매출·채널 구조 분석용, 의류 판매 구조 분석용)
+  const keywordColors: Record<string, string> = {
+    'Trade Zone': 'text-blue-600',
+    'Shop Level': 'text-blue-600',
+    'Tier': 'text-blue-600',
+    '지역': 'text-blue-600',
+    '▲': 'text-yellow-500', // 발주·판매율 세모 (애매) - 채워진 삼각형
+  };
+
+  const renderLine = (line: string) => {
+    const parts = line.split(/(\*\*.*?\*\*|\[\[.*?\]\])/g);
+    return parts.map((part, partIdx) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={partIdx} className={`font-semibold ${style.accentColor}`}>
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith('[[') && part.endsWith(']]')) {
+        const keyword = part.slice(2, -2);
+        const colorClass = keywordColors[keyword] ?? style.accentColor;
+        return (
+          <span key={partIdx} className={`font-semibold ${colorClass}`}>
+            {keyword}
+          </span>
+        );
+      }
+      return <span key={partIdx}>{part}</span>;
+    });
+  };
+
   return (
     <div className={`bg-white rounded-xl border-2 ${style.borderColor} shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden`}>
       {/* 헤더 */}
@@ -63,20 +95,11 @@ function AnalysisCard({ title, content, variant = 'default' }: AnalysisCardProps
       {/* 본문 */}
       <div className="p-4 space-y-2.5 text-xs text-gray-700 leading-relaxed">
         {content.map((line, idx) => {
-          // **로 감싸진 부분을 굵게 표시
-          const parts = line.split(/(\*\*.*?\*\*)/g);
+          const isIndented = line.startsWith('[[INDENT]]');
+          const cleanLine = isIndented ? line.slice('[[INDENT]]'.length) : line;
           return (
-            <p key={idx} className="pl-1">
-              {parts.map((part, partIdx) => {
-                if (part.startsWith('**') && part.endsWith('**')) {
-                  return (
-                    <strong key={partIdx} className={`font-semibold ${style.accentColor}`}>
-                      {part.slice(2, -2)}
-                    </strong>
-                  );
-                }
-                return <span key={partIdx}>{part}</span>;
-              })}
+            <p key={idx} className={isIndented ? 'pl-1 ml-4' : 'pl-1'}>
+              {renderLine(cleanLine)}
             </p>
           );
         })}

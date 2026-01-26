@@ -131,9 +131,75 @@ export function generateRetailSalesAnalysis(
     }
   }
 
-  // Tier/지역/Zone 분석
+  // Trade Zone → Shop Level → Tier → 지역 순서 분석
   if (tierRegionData) {
-    // Tier별 분석 (level2: 주요 도시 포함)
+    // 1. Trade Zone별 분석 (level2: 많이 팔린 카테고리)
+    const tradeZones = tierRegionData.tradeZones || [];
+    if (tradeZones.length > 0) {
+      const sortedTZ = [...tradeZones].sort((a, b) => (b.salesPerShop || 0) - (a.salesPerShop || 0));
+      const topTZ = sortedTZ[0];
+      const secondTZ = sortedTZ[1];
+      const bottomTZ = sortedTZ[sortedTZ.length - 1];
+      
+      if (topTZ) {
+        lines.push(
+          `[[Trade Zone]]별로는 **${topTZ.key}**가 기여도가 높은 양상을 보입니다.`
+        );
+        const cats = topTZ.topCategories && topTZ.topCategories.length > 0
+          ? topTZ.topCategories.slice(0, 3).map((c) => `**${c.category}**`).join(', ')
+          : null;
+        if (cats) {
+          lines.push(
+            `[[INDENT]]**${topTZ.key}**에서는 ${cats} 등이 많이 판매되었습니다.`
+          );
+        }
+      }
+      if (secondTZ && secondTZ !== topTZ) {
+        lines.push(
+          `[[INDENT]]이어서 **${secondTZ.key}**도 양호한 성과를 보이고 있습니다.`
+        );
+      }
+      if (bottomTZ && bottomTZ !== topTZ && bottomTZ !== secondTZ) {
+        lines.push(
+          `[[INDENT]]반면 **${bottomTZ.key}**는 상대적으로 부진한 양상을 보입니다.`
+        );
+      }
+    }
+
+    // 2. Shop Level별 분석 (level2: 많이 팔린 카테고리)
+    const shopLevels = tierRegionData.shopLevels || [];
+    if (shopLevels.length > 0) {
+      const sortedSL = [...shopLevels].sort((a, b) => (b.salesPerShop || 0) - (a.salesPerShop || 0));
+      const topSL = sortedSL[0];
+      const secondSL = sortedSL[1];
+      const bottomSL = sortedSL[sortedSL.length - 1];
+      
+      if (topSL) {
+        lines.push(
+          `[[Shop Level]]별로는 **${topSL.key}**가 기여도가 높은 양상을 보입니다.`
+        );
+        const cats = topSL.topCategories && topSL.topCategories.length > 0
+          ? topSL.topCategories.slice(0, 3).map((c) => `**${c.category}**`).join(', ')
+          : null;
+        if (cats) {
+          lines.push(
+            `[[INDENT]]**${topSL.key}**에서는 ${cats} 등이 많이 판매되었습니다.`
+          );
+        }
+      }
+      if (secondSL && secondSL !== topSL) {
+        lines.push(
+          `[[INDENT]]이어서 **${secondSL.key}**도 양호한 성과를 보이고 있습니다.`
+        );
+      }
+      if (bottomSL && bottomSL !== topSL && bottomSL !== secondSL) {
+        lines.push(
+          `[[INDENT]]반면 **${bottomSL.key}**는 상대적으로 부진한 양상을 보입니다.`
+        );
+      }
+    }
+
+    // 3. Tier별 분석 (level2: 주요 도시 포함)
     const tiers = tierRegionData.tiers || [];
     if (tiers.length > 0) {
       const sortedTiers = [...tiers].sort((a, b) => (b.salesPerShop || 0) - (a.salesPerShop || 0));
@@ -148,16 +214,15 @@ export function generateRetailSalesAnalysis(
         
         if (tierCities) {
           lines.push(
-            `Tier별로는 **${topTier.key}**가 기여도가 높으며, 주요 도시로는 **${tierCities}** 등이 있습니다.`
+            `[[Tier]]별로는 **${topTier.key}**가 기여도가 높으며, 주요 도시로는 **${tierCities}** 등이 있습니다.`
           );
         } else {
           lines.push(
-            `Tier별로는 **${topTier.key}**가 기여도가 높은 양상을 보입니다.`
+            `[[Tier]]별로는 **${topTier.key}**가 기여도가 높은 양상을 보입니다.`
           );
         }
       }
       
-      // 2위 Tier도 언급 (level2)
       if (secondTier && secondTier !== topTier) {
         const secondTierCities = secondTier.cities && secondTier.cities.length > 0 
           ? secondTier.cities.slice(0, 2).join(', ') 
@@ -165,20 +230,19 @@ export function generateRetailSalesAnalysis(
         
         if (secondTierCities) {
           lines.push(
-            `이어서 **${secondTier.key}**도 양호한 성과를 보이며, 주요 도시로는 **${secondTierCities}** 등이 있습니다.`
+            `[[INDENT]]이어서 **${secondTier.key}**도 양호한 성과를 보이며, 주요 도시로는 **${secondTierCities}** 등이 있습니다.`
           );
         }
       }
       
-      // 부진한 Tier 언급
       if (bottomTier && bottomTier !== topTier && bottomTier !== secondTier) {
         lines.push(
-          `반면 **${bottomTier.key}**는 상대적으로 부진한 양상을 보입니다.`
+          `[[INDENT]]반면 **${bottomTier.key}**는 상대적으로 부진한 양상을 보입니다.`
         );
       }
     }
 
-    // 지역별 분석 (level2: 주요 도시 포함)
+    // 4. 지역별 분석 (level2: 주요 도시 포함)
     const regions = tierRegionData.regions || [];
     if (regions.length > 0) {
       const sortedRegions = [...regions].sort((a, b) => (b.salesPerShop || 0) - (a.salesPerShop || 0));
@@ -192,16 +256,15 @@ export function generateRetailSalesAnalysis(
         
         if (regionCities) {
           lines.push(
-            `지역별로는 **${topRegion.labelKo || topRegion.key}**가 높은 기여도를 보이며, 주요 도시로는 **${regionCities}** 등이 있습니다.`
+            `[[지역]]별로는 **${topRegion.labelKo || topRegion.key}**가 높은 기여도를 보이며, 주요 도시로는 **${regionCities}** 등이 있습니다.`
           );
         } else {
           lines.push(
-            `지역별로는 **${topRegion.labelKo || topRegion.key}**가 높은 기여도를 보이고 있습니다.`
+            `[[지역]]별로는 **${topRegion.labelKo || topRegion.key}**가 높은 기여도를 보이고 있습니다.`
           );
         }
       }
       
-      // 2위 지역도 언급 (level2)
       if (secondRegion && secondRegion !== topRegion) {
         const secondRegionCities = secondRegion.cities && secondRegion.cities.length > 0 
           ? secondRegion.cities.slice(0, 2).join(', ') 
@@ -209,7 +272,7 @@ export function generateRetailSalesAnalysis(
         
         if (secondRegionCities) {
           lines.push(
-            `이어서 **${secondRegion.labelKo || secondRegion.key}**도 양호한 성과를 보이며, 주요 도시로는 **${secondRegionCities}** 등이 있습니다.`
+            `[[INDENT]]이어서 **${secondRegion.labelKo || secondRegion.key}**도 양호한 성과를 보이며, 주요 도시로는 **${secondRegionCities}** 등이 있습니다.`
           );
         }
       }
@@ -255,6 +318,9 @@ export function generateClothingSalesAnalysis(
         // 판매율 YOY (이미 백분율 차이로 계산되어 있음, 예: -3.2는 -3.2%)
         const rateYoy = item.yoy;
         
+        // 누적 판매율
+        const rateForecast = item.cyRate;
+        
         // 발주수량 YOY (의류판매율 표와 동일하게 계산: cy / py)
         const poQtyYoy = item.pyPoQty > 0 
           ? (item.cyPoQty / item.pyPoQty) 
@@ -268,13 +334,32 @@ export function generateClothingSalesAnalysis(
         const rateYoyText = rateYoy !== null 
           ? `${rateYoy >= 0 ? '+' : ''}${rateYoy.toFixed(1)}%` 
           : '-';
+        // 누적 판매율
+        const rateForecastText = rateForecast !== null 
+          ? `${rateForecast.toFixed(1)}%` 
+          : '-';
         // 발주수량 YOY는 의류판매율 표와 동일하게 표시 (비율 * 100, 예: 1.372 → 137.2%)
         const poQtyYoyText = poQtyYoy !== null 
           ? `${(poQtyYoy * 100).toFixed(1)}%` 
           : '-';
         
+        // 발주-판매율 관계 설명
+        let relationNote = '';
+        if (poQtyYoy !== null && rateYoy !== null) {
+          const poQtyYoyPercent = (poQtyYoy - 1) * 100;
+          if (poQtyYoy > 1.0 && rateYoy < 0) {
+            relationNote = ' (발주 증가하면서 판매율 하락 [[▲]])';
+          } else if (poQtyYoy > 1.0 && rateYoy > 0) {
+            relationNote = ' (발주 증가와 함께 판매율 상승 👍)';
+          } else if (poQtyYoy < 1.0 && rateYoy > 0) {
+            relationNote = ' (발주 감소하면서 판매율 상승 👍)';
+          } else if (poQtyYoy < 1.0 && rateYoy < 0) {
+            relationNote = ' (발주 감소와 함께 판매율 하락 👎)';
+          }
+        }
+        
         lines.push(
-          `${idx + 1}. **${item.itemNm}**: 판매금액 YOY **${salesYoyText}**, 판매율 YOY **${rateYoyText}**, 발주수량 YOY **${poQtyYoyText}**`
+          `${idx + 1}. **${item.itemNm}**: 누적 판매율 **${rateForecastText}**, 판매금액 YOY **${salesYoyText}**, 판매율 YOY **${rateYoyText}**, 발주수량 YOY **${poQtyYoyText}**${relationNote}`
         );
       });
     }
