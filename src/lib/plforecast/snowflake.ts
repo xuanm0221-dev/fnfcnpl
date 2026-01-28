@@ -2984,7 +2984,7 @@ export async function getClothingSalesData(
           SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) AS PY_PO_AMT,
           SUM(CASE WHEN s.sesn_year = ? THEN s.sales_amt ELSE 0 END) AS PY_SALES_AMT
         FROM po_data po
-        INNER JOIN sales_data s ON po.item_cd = s.item_cd
+        INNER JOIN sales_data s ON po.item_cd = s.item_cd AND po.sesn_year = s.sesn_year
         LEFT JOIN prcs.dw_item itm ON po.item_cd = itm.item
         GROUP BY po.item_cd, itm.item_nm
         HAVING (SUM(CASE WHEN po.sesn_year = ? THEN po.po_amt ELSE 0 END) > 0 
