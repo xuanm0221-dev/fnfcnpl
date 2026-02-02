@@ -2174,6 +2174,9 @@ MLB,OFFLINE,FR,Y26 New Open 06,ML 西安万象城CCBD,250000,FP
 `;
 
 const retailPlan_2026_02 = `brand,onoff,fr_or_cls,oa_shop_id,oa_shop_nm,sale_amt,FP/FO
+MLB,OFFLINE,FR,CN5271,ML 淮北 金鹰,426614,FP
+MLB KIDS,OFFLINE,FR,CN5271,ML 淮北 金鹰,426614,FP
+DISCOVERY,OFFLINE,FR,CN5271,ML 淮北 金鹰,426614,FP
 `;
 
 // 월별 목표 CSV 매핑
@@ -2266,7 +2269,7 @@ export function isRetailSalesBrand(brandCode: string): boolean {
  * 범례 (Legend)
  * ========================================
  * CSV 파일 경로: D:\로컬파일\월중손익\목표retail
- * 생성 시간: 2026. 2. 2. 오후 3:14:04
+ * 생성 시간: 2026. 2. 3. 오전 8:45:57
  * 포함된 월: 2025-12.csv, 2026-01.csv, 2026-02.csv
  * 총 파일 수: 3개
  * 
