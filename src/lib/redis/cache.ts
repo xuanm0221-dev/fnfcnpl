@@ -21,17 +21,19 @@ const kv = url && token ? createClient({ url, token }) : null;
 
 /**
  * 캐시 키 생성
- * 
- * 형식: dashboard:{ym}:{brand}:{date}
+ *
+ * 형식: dashboard:{ym}:{brand}:{date}:{version}
  * - ym: 분석월 (예: 2026-01)
  * - brand: 브랜드 코드 (예: all, M, K)
- * - date: 오늘 날짜 (KST 기준, 예: 2026-01-26)
- * 
- * 예시: dashboard:2026-01:all:2026-01-26
+ * - date: 오늘 날짜 (KST 기준)
+ * - version: VERCEL_GIT_COMMIT_SHA (배포마다 변경 → 재배포 시 새 캐시 사용)
+ *
+ * 재배포 후 수정본이 바로 반영되도록 버전 포함
  */
 function getCacheKey(ym: string, brand: string): string {
   const kstDate = getKstDate();
-  return `dashboard:${ym}:${brand}:${kstDate}`;
+  const version = process.env.VERCEL_GIT_COMMIT_SHA || 'local';
+  return `dashboard:${ym}:${brand}:${kstDate}:${version}`;
 }
 
 /**
