@@ -1278,7 +1278,8 @@ function buildCardSummary(
     accumDays: number;
     monthDays: number;
   },
-  context: CalcContext
+  context: CalcContext,
+  isMonthEnd: boolean
 ): CardSummary {
   // lines에서 필요한 데이터 추출
   const findLine = (id: string) => lines.find((l) => l.id === id);
@@ -1322,11 +1323,12 @@ function buildCardSummary(
   const directProfitProgressAccum = directProfitTarget !== 0 ? directProfitAccum / directProfitTarget : null;
   const directProfitProgressForecast = directProfitTarget !== 0 ? directProfitForecast / directProfitTarget : null;
 
+  // 월말이면 현시점 = 월말예상 (확정값)
   return {
     // 카드1: 실판매출(할인율)
     actSale: {
-      accumValue: actSaleAccum,
-      accumRate: discountRateAccum,
+      accumValue: isMonthEnd ? actSaleForecast : actSaleAccum,
+      accumRate: isMonthEnd ? discountRateForecast : discountRateAccum,
       forecastValue: actSaleForecast,
       forecastRate: discountRateForecast,
       targetRate: actSaleVatInc?.achvRate ?? null,
@@ -1334,8 +1336,8 @@ function buildCardSummary(
     },
     // 카드2: 직접이익(이익율)
     directProfit: {
-      accumValue: directProfitAccum,
-      accumRate: directProfitRateAccum,
+      accumValue: isMonthEnd ? directProfitForecast : directProfitAccum,
+      accumRate: isMonthEnd ? directProfitRateForecast : directProfitRateAccum,
       forecastValue: directProfitForecast,
       forecastRate: directProfitRateForecast,
       targetRate: directProfitTarget !== 0 ? directProfitForecast / directProfitTarget : null,
@@ -1343,8 +1345,8 @@ function buildCardSummary(
     },
     // 카드3: 영업이익(이익율)
     operatingProfit: {
-      accumValue: opProfitAccum,
-      accumRate: opProfitRateAccum,
+      accumValue: isMonthEnd ? opProfitForecast : opProfitAccum,
+      accumRate: isMonthEnd ? opProfitRateForecast : opProfitRateAccum,
       forecastValue: opProfitForecast,
       forecastRate: opProfitRateForecast,
       targetRate: operatingProfit?.achvRate ?? null,
@@ -1352,7 +1354,7 @@ function buildCardSummary(
     },
     // 카드4: 직접이익 진척률
     directProfitProgress: {
-      accumRate: directProfitProgressAccum,
+      accumRate: isMonthEnd ? directProfitProgressForecast : directProfitProgressAccum,
       forecastRate: directProfitProgressForecast,
     },
   };
@@ -2723,7 +2725,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     const finalLines = isClosed ? applyClosedMonthForecast(lines) : lines;
 
     // 카드 요약 데이터 계산 (finalLines 기준으로 계산하여 테이블과 일치)
-    const summary = finalLines && finalLines.length > 0 ? buildCardSummary(finalLines, mergedData, context) : undefined;
+    const summary = finalLines && finalLines.length > 0 ? buildCardSummary(finalLines, mergedData, context, isLastDtMonthEnd) : undefined;
 
     return NextResponse.json({
       ym,
