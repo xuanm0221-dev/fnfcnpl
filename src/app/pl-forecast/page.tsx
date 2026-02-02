@@ -210,8 +210,8 @@ function getWaterfallColor(type: string): string {
 
 export default function PlForecastPage() {
   const router = useRouter();
-  // 초기값은 현재 월 (처음 대시보드 켤 때)
-  const [ym, setYm] = useState(getCurrentYm());
+  // 초기값은 2026-01 (기본 조회월)
+  const [ym, setYm] = useState('2026-01');
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

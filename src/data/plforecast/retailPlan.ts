@@ -2173,10 +2173,14 @@ MLB,OFFLINE,FR,CN6499,ML 伊春百货大楼,276466,FP
 MLB,OFFLINE,FR,Y26 New Open 06,ML 西安万象城CCBD,250000,FP
 `;
 
+const retailPlan_2026_02 = `brand,onoff,fr_or_cls,oa_shop_id,oa_shop_nm,sale_amt,FP/FO
+`;
+
 // 월별 목표 CSV 매핑
 const retailPlanCsvMap: Record<string, string> = {
   '2025-12': retailPlan_2025_12,
   '2026-01': retailPlan_2026_01,
+  '2026-02': retailPlan_2026_02,
 };
 
 // 브랜드별 계획 데이터
@@ -2262,9 +2266,9 @@ export function isRetailSalesBrand(brandCode: string): boolean {
  * 범례 (Legend)
  * ========================================
  * CSV 파일 경로: D:\로컬파일\월중손익\목표retail
- * 생성 시간: 2026. 1. 26. 오전 8:31:58
- * 포함된 월: 2025-12.csv, 2026-01.csv
- * 총 파일 수: 2개
+ * 생성 시간: 2026. 2. 2. 오후 3:14:04
+ * 포함된 월: 2025-12.csv, 2026-01.csv, 2026-02.csv
+ * 총 파일 수: 3개
  * 
  * 파일명 형식: YYYY-MM.csv (예: 2025-12.csv, 2026-01.csv)
  * 업데이트 방법: CSV 파일 추가 후 npm run update-csv 실행

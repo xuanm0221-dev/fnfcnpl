@@ -554,7 +554,7 @@ function buildPlLine(
   targets: TargetRow[],
   brandCode: BrandCode | 'all',
   context: CalcContext,
-  channelData?: {
+  channelData: {
     prevYearChannel?: { onlineDirect: number; onlineDealer: number; offlineDirect: number; offlineDealer: number };
     targetChannel?: ChannelRowData;
     accumChannel?: ChannelRowData;
@@ -568,7 +568,8 @@ function buildPlLine(
     accumChannelCogs?: ChannelRowData;
     prevYearChannelAccum?: { tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData };
     prevYearChannelFullMonth?: { tagSale: ChannelRowData; actSaleVatInc: ChannelRowData; actSaleVatExc: ChannelRowData; cogs: ChannelRowData };
-  }
+  } | undefined,
+  isMonthEndFlag: boolean
 ): PlLine {
   const getTarget = brandCode === 'all'
     ? (l1?: string, l2?: string, l3?: string) => getTargetValueAll(targets, l1, l2, l3)
@@ -613,7 +614,10 @@ function buildPlLine(
           }
           
           // 월말예상 계산
-          if (channel === 'onlineDealer' || channel === 'offlineDealer') {
+          if (isMonthEndFlag) {
+            // 월말: 누적 = 확정값
+            forecast = accum;
+          } else if (channel === 'onlineDealer' || channel === 'offlineDealer') {
             // 대리상: 목표 그대로
             forecast = target;
           } else {
@@ -655,7 +659,10 @@ function buildPlLine(
           }
           
           // 월말예상 계산
-          if (channel === 'onlineDealer' || channel === 'offlineDealer') {
+          if (isMonthEndFlag) {
+            // 월말: 누적 = 확정값
+            forecast = accum;
+          } else if (channel === 'onlineDealer' || channel === 'offlineDealer') {
             // 대리상: 목표 그대로
             forecast = target;
           } else {
@@ -696,28 +703,34 @@ function buildPlLine(
             prevYearProgressRate = null;
           }
           
-          // 월말예상 계산: 모든 채널 Tag대비 원가율 기반
-          const tagSaleAccum = channelData.accumChannelTagSale?.[channel] ?? null;
-          const tagSalePrevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
-          const tagSalePrevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
-          
-          // Tag매출 월말예상 계산
-          let tagSaleForecast: number | null = null;
-          if (tagSalePrevYearFullMonth !== null && tagSalePrevYearFullMonth !== 0 && tagSalePrevYearAccum !== null) {
-            const tagSaleProgressRate = tagSalePrevYearAccum / tagSalePrevYearFullMonth;
-            if (tagSaleProgressRate !== 0 && tagSaleAccum !== null) {
-              tagSaleForecast = tagSaleAccum / tagSaleProgressRate;
-            }
-          }
-          
-          // Tag매출 누적이 0이거나 월말예상이 null이면 null
-          if (tagSaleAccum === null || tagSaleAccum === 0 || tagSaleForecast === null || accum === null) {
-            forecast = null;
+          // 월말예상 계산
+          if (isMonthEndFlag) {
+            // 월말: 누적 = 확정값
+            forecast = accum;
           } else {
-            // Tag대비 원가율 = (매출원가 누적 × 1.13) / Tag매출 누적
-            const tagCogsRate = (accum * 1.13) / tagSaleAccum;
-            // 월말예상 매출원가 = (Tag대비 원가율 × Tag매출 월말예상) / 1.13
-            forecast = (tagCogsRate * tagSaleForecast) / 1.13;
+            // 월중: Tag대비 원가율 기반
+            const tagSaleAccum = channelData.accumChannelTagSale?.[channel] ?? null;
+            const tagSalePrevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
+            const tagSalePrevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
+            
+            // Tag매출 월말예상 계산
+            let tagSaleForecast: number | null = null;
+            if (tagSalePrevYearFullMonth !== null && tagSalePrevYearFullMonth !== 0 && tagSalePrevYearAccum !== null) {
+              const tagSaleProgressRate = tagSalePrevYearAccum / tagSalePrevYearFullMonth;
+              if (tagSaleProgressRate !== 0 && tagSaleAccum !== null) {
+                tagSaleForecast = tagSaleAccum / tagSaleProgressRate;
+              }
+            }
+            
+            // Tag매출 누적이 0이거나 월말예상이 null이면 null
+            if (tagSaleAccum === null || tagSaleAccum === 0 || tagSaleForecast === null || accum === null) {
+              forecast = null;
+            } else {
+              // Tag대비 원가율 = (매출원가 누적 × 1.13) / Tag매출 누적
+              const tagCogsRate = (accum * 1.13) / tagSaleAccum;
+              // 월말예상 매출원가 = (Tag대비 원가율 × Tag매출 월말예상) / 1.13
+              forecast = (tagCogsRate * tagSaleForecast) / 1.13;
+            }
           }
         }
       }
@@ -728,7 +741,13 @@ function buildPlLine(
       prevYear = data.prevYear[vatExcludedItem] || 0;
       accum = data.accum[vatExcludedItem] || 0;
       target = getTarget('실판(V-)', '실판(V-)', '실판(V-)');
-      forecast = calculateForecast(accum, data.accumDays, data.monthDays);
+      
+      // 월말이면 누적 = 확정값, 아니면 일할 계산
+      if (isMonthEndFlag) {
+        forecast = accum;
+      } else {
+        forecast = calculateForecast(accum, data.accumDays, data.monthDays);
+      }
       
       // 컨텍스트에 저장 (직접비 계산에 사용)
       if (forecast !== null) {
@@ -744,7 +763,7 @@ function buildPlLine(
       // 자식 합산으로 계산
       if (def.children) {
         const childLines = def.children.map((child) =>
-          buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
+          buildPlLine(child, data, mappings, targets, brandCode, context, channelData, isMonthEndFlag)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
@@ -800,7 +819,7 @@ function buildPlLine(
       // 자식 합산으로 계산
       if (def.children) {
         const childLines = def.children.map((child) =>
-          buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
+          buildPlLine(child, data, mappings, targets, brandCode, context, channelData, isMonthEndFlag)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
@@ -856,7 +875,7 @@ function buildPlLine(
       // 자식 합산으로 계산
       if (def.children) {
         const childLines = def.children.map((child) =>
-          buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
+          buildPlLine(child, data, mappings, targets, brandCode, context, channelData, isMonthEndFlag)
         );
         prevYear = childLines.reduce((sum, c) => sum + (c.prevYear || 0), 0);
         accum = childLines.reduce((sum, c) => sum + (c.accum || 0), 0);
@@ -1121,8 +1140,13 @@ function buildPlLine(
         // (전년)진척률 계산
         prevYearProgressRate = calculatePrevYearProgressRate(prevYear, prevYearAccum);
         
+        // 매출 및 매출원가: 월말이면 forecast = accum (확정값)
+        const isSalesOrCogs = def.level1 === 'Tag매출' || def.level1 === '실판(V+)' || def.level1 === '실판(V-)' || def.level1 === '매출원가' || def.level1 === '평가감';
+        if (isSalesOrCogs && isMonthEndFlag) {
+          forecast = accum;
+        }
         // 직접비/영업비: level3 기준으로 고정비/변동비 판단
-        if (def.costCategory === 'direct' || def.costCategory === 'opex') {
+        else if (def.costCategory === 'direct' || def.costCategory === 'opex') {
           const level3Key = def.level3 || def.level2 || '';
           const calcInfo = COST_CALCULATION_MAP[level3Key];
           
@@ -1156,12 +1180,12 @@ function buildPlLine(
             forecast = null;
           }
         }
-        // 평가감: 목표 그대로 사용 (고정비 처리)
-        else if (def.level1 === '평가감') {
+        // 평가감: 월말이 아니면 목표 그대로 사용 (고정비 처리)
+        else if (def.level1 === '평가감' && !isMonthEndFlag) {
           forecast = target;
         }
-        // 기타: 일할 계산
-        else {
+        // 기타: 일할 계산 (매출/매출원가가 아니고, 월말이 아닌 경우)
+        else if (!isSalesOrCogs) {
           forecast = calculateForecast(accum, data.accumDays, data.monthDays);
         }
       }
@@ -1172,7 +1196,7 @@ function buildPlLine(
   let children: PlLine[] | undefined;
   if (def.children && def.type !== 'cogsSum' && def.type !== 'directCostSum' && def.type !== 'opexSum') {
     children = def.children.map((child) =>
-      buildPlLine(child, data, mappings, targets, brandCode, context, channelData)
+      buildPlLine(child, data, mappings, targets, brandCode, context, channelData, isMonthEndFlag)
     );
     
     // Tag매출, 실판(V+), 매출원가 부모 행의 경우 자식들의 합계로 계산
@@ -1400,8 +1424,8 @@ async function buildChartData(
   let weeklyAccumTrend: WeeklyTrendData[] = [];
   
   try {
-    // 리테일 매출은 Snowflake 최신 데이터(전일)까지 조회
-    const retailLastDt = getKstYesterdayDate();
+    // 리테일 매출은 선택한 월의 마감 시점까지 조회 (현재월: 전일, 과거월: 월말)
+    const retailLastDt = getMonthEndDate(ym);
     
     // 주차별 매출 (각 주의 매출)
     console.log('Fetching weekly sales for retailLastDt:', retailLastDt, '(손익 마감일:', lastDt, ')');
@@ -1625,6 +1649,15 @@ function getMonthEndDate(ym: string): string {
   const lastDay = getMonthDays(ym);
   
   return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+
+/**
+ * 해당 날짜가 월말인지 판단
+ */
+function isMonthEnd(ym: string, lastDt: string): boolean {
+  const monthDays = getMonthDays(ym);
+  const day = parseInt(lastDt.split('-')[2], 10);
+  return day === monthDays;
 }
 
 // 점당매출 테이블 데이터 빌드 (MLB, MLB KIDS, DISCOVERY만)
@@ -2150,7 +2183,7 @@ async function buildTierRegionData(
 export async function GET(request: NextRequest): Promise<NextResponse<ApiResponse>> {
   try {
     const { searchParams } = new URL(request.url);
-    const ym = searchParams.get('ym') || getCurrentYm();
+    const ym = searchParams.get('ym') || '2026-01';
     const brand = searchParams.get('brand') || 'all';
     // 의류 판매율 시즌 파라미터
     const cySeason = searchParams.get('cySeason') || getDefaultClothingSeason(ym);
@@ -2266,6 +2299,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         const bDataIdx = brandCodes.indexOf(code);
         const bData = brandDataList[bDataIdx];
         if (bData) {
+          const codeDt = lastDates[code] || lastDt;
+          const isCodeMonthEnd = isMonthEnd(ym, codeDt);
+          
           // 각 브랜드별 channelData 조회 (병렬 처리)
           const [prevYearChannel, channelActuals, prevYearChannelTagSale, prevYearChannelCogs, prevYearChannelAccum, prevYearChannelFullMonth] = await Promise.all([
             getPrevYearChannelActuals(prevYm, code),
@@ -2316,7 +2352,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
           };
           // channelData를 포함하여 완전한 lines 생성
           const bLines = lineDefinitions.map((def) =>
-            buildPlLine(def, bMerged, mappings, targets, code, bContext, bChannelData)
+            buildPlLine(def, bMerged, mappings, targets, code, bContext, bChannelData, isCodeMonthEnd)
           );
           brandLinesList.push(bLines);
           brandDataMap.set(code, { lines: bLines, prevYear: bData.prevYear, accum: bData.accum });
@@ -2328,6 +2364,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         const bDataIdx = brandCodes.indexOf(code);
         const bData = brandDataList[bDataIdx];
         if (bData) {
+          const codeDt = lastDates[code] || lastDt;
+          const isCodeMonthEnd = isMonthEnd(ym, codeDt);
+          
           const bContext: CalcContext = {
             vatExcForecast: 0,
             actSaleVatIncForecast: 0,
@@ -2348,7 +2387,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
             dealerSupportPrevYearAccum: bData.dealerSupportPrevYearAccum,
           };
           const bLines = lineDefinitions.map((def) =>
-            buildPlLine(def, bMerged, mappings, targets, code, bContext)
+            buildPlLine(def, bMerged, mappings, targets, code, bContext, undefined, isCodeMonthEnd)
           );
           brandLinesList.push(bLines);
           brandDataMap.set(code, { lines: bLines, prevYear: bData.prevYear, accum: bData.accum });
@@ -2501,13 +2540,14 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
 
     // PlLine 빌드
     let lines: PlLine[];
+    const isLastDtMonthEnd = lastDt ? isMonthEnd(ym, lastDt) : false;
     if (brand === 'all' && brandLinesList.length > 0) {
       // 전체 탭: 브랜드별 lines 합산
       lines = mergePlLines(brandLinesList);
     } else {
       // 개별 브랜드: 기존 로직 사용
       lines = lineDefinitions.map((def) =>
-        buildPlLine(def, mergedData, mappings, targets, brand as BrandCode, context, channelData)
+        buildPlLine(def, mergedData, mappings, targets, brand as BrandCode, context, channelData, isLastDtMonthEnd)
       );
     }
 
