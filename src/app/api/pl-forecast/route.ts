@@ -49,6 +49,7 @@ import {
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
 import { getKstYesterdayDate, getKstCurrentYm } from '@/lib/plforecast/date';
+import { getCachedData, setCachedData } from '@/lib/redis/cache';
 
 // 마감된 월 리스트 (Snowflake에 전체 데이터가 있는 월)
 const CLOSED_MONTHS = ['2025-12'];
@@ -2191,6 +2192,19 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     const cySeason = searchParams.get('cySeason') || getDefaultClothingSeason(ym);
     const pySeason = searchParams.get('pySeason') || getPreviousClothingSeason(cySeason);
 
+    // Redis 캐시 확인 (Cache Aside 패턴)
+    const cachedData = await getCachedData<ApiResponse>(ym, brand);
+    if (cachedData) {
+      console.log(`[Cache HIT] ${ym}/${brand} - Redis에서 반환`);
+      return NextResponse.json(cachedData, {
+        headers: {
+          'Cache-Control': 'public, max-age=3600', // 브라우저 캐시 1시간
+          'X-Cache': 'HIT',
+        },
+      });
+    }
+    console.log(`[Cache MISS] ${ym}/${brand} - Snowflake 조회 시작`);
+
     // 마감 여부 판단
     const isClosed = isClosedMonth(ym);
     console.log(`[DEBUG] ${ym} 마감 여부:`, isClosed);
@@ -2727,7 +2741,8 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     // 카드 요약 데이터 계산 (finalLines 기준으로 계산하여 테이블과 일치)
     const summary = finalLines && finalLines.length > 0 ? buildCardSummary(finalLines, mergedData, context, isLastDtMonthEnd) : undefined;
 
-    return NextResponse.json({
+    // 응답 데이터 구성
+    const responseData: ApiResponse = {
       ym,
       brand,
       lastDt,
@@ -2744,11 +2759,20 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       clothingSales,
       clothingLastDt: clothingLastDt || undefined,
       categorySales,
-    }, {
+    };
+
+    // Redis 캐시에 저장 (응답 전에 완료 대기 - 서버리스 종료 전 저장 보장)
+    try {
+      await setCachedData(ym, brand, responseData);
+      console.log(`[Cache SET] ${ym}/${brand} - Redis에 저장 완료`);
+    } catch (cacheErr) {
+      console.error('[Cache Error] 캐시 저장 실패:', cacheErr);
+    }
+
+    return NextResponse.json(responseData, {
       headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
+        'Cache-Control': 'public, max-age=3600', // 브라우저 캐시 1시간
+        'X-Cache': 'MISS',
       },
     });
   } catch (error) {
