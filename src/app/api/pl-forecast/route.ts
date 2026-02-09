@@ -2186,7 +2186,7 @@ async function buildTierRegionData(
 export async function GET(request: NextRequest): Promise<NextResponse<ApiResponse>> {
   try {
     const { searchParams } = new URL(request.url);
-    const ym = searchParams.get('ym') || '2026-01';
+    const ym = searchParams.get('ym') || '2026-02';
     const brand = searchParams.get('brand') || 'all';
     // 의류 판매율 시즌 파라미터
     const cySeason = searchParams.get('cySeason') || getDefaultClothingSeason(ym);

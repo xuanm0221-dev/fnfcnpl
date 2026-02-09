@@ -3554,8 +3554,8 @@ export default function BrandPlForecastPage() {
   const params = useParams();
   const brandSlug = params.brand as string;
 
-  // 초기값은 2026-01 (기본 조회월)
-  const [ym, setYm] = useState('2026-01');
+  // 초기값은 2026-02 (기본 조회월)
+  const [ym, setYm] = useState('2026-02');
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
