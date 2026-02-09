@@ -2196,9 +2196,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     const cachedData = await getCachedData<ApiResponse>(ym, brand);
     if (cachedData) {
       console.log(`[Cache HIT] ${ym}/${brand} - Redis에서 반환`);
+      const isDev = process.env.NODE_ENV === 'development';
       return NextResponse.json(cachedData, {
         headers: {
-          'Cache-Control': 'public, max-age=3600', // 브라우저 캐시 1시간
+          'Cache-Control': isDev 
+            ? 'no-store, no-cache, must-revalidate' 
+            : 'public, max-age=3600', // 프로덕션: 브라우저 캐시 1시간
           'X-Cache': 'HIT',
         },
       });
@@ -2769,9 +2772,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       console.error('[Cache Error] 캐시 저장 실패:', cacheErr);
     }
 
+    const isDev = process.env.NODE_ENV === 'development';
     return NextResponse.json(responseData, {
       headers: {
-        'Cache-Control': 'public, max-age=3600', // 브라우저 캐시 1시간
+        'Cache-Control': isDev 
+          ? 'no-store, no-cache, must-revalidate' 
+          : 'public, max-age=3600', // 프로덕션: 브라우저 캐시 1시간
         'X-Cache': 'MISS',
       },
     });
