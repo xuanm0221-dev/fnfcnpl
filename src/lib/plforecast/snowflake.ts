@@ -2159,8 +2159,106 @@ interface ChannelActualResult {
 
 // 채널별 실적 데이터
 
+/** 당해 채널 실적을 Snowflake에서 조회하는 월 (마감월) */
+const SNOWFLAKE_ACTUALS_MONTHS = ['2025-12', '2026-01'];
+
+/**
+ * 당해 연월·lastDt까지 채널별 누적 실적을 Snowflake에서 조회
+ * (getPrevYearChannelAccum과 동일 SQL, 당해 ym/lastDt 사용)
+ */
+async function getChannelActualsFromSnowflake(
+  ym: string,
+  lastDt: string,
+  brandCode: BrandCode
+): Promise<ChannelActuals> {
+  const connection = await getConnection();
+  try {
+    const sql = `
+      SELECT 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END as CHANNEL,
+        COALESCE(SUM(TAG_SALE_AMT), 0) as TAG_SALE,
+        COALESCE(SUM(ACT_SALE_AMT), 0) as ACT_SALE_VAT_INC,
+        COALESCE(SUM(VAT_EXC_ACT_SALE_AMT), 0) as ACT_SALE_VAT_EXC,
+        COALESCE(SUM(ACT_COGS), 0) as ACT_COGS
+      FROM sap_fnf.dw_cn_copa_d
+      WHERE TO_CHAR(pst_dt, 'YYYY-MM') = ?
+        AND brd_cd = ?
+        AND pst_dt <= ?::DATE
+      GROUP BY 
+        CASE 
+          WHEN chnl_cd = '85' THEN 'onlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '1' THEN 'onlineDealer'
+          WHEN chnl_cd IN ('80', '81', '82', '83') THEN 'offlineDirect'
+          WHEN chnl_cd = '84' AND trans_cd = '2' THEN 'offlineDealer'
+          ELSE 'other'
+        END
+    `;
+
+    interface ChannelResult {
+      CHANNEL: string;
+      TAG_SALE: number;
+      ACT_SALE_VAT_INC: number;
+      ACT_SALE_VAT_EXC: number;
+      ACT_COGS: number;
+    }
+
+    const rows = await executeQuery<ChannelResult>(connection, sql, [ym, brandCode, lastDt]);
+
+    const tagSale: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const actSaleVatInc: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const actSaleVatExc: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+    const cogs: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
+
+    for (const row of rows) {
+      const tagValue = Number(row.TAG_SALE) || 0;
+      const vatIncValue = Number(row.ACT_SALE_VAT_INC) || 0;
+      const vatExcValue = Number(row.ACT_SALE_VAT_EXC) || 0;
+      const cogsValue = Number(row.ACT_COGS) || 0;
+
+      if (row.CHANNEL === 'onlineDirect') {
+        tagSale.onlineDirect = tagValue;
+        actSaleVatInc.onlineDirect = vatIncValue;
+        actSaleVatExc.onlineDirect = vatExcValue;
+        cogs.onlineDirect = cogsValue;
+      } else if (row.CHANNEL === 'onlineDealer') {
+        tagSale.onlineDealer = tagValue;
+        actSaleVatInc.onlineDealer = vatIncValue;
+        actSaleVatExc.onlineDealer = vatExcValue;
+        cogs.onlineDealer = cogsValue;
+      } else if (row.CHANNEL === 'offlineDirect') {
+        tagSale.offlineDirect = tagValue;
+        actSaleVatInc.offlineDirect = vatIncValue;
+        actSaleVatExc.offlineDirect = vatExcValue;
+        cogs.offlineDirect = cogsValue;
+      } else if (row.CHANNEL === 'offlineDealer') {
+        tagSale.offlineDealer = tagValue;
+        actSaleVatInc.offlineDealer = vatIncValue;
+        actSaleVatExc.offlineDealer = vatExcValue;
+        cogs.offlineDealer = cogsValue;
+      }
+    }
+
+    tagSale.total = (tagSale.onlineDirect ?? 0) + (tagSale.onlineDealer ?? 0) + (tagSale.offlineDirect ?? 0) + (tagSale.offlineDealer ?? 0);
+    actSaleVatInc.total = (actSaleVatInc.onlineDirect ?? 0) + (actSaleVatInc.onlineDealer ?? 0) + (actSaleVatInc.offlineDirect ?? 0) + (actSaleVatInc.offlineDealer ?? 0);
+    actSaleVatExc.total = (actSaleVatExc.onlineDirect ?? 0) + (actSaleVatExc.onlineDealer ?? 0) + (actSaleVatExc.offlineDirect ?? 0) + (actSaleVatExc.offlineDealer ?? 0);
+    cogs.total = (cogs.onlineDirect ?? 0) + (cogs.onlineDealer ?? 0) + (cogs.offlineDirect ?? 0) + (cogs.offlineDealer ?? 0);
+
+    return { tagSale, actSaleVatInc, actSaleVatExc, cogs };
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
 /**
  * 채널별 누적 실적 조회 (브랜드별 페이지용)
+ * - 마감월(SNOWFLAKE_ACTUALS_MONTHS): Snowflake에서 조회
+ * - 그 외: CSV 파일에서 읽기
  * - 온라인 직영: chnl_cd=85
  * - 온라인 대리상: chnl_cd=84 AND trans_cd=1
  * - 오프라인 직영: chnl_cd IN (80,81,82,83)
@@ -2171,13 +2269,16 @@ export async function getChannelActuals(
   lastDt: string,
   brandCode: BrandCode
 ): Promise<ChannelActuals> {
+  if (SNOWFLAKE_ACTUALS_MONTHS.includes(ym)) {
+    return getChannelActualsFromSnowflake(ym, lastDt, brandCode);
+  }
+
   // CSV 파일에서 데이터 읽기
   const { getActualsCsv } = await import('@/data/plforecast/actuals');
   const { parseChannelActualsCsv } = await import('./parseActualsCsv');
-  
+
   const csvContent = getActualsCsv(ym, lastDt);
   if (!csvContent) {
-    // CSV 파일이 없으면 빈 데이터 반환
     const emptyRow: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
     return {
       tagSale: emptyRow,
@@ -2186,8 +2287,7 @@ export async function getChannelActuals(
       cogs: emptyRow,
     };
   }
-  
-  // CSV 파싱
+
   return parseChannelActualsCsv(csvContent, brandCode);
 }
 

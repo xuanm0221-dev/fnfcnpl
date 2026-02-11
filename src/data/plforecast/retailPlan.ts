@@ -3262,8 +3262,8 @@ export function getRetailPlan(ym: string, brandCode: string): RetailPlanData | n
     const shopId = cols[shopIdIndex];
     const saleAmtStr = cols[saleAmtIndex];
     
-    // 필터링 조건: 해당 브랜드, OFFLINE, FR 또는 FRS
-    if (brand === brandName && onoff === 'OFFLINE' && (frOrCls === 'FR' || frOrCls === 'FRS')) {
+    // 필터링 조건: 해당 브랜드, OFFLINE, FR
+    if (brand === brandName && onoff === 'OFFLINE' && frOrCls === 'FR') {
       // 판매매출 합산
       const saleAmt = saleAmtStr ? parseFloat(saleAmtStr.replace(/,/g, '')) : 0;
       if (!isNaN(saleAmt)) {
@@ -3294,7 +3294,7 @@ export function isRetailSalesBrand(brandCode: string): boolean {
  * 범례 (Legend)
  * ========================================
  * CSV 파일 경로: D:\로컬파일\월중손익\목표retail
- * 생성 시간: 2026. 2. 10. 오전 8:03:04
+ * 생성 시간: 2026. 2. 11. 오전 9:35:31
  * 포함된 월: 2025-12.csv, 2026-01.csv, 2026-02.csv
  * 총 파일 수: 3개
  * 

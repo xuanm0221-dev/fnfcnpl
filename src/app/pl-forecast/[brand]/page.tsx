@@ -3554,8 +3554,12 @@ export default function BrandPlForecastPage() {
   const params = useParams();
   const brandSlug = params.brand as string;
 
-  // 초기값은 2026-02 (기본 조회월)
-  const [ym, setYm] = useState('2026-02');
+  // 초기값: URL에 ym 있으면 사용, 없으면 2026-02 (탭 전환 시 기준월 유지)
+  const [ym, setYm] = useState(() => {
+    if (typeof window === 'undefined') return '2026-02';
+    const p = new URLSearchParams(window.location.search);
+    return p.get('ym') || '2026-02';
+  });
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
