@@ -704,33 +704,32 @@ function buildPlLine(
             prevYearProgressRate = null;
           }
           
-          // 월말예상 계산
-          if (isMonthEndFlag) {
-            // 월말: 누적 = 확정값
-            forecast = accum;
+          // 월말예상 계산 (범례: 대리상 = 목표, 직영 = 월말 누적 / 월중 Tag 원가율)
+          const isDealer = channel === 'onlineDealer' || channel === 'offlineDealer';
+          if (isDealer) {
+            // 대리상 (온라인 대리상, 오프라인 대리상): 월말예상 = 목표
+            forecast = target !== null ? target : null;
           } else {
-            // 월중: Tag대비 원가율 기반
-            const tagSaleAccum = channelData.accumChannelTagSale?.[channel] ?? null;
-            const tagSalePrevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
-            const tagSalePrevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
-            
-            // Tag매출 월말예상 계산
-            let tagSaleForecast: number | null = null;
-            if (tagSalePrevYearFullMonth !== null && tagSalePrevYearFullMonth !== 0 && tagSalePrevYearAccum !== null) {
-              const tagSaleProgressRate = tagSalePrevYearAccum / tagSalePrevYearFullMonth;
-              if (tagSaleProgressRate !== 0 && tagSaleAccum !== null) {
-                tagSaleForecast = tagSaleAccum / tagSaleProgressRate;
-              }
-            }
-            
-            // Tag매출 누적이 0이거나 월말예상이 null이면 null
-            if (tagSaleAccum === null || tagSaleAccum === 0 || tagSaleForecast === null || accum === null) {
-              forecast = null;
+            // 직영: 월말이면 누적, 월중이면 Tag대비 원가율 기반
+            if (isMonthEndFlag) {
+              forecast = accum;
             } else {
-              // Tag대비 원가율 = (매출원가 누적 × 1.13) / Tag매출 누적
-              const tagCogsRate = (accum * 1.13) / tagSaleAccum;
-              // 월말예상 매출원가 = (Tag대비 원가율 × Tag매출 월말예상) / 1.13
-              forecast = (tagCogsRate * tagSaleForecast) / 1.13;
+              const tagSaleAccum = channelData.accumChannelTagSale?.[channel] ?? null;
+              const tagSalePrevYearAccum = channelData.prevYearChannelAccum?.tagSale[channel] ?? null;
+              const tagSalePrevYearFullMonth = channelData.prevYearChannelFullMonth?.tagSale[channel] ?? null;
+              let tagSaleForecast: number | null = null;
+              if (tagSalePrevYearFullMonth !== null && tagSalePrevYearFullMonth !== 0 && tagSalePrevYearAccum !== null) {
+                const tagSaleProgressRate = tagSalePrevYearAccum / tagSalePrevYearFullMonth;
+                if (tagSaleProgressRate !== 0 && tagSaleAccum !== null) {
+                  tagSaleForecast = tagSaleAccum / tagSaleProgressRate;
+                }
+              }
+              if (tagSaleAccum === null || tagSaleAccum === 0 || tagSaleForecast === null || accum === null) {
+                forecast = null;
+              } else {
+                const tagCogsRate = (accum * 1.13) / tagSaleAccum;
+                forecast = (tagCogsRate * tagSaleForecast) / 1.13;
+              }
             }
           }
         }
