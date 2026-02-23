@@ -3038,9 +3038,13 @@ export async function getClothingSalesData(
   
   try {
     const year = parseInt(lastDt.substring(0, 4));
-    const month = lastDt.substring(5, 7);
-    const day = lastDt.substring(8, 10);
-    const pyLastDt = `${year - 1}-${month}-${day}`;
+    const month = parseInt(lastDt.substring(5, 7));
+    const day = parseInt(lastDt.substring(8, 10), 10);
+    // 전년 동일 기간: 이전 년도 해당 월의 유효한 마지막 일로 보정 (예: 2024-02-29 → 2023-02-28)
+    const pyYear = year - 1;
+    const pyMonthLastDay = new Date(pyYear, month, 0).getDate();
+    const pyDay = Math.min(day, pyMonthLastDay);
+    const pyLastDt = `${pyYear}-${String(month).padStart(2, '0')}-${String(pyDay).padStart(2, '0')}`;
     
     const sql = `
       WITH po_data AS (
@@ -3055,7 +3059,6 @@ export async function getClothingSalesData(
           AND ord.brd_cd = ?
           AND ord.sesn IN (?, ?)
           AND prdt.parent_prdt_kind_cd = 'L'
-          AND ord.ord_dt >= DATE '${year - 1}-01-01'
         GROUP BY ord.item, sesn_year
       ),
       sales_data AS (
@@ -3068,7 +3071,7 @@ export async function getClothingSalesData(
         WHERE s.brd_cd = ?
           AND s.sesn IN (?, ?)
           AND prdt.parent_prdt_kind_cd = 'L'
-          AND s.sale_dt >= DATE '${year - 1}-01-01'
+          AND s.sale_dt >= DATE '${year - 2}-01-01'
           AND (
             (s.sesn = ? AND s.sale_dt <= DATE '${lastDt}')
             OR (s.sesn = ? AND s.sale_dt <= DATE '${pyLastDt}')

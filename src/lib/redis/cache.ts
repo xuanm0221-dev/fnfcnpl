@@ -154,7 +154,8 @@ export type SnapshotType = 'retail' | 'clothing' | 'weekly' | 'dx';
 
 function getSnapshotKey(type: SnapshotType, ym: string, brand?: string): string {
   if (type === 'weekly') return `snapshot:weekly:${ym}`;
-  if (type === 'dx') return `snapshot:dx:${brand}`;
+  // dx: ym에 snapYm(dx-12months:2026-01, dx-year:2026 등) 전달 → 기준월/뷰별 구분
+  if (type === 'dx') return `snapshot:dx:${brand}:${ym}`;
   return `snapshot:${type}:${ym}:${brand}`;
 }
 
