@@ -3055,6 +3055,7 @@ export async function getClothingSalesData(
           AND ord.brd_cd = ?
           AND ord.sesn IN (?, ?)
           AND prdt.parent_prdt_kind_cd = 'L'
+          AND ord.ord_dt >= DATE '${year - 1}-01-01'
         GROUP BY ord.item, sesn_year
       ),
       sales_data AS (
@@ -3067,6 +3068,7 @@ export async function getClothingSalesData(
         WHERE s.brd_cd = ?
           AND s.sesn IN (?, ?)
           AND prdt.parent_prdt_kind_cd = 'L'
+          AND s.sale_dt >= DATE '${year - 1}-01-01'
           AND (
             (s.sesn = ? AND s.sale_dt <= DATE '${lastDt}')
             OR (s.sesn = ? AND s.sale_dt <= DATE '${pyLastDt}')
@@ -3409,6 +3411,7 @@ export async function getShopMonthlySales(
             FROM CHN.dw_sale s 
             WHERE s.shop_id = d.shop_id 
               AND s.brd_cd = ?
+              AND s.sale_dt >= DATE '${monthDates[0].startDt}'
           )
         QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
       ),
@@ -3419,6 +3422,7 @@ export async function getShopMonthlySales(
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.brd_cd = ?
+          AND sale.sale_dt BETWEEN DATE '${monthDates[0].startDt}' AND DATE '${monthDates[monthDates.length - 1].endDt}'
         GROUP BY sale.shop_id
       ),
       shop_data AS (
@@ -3466,6 +3470,7 @@ export async function getShopMonthlySales(
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.brd_cd = ?
+          AND sale.sale_dt BETWEEN DATE '${monthDates[0].startDt}' AND DATE '${monthDates[monthDates.length - 1].endDt}'
         GROUP BY vs.fr_or_cls
       )
       SELECT 

@@ -226,6 +226,11 @@ export default function PlForecastPage() {
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [chartDataLoading, setChartDataLoading] = useState(false);
 
+  // ── 주차별 스냅샷 상태 ──
+  const [weeklySnapped, setWeeklySnapped] = useState(false);
+  const [weeklySnapLoading, setWeeklySnapLoading] = useState(false);
+  const [weeklyDropOpen, setWeeklyDropOpen] = useState(false);
+
   // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -299,6 +304,59 @@ export default function PlForecastPage() {
     }
     fetchChartData();
   }, [chartBrand, ym, data?.lastDt]);
+
+  // 주차별 스냅샷 존재 여부 확인
+  useEffect(() => {
+    async function checkWeeklySnap() {
+      try {
+        const res = await fetch(`/api/snapshot?type=weekly&ym=${ym}&brand=all`);
+        const json = await res.json();
+        setWeeklySnapped(!!json.exists);
+      } catch { /* 무시 */ }
+    }
+    checkWeeklySnap();
+  }, [ym]);
+
+  // 주차별 저장
+  const handleWeeklySave = async () => {
+    if (!data?.charts) return;
+    setWeeklySnapLoading(true);
+    setWeeklyDropOpen(false);
+    try {
+      await fetch('/api/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'weekly',
+          ym,
+          brand: 'all',
+          data: {
+            weeklyTrend: data.charts.weeklyTrend,
+            weeklyAccumTrend: data.charts.weeklyAccumTrend,
+          },
+        }),
+      });
+      setWeeklySnapped(true);
+    } catch { /* 무시 */ } finally {
+      setWeeklySnapLoading(false);
+    }
+  };
+
+  // 주차별 재계산
+  const handleWeeklyRecalc = async () => {
+    setWeeklySnapLoading(true);
+    setWeeklyDropOpen(false);
+    try {
+      await fetch(`/api/snapshot?type=weekly&ym=${ym}&brand=all`, { method: 'DELETE' });
+      setWeeklySnapped(false);
+      // 데이터 재조회
+      const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=all`);
+      const json: ApiResponse = await res.json();
+      if (!json.error) setData(json);
+    } catch { /* 무시 */ } finally {
+      setWeeklySnapLoading(false);
+    }
+  };
 
   // 행 토글
   const toggleRow = (id: string) => {
@@ -494,15 +552,53 @@ export default function PlForecastPage() {
               </p>
             </div>
             
-            {/* 월 선택 */}
-            <div className="flex items-center gap-4">
-              <label className="text-sm text-gray-500">기준월</label>
-              <input
-                type="month"
-                value={ym}
-                onChange={(e) => handleYmChange(e.target.value)}
-                className="bg-white border border-gray-300 rounded-lg px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              />
+            {/* 주차별 스냅샷 버튼 + 월 선택 */}
+            <div className="flex items-center gap-3">
+              {/* 주차별 매출 저장 */}
+              <div className="relative">
+                <div className="flex">
+                  <button
+                    onClick={handleWeeklySave}
+                    disabled={weeklySnapLoading}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-l-lg text-white transition-colors ${
+                      weeklySnapped
+                        ? 'bg-teal-500 hover:bg-teal-600'
+                        : 'bg-orange-500 hover:bg-orange-600'
+                    }`}
+                  >
+                    {weeklySnapped ? '주차별 매출 마감 ✓' : '주차별 매출 저장'}
+                  </button>
+                  <button
+                    onClick={() => setWeeklyDropOpen(v => !v)}
+                    className={`px-2 py-1.5 text-xs font-semibold rounded-r-lg text-white border-l border-white/30 ${
+                      weeklySnapped
+                        ? 'bg-teal-500 hover:bg-teal-600'
+                        : 'bg-orange-500 hover:bg-orange-600'
+                    }`}
+                  >▾</button>
+                </div>
+                {weeklyDropOpen && (
+                  <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[100px]">
+                    <button
+                      onClick={handleWeeklyRecalc}
+                      className="w-full px-4 py-2 text-xs text-left text-gray-700 hover:bg-gray-50 rounded-lg"
+                    >
+                      재계산
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 월 선택 */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-500">기준월</label>
+                <input
+                  type="month"
+                  value={ym}
+                  onChange={(e) => handleYmChange(e.target.value)}
+                  className="bg-white border border-gray-300 rounded-lg px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
             </div>
           </div>
 

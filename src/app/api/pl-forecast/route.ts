@@ -49,7 +49,7 @@ import {
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
 import { getKstYesterdayDate, getKstCurrentYm } from '@/lib/plforecast/date';
-import { getCachedData, setCachedData } from '@/lib/redis/cache';
+import { getCachedData, setCachedData, getSnapshot, hasSnapshot } from '@/lib/redis/cache';
 
 // 마감된 월 리스트 (Snowflake에 전체 데이터가 있는 월)
 const CLOSED_MONTHS = ['2025-12', '2026-01'];
@@ -1366,7 +1366,8 @@ async function buildChartData(
   lastDt: string,
   brandDataMap: Map<BrandCode, { lines: PlLine[]; prevYear: Record<string, number>; accum: Record<string, number> }>,
   allLines: PlLine[],
-  brandCodes: BrandCode[]
+  brandCodes: BrandCode[],
+  useWeeklySnapshot: boolean = false
 ): Promise<ChartData> {
   // 1. 브랜드별 매출/영업이익
   const brandSales: BrandSalesData[] = [];
@@ -1424,7 +1425,18 @@ async function buildChartData(
   // 3. 주차별/누적 추이 데이터 (최근 4주) - 리테일 매출은 전일까지 조회
   let weeklyTrend: WeeklyTrendData[] = [];
   let weeklyAccumTrend: WeeklyTrendData[] = [];
-  
+
+  // 주차별 스냅샷 우선 사용
+  if (useWeeklySnapshot) {
+    const snap = await getSnapshot<{ weeklyTrend: WeeklyTrendData[]; weeklyAccumTrend: WeeklyTrendData[] }>('weekly', ym, 'all');
+    if (snap) {
+      weeklyTrend = snap.weeklyTrend || [];
+      weeklyAccumTrend = snap.weeklyAccumTrend || [];
+      console.log(`[Snapshot] weekly 스냅샷 사용: ${ym}`);
+    }
+  }
+
+  if (!useWeeklySnapshot || weeklyTrend.length === 0) {
   try {
     // 리테일 매출은 선택한 월의 마감 시점까지 조회 (현재월: 전일, 과거월: 월말)
     const retailLastDt = getMonthEndDate(ym);
@@ -1458,6 +1470,7 @@ async function buildChartData(
   } catch (err) {
     console.error('Error fetching trend data:', err);
   }
+  } // end of !useWeeklySnapshot || weeklyTrend.length === 0
   
   return {
     brandSales,
@@ -2569,6 +2582,20 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       );
     }
 
+    // 스냅샷 존재 여부 사전 확인 (retail, clothing, weekly)
+    const clothingBrands = ['M', 'I', 'X', 'V', 'W'];
+    const [hasRetailSnap, hasClothingSnap, hasWeeklySnap] = await Promise.all([
+      brand !== 'all' && isRetailSalesBrand(brand)
+        ? hasSnapshot('retail', ym, brand)
+        : Promise.resolve(false),
+      brand !== 'all' && clothingBrands.includes(brand)
+        ? hasSnapshot('clothing', ym, brand)
+        : Promise.resolve(false),
+      brand === 'all'
+        ? hasSnapshot('weekly', ym, 'all')
+        : Promise.resolve(false),
+    ]);
+
     // 🚀 병렬 처리: 독립적인 데이터 조회를 동시에 실행하여 속도 개선
     const parallelTasks: [
       Promise<ChartData | undefined>,
@@ -2579,11 +2606,11 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       // 차트 데이터 (전체 페이지만, 브랜드별 필터링 지원)
       (async () => {
         if (brand === 'all' && brandDataMap.size > 0) {
-          return await buildChartData(ym, lastDt, brandDataMap, lines, brandCodes);
+          return await buildChartData(ym, lastDt, brandDataMap, lines, brandCodes, hasWeeklySnap);
         } else if (brand !== 'all') {
           const singleBrandCode = brand as BrandCode;
           const emptyBrandDataMap = new Map<BrandCode, { lines: PlLine[]; prevYear: Record<string, number>; accum: Record<string, number> }>();
-          return await buildChartData(ym, lastDt, emptyBrandDataMap, lines, [singleBrandCode]);
+          return await buildChartData(ym, lastDt, emptyBrandDataMap, lines, [singleBrandCode], false);
         }
         return undefined;
       })(),
@@ -2596,20 +2623,34 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         return undefined;
       })(),
       
-      // 점당매출 테이블 데이터 (MLB, MLB KIDS, DISCOVERY만)
+      // 점당매출 테이블 데이터: 스냅샷 우선 (MLB, MLB KIDS, DISCOVERY만)
       (async () => {
         if (brand !== 'all' && isRetailSalesBrand(brand)) {
+          if (hasRetailSnap) {
+            const snap = await getSnapshot<{ data: RetailSalesTableData; retailLastDt: string }>('retail', ym, brand);
+            if (snap) {
+              console.log(`[Snapshot] retail 스냅샷 사용: ${ym}/${brand}`);
+              return snap;
+            }
+          }
           return await buildRetailSalesTable(ym, brand as BrandCode);
         }
         return null;
       })(),
       
-      // 의류 판매율 마지막 날짜 조회 (MLB, MLB KIDS, DISCOVERY, DUVETICA, SUPRA만)
+      // 의류 판매율 마지막 날짜 조회 (스냅샷 있으면 Snowflake 생략)
       (async () => {
-        const clothingBrands = ['M', 'I', 'X', 'V', 'W'];
         if (brand !== 'all' && clothingBrands.includes(brand)) {
-          const lastDt = await getClothingSalesLastDt(brand, ym, cySeason, pySeason);
-          return lastDt || getMonthEndDate(ym);
+          if (hasClothingSnap) {
+            // 스냅샷에서 clothingLastDt 추출
+            const snap = await getSnapshot<{ clothingLastDt: string }>('clothing', ym, brand);
+            if (snap?.clothingLastDt) {
+              console.log(`[Snapshot] clothing 스냅샷 clothingLastDt 사용: ${ym}/${brand}`);
+              return snap.clothingLastDt;
+            }
+          }
+          const dt = await getClothingSalesLastDt(brand, ym, cySeason, pySeason);
+          return dt || getMonthEndDate(ym);
         }
         return null;
       })()
@@ -2626,18 +2667,39 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
       retailSalesTable = retailResult.data;
       retailLastDt = retailResult.retailLastDt;
       
-      // 티어별/지역별 데이터도 함께 조회 (retailLastDt 의존성)
-      const tierRegion = await buildTierRegionData(ym, retailResult.retailLastDt, brand as BrandCode);
-      if (tierRegion) {
-        tierRegionData = tierRegion;
+      if (hasRetailSnap) {
+        // 스냅샷에서 tierRegionData + categorySales 함께 복원
+        const snap = await getSnapshot<{
+          data: RetailSalesTableData;
+          retailLastDt: string;
+          tierRegionData?: TierRegionSalesData;
+          categorySales?: CategorySalesRow[];
+        }>('retail', ym, brand);
+        if (snap) {
+          if (snap.tierRegionData) tierRegionData = snap.tierRegionData;
+        }
+      } else {
+        // Snowflake에서 티어별/지역별 데이터 조회 (retailLastDt 의존성)
+        const tierRegion = await buildTierRegionData(ym, retailResult.retailLastDt, brand as BrandCode);
+        if (tierRegion) {
+          tierRegionData = tierRegion;
+        }
       }
     }
     
     // 의류 판매율 데이터 조회
-    const clothingBrands = ['M', 'I', 'X', 'V', 'W'];
     let clothingSales: { items: any[]; total: any } | undefined;
     
     if (brand !== 'all' && clothingBrands.includes(brand) && clothingLastDt) {
+      // 의류 스냅샷 우선 사용
+      if (hasClothingSnap) {
+        const snap = await getSnapshot<{ clothingSales: { items: any[]; total: any }; clothingLastDt: string }>('clothing', ym, brand);
+        if (snap?.clothingSales) {
+          clothingSales = snap.clothingSales;
+          console.log(`[Snapshot] clothing 스냅샷 사용: ${ym}/${brand}`);
+        }
+      }
+      if (!clothingSales) {
       try {
         console.log('[DEBUG] 의류 판매율 조회 시작:', { brand, clothingLastDt, cySeason, pySeason });
         const clothingData = await getClothingSalesData(brand, clothingLastDt, cySeason, pySeason);
@@ -2719,11 +2781,22 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         console.error('의류 판매율 조회 오류:', error);
         // 에러 발생 시에도 clothingSales는 undefined로 유지 (에러를 API 응답에 포함하지 않음)
       }
+      } // end of !clothingSales (snapshot miss) block
     }
 
-    // 카테고리별 판매매출 조회 (의류 판매율이 있는 브랜드만)
+    // 카테고리별 판매매출 조회 (retail 스냅샷 있으면 생략)
     let categorySales: CategorySalesRow[] | undefined = undefined;
-    if (brand !== 'all' && ['M', 'I', 'X', 'V', 'W'].includes(brand) && clothingLastDt) {
+
+    // retail 스냅샷에서 categorySales 복원 시도
+    if (hasRetailSnap && brand !== 'all' && isRetailSalesBrand(brand)) {
+      const snap = await getSnapshot<{ categorySales?: CategorySalesRow[] }>('retail', ym, brand);
+      if (snap?.categorySales) {
+        categorySales = snap.categorySales;
+        console.log(`[Snapshot] retail.categorySales 스냅샷 사용: ${ym}/${brand}`);
+      }
+    }
+
+    if (!categorySales && brand !== 'all' && ['M', 'I', 'X', 'V', 'W'].includes(brand) && clothingLastDt) {
       try {
         console.log('[DEBUG] 카테고리별 판매매출 조회 시작:', { brand, ym, clothingLastDt });
         categorySales = await getCategorySalesByMonth(brand, ym, clothingLastDt);

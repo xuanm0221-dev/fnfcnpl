@@ -3575,6 +3575,15 @@ export default function BrandPlForecastPage() {
   const [prevShopLoading, setPrevShopLoading] = useState(false);
   const [shopModalTab, setShopModalTab] = useState<'current' | 'prev'>('current');
 
+  // ── 스냅샷 상태 ──
+  const [retailSnapped, setRetailSnapped] = useState(false);
+  const [clothingSnapped, setClothingSnapped] = useState(false);
+  const [dxSnapped, setDxSnapped] = useState(false);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [retailDropOpen, setRetailDropOpen] = useState(false);
+  const [clothingDropOpen, setClothingDropOpen] = useState(false);
+  const [dxDropOpen, setDxDropOpen] = useState(false);
+
   // 유효한 브랜드인지 확인
   const isValid = isValidBrandSlug(brandSlug);
   const brandCode = isValid ? slugToCode(brandSlug as BrandSlug) : null;
@@ -3637,6 +3646,150 @@ export default function BrandPlForecastPage() {
     }
     fetchData();
   }, [ym, brandCode]);
+
+  // 스냅샷 존재 여부 확인 (ym/brand 변경 시)
+  useEffect(() => {
+    if (!brandCode) return;
+    async function checkSnapshots() {
+      try {
+        const [rRes, cRes, dRes] = await Promise.all([
+          fetch(`/api/snapshot?type=retail&ym=${ym}&brand=${brandCode}`),
+          fetch(`/api/snapshot?type=clothing&ym=${ym}&brand=${brandCode}`),
+          brandCode === 'X'
+            ? fetch(`/api/shop-monthly-sales?ym=${ym}&viewType=12months`)
+            : Promise.resolve(null),
+        ]);
+        const rJson = await rRes.json();
+        const cJson = await cRes.json();
+        setRetailSnapped(!!rJson.exists);
+        setClothingSnapped(!!cJson.exists);
+        if (dRes) {
+          const dJson = await dRes.json();
+          setDxSnapped(!!dJson.fromSnapshot);
+        }
+      } catch {
+        // 무시
+      }
+    }
+    checkSnapshots();
+  }, [ym, brandCode]);
+
+  // ── 스냅샷 저장 핸들러 ──
+  const handleRetailSave = async () => {
+    if (!data || !brandCode) return;
+    setSnapshotLoading(true);
+    setRetailDropOpen(false);
+    try {
+      await fetch('/api/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'retail',
+          ym,
+          brand: brandCode,
+          data: {
+            data: data.retailSalesTable,
+            retailLastDt: data.retailLastDt,
+            tierRegionData: data.tierRegionData,
+            categorySales: data.categorySales,
+          },
+        }),
+      });
+      setRetailSnapped(true);
+    } catch { /* 무시 */ } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
+  const handleRetailRecalc = async () => {
+    if (!brandCode) return;
+    setSnapshotLoading(true);
+    setRetailDropOpen(false);
+    try {
+      await fetch(`/api/snapshot?type=retail&ym=${ym}&brand=${brandCode}`, { method: 'DELETE' });
+      setRetailSnapped(false);
+      // 데이터 재조회
+      const defaultSeason = getDefaultSeasonByYm(ym);
+      const defaultPySeason = getPreviousSeason(defaultSeason);
+      const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandCode}&cySeason=${defaultSeason}&pySeason=${defaultPySeason}`);
+      const json: ApiResponse = await res.json();
+      if (!json.error) setData(json);
+    } catch { /* 무시 */ } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
+  const handleClothingSave = async () => {
+    if (!data || !brandCode) return;
+    setSnapshotLoading(true);
+    setClothingDropOpen(false);
+    try {
+      await fetch('/api/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'clothing',
+          ym,
+          brand: brandCode,
+          data: {
+            clothingSales: data.clothingSales,
+            clothingLastDt: data.clothingLastDt,
+          },
+        }),
+      });
+      setClothingSnapped(true);
+    } catch { /* 무시 */ } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
+  const handleClothingRecalc = async () => {
+    if (!brandCode) return;
+    setSnapshotLoading(true);
+    setClothingDropOpen(false);
+    try {
+      await fetch(`/api/snapshot?type=clothing&ym=${ym}&brand=${brandCode}`, { method: 'DELETE' });
+      setClothingSnapped(false);
+      const defaultSeason = getDefaultSeasonByYm(ym);
+      const defaultPySeason = getPreviousSeason(defaultSeason);
+      const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandCode}&cySeason=${defaultSeason}&pySeason=${defaultPySeason}`);
+      const json: ApiResponse = await res.json();
+      if (!json.error) setData(json);
+    } catch { /* 무시 */ } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
+  const handleDxSave = async () => {
+    setSnapshotLoading(true);
+    setDxDropOpen(false);
+    try {
+      // DX 현재 데이터를 가져와서 저장
+      const res = await fetch(`/api/shop-monthly-sales?ym=${ym}&viewType=12months`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        await fetch('/api/shop-monthly-sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ym, viewType: '12months', data: json.data }),
+        });
+        setDxSnapped(true);
+      }
+    } catch { /* 무시 */ } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
+  const handleDxRecalc = async () => {
+    setSnapshotLoading(true);
+    setDxDropOpen(false);
+    try {
+      await fetch(`/api/shop-monthly-sales?ym=${ym}&viewType=12months`, { method: 'DELETE' });
+      setDxSnapped(false);
+    } catch { /* 무시 */ } finally {
+      setSnapshotLoading(false);
+    }
+  };
 
   // 행 토글
   const toggleRow = (id: string) => {
@@ -3893,15 +4046,130 @@ export default function BrandPlForecastPage() {
               </p>
             </div>
             
-            {/* 월 선택 */}
-            <div className="flex items-center gap-4">
-              <label className="text-sm text-gray-500">기준월</label>
-              <input
-                type="month"
-                value={ym}
-                onChange={(e) => handleYmChange(e.target.value)}
-                className="bg-white border border-gray-300 rounded-lg px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              />
+            {/* 스냅샷 버튼 영역 + 월 선택 */}
+            <div className="flex items-center gap-3 flex-wrap justify-end">
+
+              {/* (1) 당월리테일/점당 저장 - 리테일 브랜드만 */}
+              {brandCode && ['M', 'I', 'X'].includes(brandCode) && (
+                <div className="relative">
+                  <div className="flex">
+                    <button
+                      onClick={handleRetailSave}
+                      disabled={snapshotLoading}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-l-lg text-white transition-colors ${
+                        retailSnapped
+                          ? 'bg-teal-500 hover:bg-teal-600'
+                          : 'bg-orange-500 hover:bg-orange-600'
+                      }`}
+                    >
+                      {retailSnapped ? '당월리테일/점당 마감 ✓' : '당월리테일/점당 저장'}
+                    </button>
+                    <button
+                      onClick={() => { setRetailDropOpen(v => !v); setClothingDropOpen(false); setDxDropOpen(false); }}
+                      className={`px-2 py-1.5 text-xs font-semibold rounded-r-lg text-white border-l border-white/30 ${
+                        retailSnapped
+                          ? 'bg-teal-500 hover:bg-teal-600'
+                          : 'bg-orange-500 hover:bg-orange-600'
+                      }`}
+                    >▾</button>
+                  </div>
+                  {retailDropOpen && (
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[120px]">
+                      <button
+                        onClick={handleRetailRecalc}
+                        className="w-full px-4 py-2 text-xs text-left text-gray-700 hover:bg-gray-50 rounded-lg"
+                      >
+                        기준월 재계산
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* (2) 의류 판매율 저장 - 의류 브랜드만 */}
+              {brandCode && ['M', 'I', 'X', 'V', 'W'].includes(brandCode) && (
+                <div className="relative">
+                  <div className="flex">
+                    <button
+                      onClick={handleClothingSave}
+                      disabled={snapshotLoading}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-l-lg text-white transition-colors ${
+                        clothingSnapped
+                          ? 'bg-teal-500 hover:bg-teal-600'
+                          : 'bg-orange-500 hover:bg-orange-600'
+                      }`}
+                    >
+                      {clothingSnapped ? '의류 판매율 마감 ✓' : '의류 판매율 저장'}
+                    </button>
+                    <button
+                      onClick={() => { setClothingDropOpen(v => !v); setRetailDropOpen(false); setDxDropOpen(false); }}
+                      className={`px-2 py-1.5 text-xs font-semibold rounded-r-lg text-white border-l border-white/30 ${
+                        clothingSnapped
+                          ? 'bg-teal-500 hover:bg-teal-600'
+                          : 'bg-orange-500 hover:bg-orange-600'
+                      }`}
+                    >▾</button>
+                  </div>
+                  {clothingDropOpen && (
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[100px]">
+                      <button
+                        onClick={handleClothingRecalc}
+                        className="w-full px-4 py-2 text-xs text-left text-gray-700 hover:bg-gray-50 rounded-lg"
+                      >
+                        재계산
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* (3) DX 스냅샷 - DISCOVERY만 */}
+              {brandCode === 'X' && (
+                <div className="relative">
+                  <div className="flex">
+                    <button
+                      onClick={handleDxSave}
+                      disabled={snapshotLoading}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-l-lg text-white transition-colors ${
+                        dxSnapped
+                          ? 'bg-teal-500 hover:bg-teal-600'
+                          : 'bg-orange-500 hover:bg-orange-600'
+                      }`}
+                    >
+                      {dxSnapped ? 'DX 스냅샷 마감 ✓' : 'DX 스냅샷 저장'}
+                    </button>
+                    <button
+                      onClick={() => { setDxDropOpen(v => !v); setRetailDropOpen(false); setClothingDropOpen(false); }}
+                      className={`px-2 py-1.5 text-xs font-semibold rounded-r-lg text-white border-l border-white/30 ${
+                        dxSnapped
+                          ? 'bg-teal-500 hover:bg-teal-600'
+                          : 'bg-orange-500 hover:bg-orange-600'
+                      }`}
+                    >▾</button>
+                  </div>
+                  {dxDropOpen && (
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[100px]">
+                      <button
+                        onClick={handleDxRecalc}
+                        className="w-full px-4 py-2 text-xs text-left text-gray-700 hover:bg-gray-50 rounded-lg"
+                      >
+                        재계산
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 월 선택 */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-500">기준월</label>
+                <input
+                  type="month"
+                  value={ym}
+                  onChange={(e) => handleYmChange(e.target.value)}
+                  className="bg-white border border-gray-300 rounded-lg px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
             </div>
           </div>
 
