@@ -2905,7 +2905,7 @@ function ClothingSalesSection({
     setSelectedItem(itemCd);
     setLoading(true);
     try {
-      const res = await fetch(`/api/clothing-sales?brandCode=${brandCode}&itemCd=${itemCd}&lastDt=${lastDt}`);
+      const res = await fetch(`/api/clothing-sales?brandCode=${brandCode}&itemCd=${itemCd}&lastDt=${lastDt}&season=${selectedSeason}`);
       const result = await res.json();
       setItemDetails(result.details || []);
     } catch (error) {
@@ -3725,6 +3725,8 @@ export default function BrandPlForecastPage() {
     setSnapshotLoading(true);
     setClothingDropOpen(false);
     try {
+      const defaultSeason = getDefaultSeasonByYm(ym);
+      const defaultPySeason = getPreviousSeason(defaultSeason);
       await fetch('/api/snapshot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3735,6 +3737,8 @@ export default function BrandPlForecastPage() {
           data: {
             clothingSales: data.clothingSales,
             clothingLastDt: data.clothingLastDt,
+            cySeason: defaultSeason,
+            pySeason: defaultPySeason,
           },
         }),
       });

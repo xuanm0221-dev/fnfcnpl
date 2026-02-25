@@ -2203,9 +2203,10 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     // 의류 판매율 시즌 파라미터
     const cySeason = searchParams.get('cySeason') || getDefaultClothingSeason(ym);
     const pySeason = searchParams.get('pySeason') || getPreviousClothingSeason(cySeason);
+    const seasonCacheKey = `${cySeason}_${pySeason}`;
 
     // Redis 캐시 확인 (Cache Aside 패턴)
-    const cachedData = await getCachedData<ApiResponse>(ym, brand);
+    const cachedData = await getCachedData<ApiResponse>(ym, brand, seasonCacheKey);
     if (cachedData) {
       console.log(`[Cache HIT] ${ym}/${brand} - Redis에서 반환`);
       const isDev = process.env.NODE_ENV === 'development';
@@ -2643,8 +2644,9 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
         if (brand !== 'all' && clothingBrands.includes(brand)) {
           if (hasClothingSnap) {
             // 스냅샷에서 clothingLastDt 추출
-            const snap = await getSnapshot<{ clothingLastDt: string }>('clothing', ym, brand);
-            if (snap?.clothingLastDt) {
+            const snap = await getSnapshot<{ clothingLastDt: string; cySeason?: string; pySeason?: string }>('clothing', ym, brand);
+            const seasonMatched = snap?.cySeason === cySeason && snap?.pySeason === pySeason;
+            if (seasonMatched && snap?.clothingLastDt) {
               console.log(`[Snapshot] clothing 스냅샷 clothingLastDt 사용: ${ym}/${brand}`);
               return snap.clothingLastDt;
             }
@@ -2688,13 +2690,14 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     }
     
     // 의류 판매율 데이터 조회
-    let clothingSales: { items: any[]; total: any } | undefined;
+    let clothingSales: ApiResponse['clothingSales'];
     
     if (brand !== 'all' && clothingBrands.includes(brand) && clothingLastDt) {
       // 의류 스냅샷 우선 사용
       if (hasClothingSnap) {
-        const snap = await getSnapshot<{ clothingSales: { items: any[]; total: any }; clothingLastDt: string }>('clothing', ym, brand);
-        if (snap?.clothingSales) {
+        const snap = await getSnapshot<{ clothingSales: ApiResponse['clothingSales']; clothingLastDt: string; cySeason?: string; pySeason?: string }>('clothing', ym, brand);
+        const seasonMatched = snap?.cySeason === cySeason && snap?.pySeason === pySeason;
+        if (seasonMatched && snap?.clothingSales) {
           clothingSales = snap.clothingSales;
           console.log(`[Snapshot] clothing 스냅샷 사용: ${ym}/${brand}`);
         }
@@ -2838,7 +2841,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
 
     // Redis 캐시에 저장 (응답 전에 완료 대기 - 서버리스 종료 전 저장 보장)
     try {
-      await setCachedData(ym, brand, responseData);
+      await setCachedData(ym, brand, responseData, seasonCacheKey);
       console.log(`[Cache SET] ${ym}/${brand} - Redis에 저장 완료`);
     } catch (cacheErr) {
       console.error('[Cache Error] 캐시 저장 실패:', cacheErr);

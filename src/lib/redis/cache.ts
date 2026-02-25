@@ -30,10 +30,10 @@ const kv = url && token ? createClient({ url, token }) : null;
  *
  * 재배포 후 수정본이 바로 반영되도록 버전 포함
  */
-function getCacheKey(ym: string, brand: string): string {
+function getCacheKey(ym: string, brand: string, seasonKey: string = 'base'): string {
   const kstDate = getKstDate();
   const version = process.env.VERCEL_GIT_COMMIT_SHA || 'local';
-  return `dashboard:${ym}:${brand}:${kstDate}:${version}`;
+  return `dashboard:${ym}:${brand}:${seasonKey}:${kstDate}:${version}`;
 }
 
 /**
@@ -76,13 +76,13 @@ function getSecondsUntilMidnight(): number {
  * @param brand - 브랜드 코드 (예: all)
  * @returns 캐시된 데이터 또는 null
  */
-export async function getCachedData<T>(ym: string, brand: string): Promise<T | null> {
+export async function getCachedData<T>(ym: string, brand: string, seasonKey: string = 'base'): Promise<T | null> {
   if (!kv) {
     console.log('[Cache] Redis 미설정 - KV_REST_API_* 또는 UPSTASH_REDIS_REST_* 환경 변수 필요');
     return null;
   }
   try {
-    const key = getCacheKey(ym, brand);
+    const key = getCacheKey(ym, brand, seasonKey);
     console.log(`[Cache] 캐시 키 확인: ${key}`);
     
     const cached = await kv.get<T>(key);
@@ -108,13 +108,13 @@ export async function getCachedData<T>(ym: string, brand: string): Promise<T | n
  * @param brand - 브랜드 코드
  * @param data - 저장할 데이터
  */
-export async function setCachedData<T>(ym: string, brand: string, data: T): Promise<void> {
+export async function setCachedData<T>(ym: string, brand: string, data: T, seasonKey: string = 'base'): Promise<void> {
   if (!kv) {
     console.log('[Cache] Redis 미설정 - 캐시 저장 생략');
     return;
   }
   try {
-    const key = getCacheKey(ym, brand);
+    const key = getCacheKey(ym, brand, seasonKey);
     const ttl = getSecondsUntilMidnight();
     
     await kv.set(key, data, { ex: ttl });
@@ -129,10 +129,10 @@ export async function setCachedData<T>(ym: string, brand: string, data: T): Prom
 /**
  * 일별 캐시 삭제 (스냅샷 저장/삭제 시 호출하여 충돌 방지)
  */
-export async function deleteDailyCache(ym: string, brand: string): Promise<void> {
+export async function deleteDailyCache(ym: string, brand: string, seasonKey: string = 'base'): Promise<void> {
   if (!kv) return;
   try {
-    const key = getCacheKey(ym, brand);
+    const key = getCacheKey(ym, brand, seasonKey);
     await kv.del(key);
     console.log(`[Cache DELETE] 일별 캐시 삭제: ${key}`);
   } catch (error) {
