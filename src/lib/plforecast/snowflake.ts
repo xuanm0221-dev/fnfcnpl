@@ -2328,7 +2328,8 @@ export async function getCategorySalesData(
     const baseYear = ym.substring(0, 4);
     const baseYearShort = baseYear.substring(2, 4); // '25'
     const nextYearShort = String(parseInt(baseYearShort) + 1).padStart(2, '0'); // '26'
-    const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '24'
+    const prevYearShort = String(parseInt(baseYearShort) - 1).padStart(2, '0'); // '25'
+    const prevPrevYearShort = String(parseInt(baseYearShort) - 2).padStart(2, '0'); // '24' (전년 동월 시점의 전년도)
     
     // 컬럼명 결정
     let regionOrTierFilter: string;
@@ -2460,22 +2461,22 @@ export async function getCategorySalesData(
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
             AND RIGHT(s.sesn, 1) = 'S'
             AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${baseYearShort}') THEN 'wear_past_py'
-          -- 전년 데이터 - F/N 시즌 (1-2월): 24=당시즌, 25=차시즌
+          -- 전년 데이터 - F/N 시즌 (1-2월): 전년 동월(25년 2월) 기준으로 24=당시즌, 25=차시즌
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
             AND RIGHT(s.sesn, 1) IN ('F', 'N')
             AND CAST('${month}' AS INTEGER) <= 2
-            AND LEFT(s.sesn, 2) = '${baseYearShort}' THEN 'wear_next_py'
+            AND LEFT(s.sesn, 2) = '${prevYearShort}' THEN 'wear_next_py'
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
             AND RIGHT(s.sesn, 1) IN ('F', 'N')
             AND CAST('${month}' AS INTEGER) <= 2
-            AND LEFT(s.sesn, 2) = '${prevYearShort}' THEN 'wear_current_py'
+            AND LEFT(s.sesn, 2) = '${prevPrevYearShort}' THEN 'wear_current_py'
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
             AND RIGHT(s.sesn, 1) IN ('F', 'N')
             AND CAST('${month}' AS INTEGER) <= 2
-            AND LEFT(s.sesn, 2) NOT IN ('${prevYearShort}', '${baseYearShort}') THEN 'wear_past_py'
+            AND LEFT(s.sesn, 2) NOT IN ('${prevPrevYearShort}', '${prevYearShort}') THEN 'wear_past_py'
           -- 전년 데이터 - F/N 시즌 (3월 이상): 25=당시즌, 26=차시즌
           WHEN UPPER(scs.parent_prdt_kind_nm_en) = 'WEAR' 
             AND s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}'
