@@ -949,23 +949,28 @@ export async function getRetailSalesLastDt(
  * - 매출: 대리상 오프라인 매장 + 상품 브랜드 필터 (매장 브랜드 무관)
  * - 매장수: 대리상 오프라인 매장 + 상품 브랜드 필터 + 매장 브랜드 필터
  * - 매장 필터: anlys_shop_type_nm IN ('FO','FP'), fr_or_cls='FR', anlys_onoff_cls_nm='Offline'
+ * @param range 'monthly'=당월누적(월초~lastDt), 'ytd'=연간누적(1/1~lastDt)
  */
 export async function getRetailSalesData(
   ym: string,
   lastDt: string,
   brandCode: string,
-  shopBrandName: string
+  shopBrandName: string,
+  range: 'monthly' | 'ytd' = 'monthly'
 ): Promise<RetailSalesActuals> {
   const connection = await getConnection();
   try {
     // 날짜 계산
     const [year, month] = ym.split('-').map(Number);
     const prevYear = year - 1;
-    const prevYm = `${prevYear}-${String(month).padStart(2, '0')}`;
     const lastDay = lastDt.split('-')[2]; // 기준일의 일자
     const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
     const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
     const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const lyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullEndDt = range === 'ytd' ? `${prevYear}-12-31` : prevYearFullDt;
     
     const sql = `
       WITH valid_shops AS (
@@ -978,7 +983,7 @@ export async function getRetailSalesData(
           AND s.anlys_onoff_cls_nm = 'Offline'
         QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
       ),
-      -- 당해 누적 (기준월 1일~기준일) - valid_shops에 있는 매장만, 판매액 > 0
+      -- 당해 누적 (월초 또는 1/1~기준일) - valid_shops에 있는 매장만, 판매액 > 0
       cy_shop_sales AS (
         SELECT 
           sale.shop_id,
@@ -986,7 +991,7 @@ export async function getRetailSalesData(
           SUM(sale.sale_amt) as shop_sales_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -997,7 +1002,7 @@ export async function getRetailSalesData(
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
         FROM cy_shop_sales css
       ),
-      -- 전년 누적 (전년 기준월 1일~전년 기준일) - valid_shops에 있는 매장만, 판매액 > 0
+      -- 전년 누적 (전년 월초 또는 1/1~전년 기준일) - valid_shops에 있는 매장만, 판매액 > 0
       ly_cum_shop_sales AS (
         SELECT 
           sale.shop_id,
@@ -1005,7 +1010,7 @@ export async function getRetailSalesData(
           SUM(sale.sale_amt) as shop_sales_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1016,7 +1021,7 @@ export async function getRetailSalesData(
           COUNT(DISTINCT CASE WHEN lcs.brd_nm = ? THEN lcs.shop_id END) as shop_cnt
         FROM ly_cum_shop_sales lcs
       ),
-      -- 전년 월전체 (전년 기준월 1일~전년 월말) - valid_shops에 있는 매장만, 판매액 > 0
+      -- 전년 기간 전체 (월별: 전년 월말까지, YTD: 전년 12/31까지) - valid_shops에 있는 매장만, 판매액 > 0
       ly_full_shop_sales AS (
         SELECT 
           sale.shop_id,
@@ -1024,7 +1029,7 @@ export async function getRetailSalesData(
           SUM(sale.sale_amt) as shop_sales_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1048,9 +1053,9 @@ export async function getRetailSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName, shopBrandName,        // cy_sales (sales_amt, shop_cnt)
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName,  // ly_cum_sales (sales_amt, shop_cnt)
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName,  // ly_full_sales (sales_amt, shop_cnt)
+      cyStartDt, lastDt, brandCode, shopBrandName, shopBrandName,        // cy_sales (sales_amt, shop_cnt)
+      lyStartDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName,  // ly_cum_sales (sales_amt, shop_cnt)
+      lyFullStartDt, lyFullEndDt, brandCode, shopBrandName, shopBrandName,  // ly_full_sales (sales_amt, shop_cnt)
     ];
     
     const rows = await executeQuery<RetailSalesResult>(connection, sql, binds);
@@ -1237,12 +1242,14 @@ const cityKoMap: Record<string, string> = {
 
 /**
  * 티어별 점당매출 조회
+ * @param range 'monthly'=당월누적, 'ytd'=연간누적
  */
 export async function getTierSalesData(
   ym: string,
   lastDt: string,
   brandCode: string,
-  shopBrandName: string
+  shopBrandName: string,
+  range: 'monthly' | 'ytd' = 'monthly'
 ): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
   const connection = await getConnection();
   try {
@@ -1253,6 +1260,10 @@ export async function getTierSalesData(
     const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
     const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
     const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const lyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullEndDt = range === 'ytd' ? `${prevYear}-12-31` : prevYearFullDt;
     
     const sql = `
       WITH valid_shops AS (
@@ -1274,7 +1285,7 @@ export async function getTierSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1322,7 +1333,7 @@ export async function getTierSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1337,7 +1348,7 @@ export async function getTierSalesData(
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY vs.city_tier_nm
       ),
-      -- 전년 월전체 티어별 매출 (판매액 > 0인 매장만)
+      -- 전년 기간 전체 티어별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
         SELECT 
           sale.shop_id,
@@ -1346,7 +1357,7 @@ export async function getTierSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1391,9 +1402,9 @@ export async function getTierSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName, shopBrandName,  // tier_cities, cy_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
+      cyStartDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName, shopBrandName,  // tier_cities, cy_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyStartDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyFullStartDt, lyFullEndDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_tier (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -1485,12 +1496,14 @@ export async function getTierSalesData(
 
 /**
  * 지역별 점당매출 조회
+ * @param range 'monthly'=당월누적, 'ytd'=연간누적
  */
 export async function getRegionSalesData(
   ym: string,
   lastDt: string,
   brandCode: string,
-  shopBrandName: string
+  shopBrandName: string,
+  range: 'monthly' | 'ytd' = 'monthly'
 ): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
   const connection = await getConnection();
   try {
@@ -1501,6 +1514,10 @@ export async function getRegionSalesData(
     const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
     const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
     const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const lyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullEndDt = range === 'ytd' ? `${prevYear}-12-31` : prevYearFullDt;
     
     const sql = `
       WITH valid_shops AS (
@@ -1522,7 +1539,7 @@ export async function getRegionSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1570,7 +1587,7 @@ export async function getRegionSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1585,7 +1602,7 @@ export async function getRegionSalesData(
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.sale_region_nm, '기타')
       ),
-      -- 전년 월전체 지역별 매출 (판매액 > 0인 매장만)
+      -- 전년 기간 전체 지역별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
         SELECT 
           sale.shop_id,
@@ -1594,7 +1611,7 @@ export async function getRegionSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1639,9 +1656,9 @@ export async function getRegionSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName, shopBrandName,  // region_cities, cy_region (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_region (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_region (SALES_AMT, TAG_AMT, SHOP_CNT)
+      cyStartDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName, shopBrandName,  // region_cities, cy_region (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyStartDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_region (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyFullStartDt, lyFullEndDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_region (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -1750,12 +1767,14 @@ export async function getRegionSalesData(
 
 /**
  * Trade Zone별 점당매출 조회
+ * @param range 'monthly'=당월누적, 'ytd'=연간누적
  */
 export async function getTradeZoneSalesData(
   ym: string,
   lastDt: string,
   brandCode: string,
-  shopBrandName: string
+  shopBrandName: string,
+  range: 'monthly' | 'ytd' = 'monthly'
 ): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
   const connection = await getConnection();
   try {
@@ -1766,6 +1785,10 @@ export async function getTradeZoneSalesData(
     const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
     const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
     const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const lyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullEndDt = range === 'ytd' ? `${prevYear}-12-31` : prevYearFullDt;
     
     const sql = `
       WITH valid_shops AS (
@@ -1787,7 +1810,7 @@ export async function getTradeZoneSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1811,7 +1834,7 @@ export async function getTradeZoneSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1826,7 +1849,7 @@ export async function getTradeZoneSalesData(
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.trade_zone_nm, '기타')
       ),
-      -- 전년 월전체 Trade Zone별 매출 (판매액 > 0인 매장만)
+      -- 전년 기간 전체 Trade Zone별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
         SELECT 
           sale.shop_id,
@@ -1835,7 +1858,7 @@ export async function getTradeZoneSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -1879,9 +1902,9 @@ export async function getTradeZoneSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // cy_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
+      cyStartDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // cy_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyStartDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyFullStartDt, lyFullEndDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_trade_zone (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -1950,12 +1973,14 @@ export async function getTradeZoneSalesData(
 
 /**
  * Shop Level별 점당매출 조회
+ * @param range 'monthly'=당월누적, 'ytd'=연간누적
  */
 export async function getShopLevelSalesData(
   ym: string,
   lastDt: string,
   brandCode: string,
-  shopBrandName: string
+  shopBrandName: string,
+  range: 'monthly' | 'ytd' = 'monthly'
 ): Promise<{ current: TierRegionSalesRow[]; prevYear: TierRegionSalesRow[]; prevYearFull: TierRegionSalesRow[] }> {
   const connection = await getConnection();
   try {
@@ -1966,6 +1991,10 @@ export async function getShopLevelSalesData(
     const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
     const prevYearMonthEnd = new Date(prevYear, month, 0).getDate(); // 전년 월말
     const prevYearFullDt = `${prevYear}-${String(month).padStart(2, '0')}-${String(prevYearMonthEnd).padStart(2, '0')}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const lyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const lyFullEndDt = range === 'ytd' ? `${prevYear}-12-31` : prevYearFullDt;
     
     const sql = `
       WITH valid_shops AS (
@@ -1987,7 +2016,7 @@ export async function getShopLevelSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -2011,7 +2040,7 @@ export async function getShopLevelSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -2026,7 +2055,7 @@ export async function getShopLevelSalesData(
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.shop_level_nm, '기타')
       ),
-      -- 전년 월전체 Shop Level별 매출 (판매액 > 0인 매장만)
+      -- 전년 기간 전체 Shop Level별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
         SELECT 
           sale.shop_id,
@@ -2035,7 +2064,7 @@ export async function getShopLevelSalesData(
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
-        WHERE sale.sale_dt BETWEEN DATE_TRUNC('MONTH', ?::DATE) AND ?::DATE
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm
         HAVING SUM(sale.sale_amt) > 0
@@ -2079,9 +2108,9 @@ export async function getShopLevelSalesData(
     `;
     
     const binds = [
-      lastDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // cy_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearLastDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
-      prevYearFullDt, prevYearFullDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
+      cyStartDt, lastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // cy_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyStartDt, prevYearLastDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
+      lyFullStartDt, lyFullEndDt, brandCode, shopBrandName, shopBrandName, shopBrandName,  // ly_full_shop_level (SALES_AMT, TAG_AMT, SHOP_CNT)
     ];
     
     const rows = await executeQuery<TierRegionResult & { PERIOD: string }>(connection, sql, binds);
@@ -2612,12 +2641,14 @@ export async function getCategorySalesData(
 
 /**
  * 카테고리별 판매매출 조회 (브랜드 전체)
- * - 당월 누적 (월초~lastDt의 전일)과 전년 동기간 누적을 조회
+ * - monthly: 당월 누적 (월초~lastDt)과 전년 동기간 누적
+ * - ytd: 연간 누적 (1/1~lastDt)과 전년 1/1~전년 동일일 누적
  */
 export async function getCategorySalesByMonth(
   brdCd: string,
   ym: string,
-  lastDt: string
+  lastDt: string,
+  range: 'monthly' | 'ytd' = 'monthly'
 ): Promise<CategorySalesRow[]> {
   const connection = await getConnection();
   
@@ -2626,12 +2657,12 @@ export async function getCategorySalesByMonth(
     const month = lastDt.substring(5, 7);
     const day = lastDt.substring(8, 10);
     
-    // 당월 누적: 월초 ~ lastDt의 전일
-    const cyStartDt = `${year}-${month}-01`;
-    const cyEndDt = lastDt; // lastDt는 이미 전일까지의 데이터
+    // 당년 누적: monthly=월초~lastDt, ytd=1/1~lastDt
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${month}-01`;
+    const cyEndDt = lastDt;
     
-    // 전년 동기간: 전년 월초 ~ 전년 동일일
-    const pyStartDt = `${year - 1}-${month}-01`;
+    // 전년 동기간: monthly=전년 월초~전년 동일일, ytd=전년 1/1~전년 동일일
+    const pyStartDt = range === 'ytd' ? `${year - 1}-01-01` : `${year - 1}-${month}-01`;
     const pyEndDt = `${year - 1}-${month}-${day}`;
     
     // 기준연도 추출
@@ -2648,7 +2679,16 @@ export async function getCategorySalesByMonth(
     const prevPrevPrevYearShort = String(parseInt(baseYearShort) - 3).padStart(2, '0'); // '22'
     
     const sql = `
-      WITH category_dim AS (
+      WITH valid_shops AS (
+        SELECT DISTINCT d.shop_id
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL s ON d.shop_id = s.shop_id
+        WHERE d.anlys_shop_type_nm IN ('FO', 'FP')
+          AND d.fr_or_cls = 'FR'
+          AND s.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ),
+      category_dim AS (
         SELECT column1 as sort_order, column2 as category
         FROM (VALUES
           (1, '차기시즌'),
@@ -2670,14 +2710,13 @@ export async function getCategorySalesByMonth(
           UPPER(scs.prdt_kind_nm_en) as prdt_kind,
           s.sale_amt
         FROM CHN.dw_sale s
+        INNER JOIN valid_shops vs ON s.shop_id = vs.shop_id
         LEFT JOIN CHN.mst_prdt_scs scs ON s.prdt_scs_cd = scs.prdt_scs_cd
         WHERE s.brd_cd = ?
           AND (
             (s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}')
             OR (s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}')
           )
-          AND s.sesn IS NOT NULL
-          AND s.sesn <> ''
       ),
       categorized_sales AS (
         SELECT

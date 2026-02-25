@@ -3622,15 +3622,16 @@ export default function BrandPlForecastPage() {
           setError(json.error);
         } else {
           setData(json);
-          // 기본 펼침 상태 설정
+          // 기본 펼침 상태 설정 (실판(V+)는 기본 접힘)
           const defaultExpanded = new Set<string>();
+          const forceCollapsed = new Set(['act-sale-vat-inc']);
           if (json.lines && json.lines.length > 0) {
             json.lines.forEach((line) => {
-              if (line.defaultExpanded) {
+              if (line.defaultExpanded && !forceCollapsed.has(line.id)) {
                 defaultExpanded.add(line.id);
               }
               line.children?.forEach((child) => {
-                if (child.defaultExpanded) {
+                if (child.defaultExpanded && !forceCollapsed.has(child.id)) {
                   defaultExpanded.add(child.id);
                 }
               });

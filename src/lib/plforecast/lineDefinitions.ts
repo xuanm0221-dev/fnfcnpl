@@ -57,7 +57,7 @@ export const lineDefinitions: LineDefinition[] = [
     level: 0,
     isParent: true,
     isCalculated: false,
-    defaultExpanded: true,
+    defaultExpanded: false,
     level1: '실판(V+)',
     children: [
       {

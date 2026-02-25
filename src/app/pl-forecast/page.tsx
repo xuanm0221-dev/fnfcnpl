@@ -6,6 +6,8 @@ import type { ApiResponse, PlLine, ChartData, BrandCode } from '@/lib/plforecast
 import { brandTabs, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import { getKstCurrentYm } from '@/lib/plforecast/date';
+import RetailSummaryCard from '@/components/RetailSummaryCard';
+import KpiCard from '@/components/ui/KpiCard';
 import {
   BarChart,
   Bar,
@@ -31,138 +33,6 @@ import {
 // 한국 시간대(KST) 기준으로 계산
 function getCurrentYm(): string {
   return getKstCurrentYm();
-}
-
-// 퍼센트 포맷 (소수점 1자리)
-function formatPct(value: number | null): string {
-  if (value === null) return '-';
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-// 카드 컴포넌트
-function SummaryCard({
-  title,
-  accumValue,
-  accumRate,
-  forecastValue,
-  forecastRate,
-  targetRate,
-  yoyRate,
-  color,
-}: {
-  title: string;
-  accumValue: number | null;
-  accumRate: number | null;
-  forecastValue: number | null;
-  forecastRate: number | null;
-  targetRate: number | null;
-  yoyRate: number | null;
-  color: string;
-}) {
-  const progressValue = targetRate !== null ? Math.min(targetRate * 100, 100) : 0;
-
-  // 제목에서 괄호 부분 분리
-  const titleParts = title.match(/^(.+?)(\(.+?\))$/);
-  const mainTitle = titleParts ? titleParts[1] : title;
-  const bracketText = titleParts ? titleParts[2] : '';
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-      <h3 className="text-sm font-semibold mb-4 text-gray-800">
-        {mainTitle}
-        {bracketText && <span className="text-indigo-600">{bracketText}</span>}
-      </h3>
-      
-      {/* 현시점 (누적) */}
-      <div className="mb-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-bold text-gray-900">{formatK(accumValue)}</span>
-          <span className="text-sm text-indigo-600">({formatPct(accumRate)})</span>
-          <span className="text-xs text-gray-400">(현시점)</span>
-        </div>
-      </div>
-
-      {/* 월말예상 */}
-      <div className="mb-4">
-        <div className="flex items-baseline gap-2">
-          <span className="text-lg font-semibold text-gray-700">{formatK(forecastValue)}</span>
-          <span className="text-sm text-indigo-600">({formatPct(forecastRate)})</span>
-          <span className="text-xs text-gray-400">(월말예상)</span>
-        </div>
-      </div>
-
-      {/* 프로그레스 바 */}
-      <div className="mb-3">
-        <div className="w-full bg-gray-200 rounded-full h-2">
-          <div
-            className="h-2 rounded-full transition-all bg-indigo-600"
-            style={{ width: `${Math.min(progressValue, 100)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* 목표대비 / 전년대비 */}
-      <div className="flex gap-4 text-xs">
-        <div>
-          <span className={targetRate !== null && targetRate >= 1 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-            목표대비 {formatPct(targetRate)}
-          </span>
-        </div>
-        <div>
-          <span className={(yoyRate !== null ? yoyRate + 1 : 0) >= 1 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-            전년대비 {formatPct(yoyRate !== null ? yoyRate + 1 : null)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// 진척률 카드 컴포넌트
-function ProgressCard({
-  title,
-  accumRate,
-  forecastRate,
-  color,
-}: {
-  title: string;
-  accumRate: number | null;
-  forecastRate: number | null;
-  color: string;
-}) {
-  const progressValue = forecastRate !== null ? Math.min(forecastRate * 100, 100) : 0;
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-      <h3 className="text-sm font-semibold mb-4 text-gray-800">{title}</h3>
-      
-      {/* 현시점 진척률 */}
-      <div className="mb-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-bold text-gray-900">{formatPct(accumRate)}</span>
-          <span className="text-xs text-gray-400">(현시점)</span>
-        </div>
-      </div>
-
-      {/* 월말예상 진척률 */}
-      <div className="mb-4">
-        <div className="flex items-baseline gap-2">
-          <span className="text-lg font-semibold text-gray-700">{formatPct(forecastRate)}</span>
-          <span className="text-xs text-gray-400">(월말예상)</span>
-        </div>
-      </div>
-
-      {/* 프로그레스 바 */}
-      <div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
-          <div
-            className="h-2 rounded-full transition-all bg-indigo-600"
-            style={{ width: `${Math.min(progressValue, 100)}%` }}
-          />
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // K 단위 포맷 (차트용)
@@ -254,15 +124,16 @@ export default function PlForecastPage() {
           setError(json.error);
         } else {
           setData(json);
-          // 기본 펼침 상태 설정
+          // 기본 펼침 상태 설정 (실판(V+)는 기본 접힘)
           const defaultExpanded = new Set<string>();
+          const forceCollapsed = new Set(['act-sale-vat-inc']);
           if (json.lines && json.lines.length > 0) {
             json.lines.forEach((line) => {
-              if (line.defaultExpanded) {
+              if (line.defaultExpanded && !forceCollapsed.has(line.id)) {
                 defaultExpanded.add(line.id);
               }
               line.children?.forEach((child) => {
-                if (child.defaultExpanded) {
+                if (child.defaultExpanded && !forceCollapsed.has(child.id)) {
                   defaultExpanded.add(child.id);
                 }
               });
@@ -409,8 +280,7 @@ export default function PlForecastPage() {
       <tr
         key={line.id}
         className={`
-          transition-colors duration-150
-          ${line.isCalculated ? 'bg-white' : 'hover:bg-gray-50/50'}
+          ${line.isCalculated ? 'bg-white' : 'hover:bg-slate-50'}
           ${hasButterBackground ? butterBgClass : ''}
           ${depth === 0 ? '' : 'text-xs'}
           ${hasButterBackground ? 'border-l-4 border-l-yellow-300' : ''}
@@ -443,48 +313,48 @@ export default function PlForecastPage() {
         </td>
 
         {/* 전년 */}
-        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-4 text-right font-mono tabular-nums text-gray-700 text-xs ${butterBgClass}`}>
           {formatK(line.prevYear)}
         </td>
 
         {/* (전년)누적 */}
         {showAccum && (
-          <td className={`py-3 px-3 text-right font-mono text-gray-600 text-xs ${butterBgClass}`}>
+          <td className={`py-3 px-4 text-right font-mono tabular-nums text-gray-600 text-xs ${butterBgClass}`}>
             {formatK(line.prevYearAccum ?? null)}
           </td>
         )}
 
         {/* (전년)진척률 */}
         {showAccum && (
-          <td className={`py-3 px-3 text-right font-mono text-gray-600 text-xs ${butterBgClass}`}>
+          <td className={`py-3 px-4 text-right font-mono tabular-nums text-gray-600 text-xs ${butterBgClass}`}>
             {line.prevYearProgressRate != null ? `${(line.prevYearProgressRate * 100).toFixed(1)}%` : '-'}
           </td>
         )}
 
         {/* 목표 */}
-        <td className={`py-3 px-3 text-right font-mono text-gray-700 text-xs bg-sky-50`}>
+        <td className={`py-3 px-4 text-right font-mono tabular-nums text-gray-700 text-xs bg-sky-50`}>
           {formatK(line.target)}
         </td>
 
         {/* 누적 */}
-        <td className={`py-3 px-3 text-right font-mono text-cyan-600 text-xs ${butterBgClass}`}>
+        <td className={`py-3 px-4 text-right font-mono tabular-nums text-cyan-600 text-xs ${butterBgClass}`}>
           {formatK(line.accum)}
         </td>
 
         {/* 월말예상 */}
-        <td className={`py-3 px-3 text-right font-mono text-emerald-600 text-xs bg-sky-50`}>
+        <td className={`py-3 px-4 text-right font-mono tabular-nums text-emerald-600 text-xs bg-sky-50`}>
           {formatK(line.forecast)}
         </td>
 
         {/* 전년비 */}
-        <td className={`py-3 px-3 text-right font-mono text-xs ${butterBgClass} ${
+        <td className={`py-3 px-4 text-right font-mono tabular-nums text-xs ${butterBgClass} ${
           line.yoyRate !== null && line.yoyRate >= 0 ? 'text-emerald-600' : 'text-rose-600'
         }`}>
           {formatPercentNoDecimal(line.yoyRate !== null ? line.yoyRate + 1 : null)}
         </td>
 
         {/* 달성율 */}
-        <td className={`py-3 px-3 text-right font-mono text-xs ${butterBgClass} ${
+        <td className={`py-3 px-4 text-right font-mono tabular-nums text-xs ${butterBgClass} ${
           line.achvRate !== null && line.achvRate >= 1 ? 'text-emerald-600' : 'text-amber-600'
         }`}>
           {formatPercentNoDecimal(line.achvRate)}
@@ -505,9 +375,9 @@ export default function PlForecastPage() {
   const summary = data?.summary;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       {/* 헤더 */}
-      <header className="border-b border-gray-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="border-b border-slate-200 bg-white shadow-sm sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -689,50 +559,56 @@ export default function PlForecastPage() {
           <div className="flex gap-6">
             {/* 좌측 3/4 - 카드 영역 */}
             <div className="w-3/4">
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <RetailSummaryCard ym={ym} brand="M" />
+                <RetailSummaryCard ym={ym} brand="I" />
+                <RetailSummaryCard ym={ym} brand="X" />
+              </div>
               {summary && (
-                <div className="grid grid-cols-4 gap-4 mb-6">
-                  {/* 카드1: 실판매출(할인율) */}
-                  <SummaryCard
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
+                  <KpiCard
                     title="실판매출(할인율)"
-                    accumValue={summary.actSale.accumValue}
-                    accumRate={summary.actSale.accumRate}
-                    forecastValue={summary.actSale.forecastValue}
-                    forecastRate={summary.actSale.forecastRate}
+                    mainValue={formatK(summary.actSale.accumValue)}
+                    secondaryValue={summary.actSale.accumRate !== null ? `${(summary.actSale.accumRate * 100).toFixed(1)}%` : null}
+                    forecastValue={formatK(summary.actSale.forecastValue)}
+                    forecastSecondaryValue={summary.actSale.forecastRate !== null ? `${(summary.actSale.forecastRate * 100).toFixed(1)}%` : null}
+                    forecastLabel="(월말예상)"
+                    progressValue={summary.actSale.targetRate !== null ? Math.min(summary.actSale.targetRate * 100, 100) : 0}
+                    showProgressBar
                     targetRate={summary.actSale.targetRate}
                     yoyRate={summary.actSale.yoyRate}
-                    color="text-rose-600"
                   />
-
-                  {/* 카드2: 직접이익(이익율) */}
-                  <SummaryCard
+                  <KpiCard
                     title="직접이익(이익율)"
-                    accumValue={summary.directProfit.accumValue}
-                    accumRate={summary.directProfit.accumRate}
-                    forecastValue={summary.directProfit.forecastValue}
-                    forecastRate={summary.directProfit.forecastRate}
+                    mainValue={formatK(summary.directProfit.accumValue)}
+                    secondaryValue={summary.directProfit.accumRate !== null ? `${(summary.directProfit.accumRate * 100).toFixed(1)}%` : null}
+                    forecastValue={formatK(summary.directProfit.forecastValue)}
+                    forecastSecondaryValue={summary.directProfit.forecastRate !== null ? `${(summary.directProfit.forecastRate * 100).toFixed(1)}%` : null}
+                    forecastLabel="(월말예상)"
+                    progressValue={summary.directProfit.targetRate !== null ? Math.min(summary.directProfit.targetRate * 100, 100) : 0}
+                    showProgressBar
                     targetRate={summary.directProfit.targetRate}
                     yoyRate={summary.directProfit.yoyRate}
-                    color="text-amber-600"
                   />
-
-                  {/* 카드3: 영업이익(이익율) */}
-                  <SummaryCard
+                  <KpiCard
                     title="영업이익(이익율)"
-                    accumValue={summary.operatingProfit.accumValue}
-                    accumRate={summary.operatingProfit.accumRate}
-                    forecastValue={summary.operatingProfit.forecastValue}
-                    forecastRate={summary.operatingProfit.forecastRate}
+                    mainValue={formatK(summary.operatingProfit.accumValue)}
+                    secondaryValue={summary.operatingProfit.accumRate !== null ? `${(summary.operatingProfit.accumRate * 100).toFixed(1)}%` : null}
+                    forecastValue={formatK(summary.operatingProfit.forecastValue)}
+                    forecastSecondaryValue={summary.operatingProfit.forecastRate !== null ? `${(summary.operatingProfit.forecastRate * 100).toFixed(1)}%` : null}
+                    forecastLabel="(월말예상)"
+                    progressValue={summary.operatingProfit.targetRate !== null ? Math.min(summary.operatingProfit.targetRate * 100, 100) : 0}
+                    showProgressBar
                     targetRate={summary.operatingProfit.targetRate}
                     yoyRate={summary.operatingProfit.yoyRate}
-                    color="text-emerald-600"
                   />
-
-                  {/* 카드4: 직접이익 진척률 */}
-                  <ProgressCard
+                  <KpiCard
                     title="직접이익 진척률"
-                    accumRate={summary.directProfitProgress.accumRate}
-                    forecastRate={summary.directProfitProgress.forecastRate}
-                    color="text-purple-600"
+                    mainValue={summary.directProfitProgress.accumRate !== null ? `${(summary.directProfitProgress.accumRate * 100).toFixed(1)}%` : '-'}
+                    forecastValue={summary.directProfitProgress.forecastRate !== null ? `${(summary.directProfitProgress.forecastRate * 100).toFixed(1)}%` : '-'}
+                    forecastLabel="(월말예상)"
+                    progressValue={summary.directProfitProgress.forecastRate !== null ? Math.min(summary.directProfitProgress.forecastRate * 100, 100) : 0}
+                    showProgressBar
                   />
                 </div>
               )}
@@ -1027,12 +903,12 @@ export default function PlForecastPage() {
                 {/* 테이블 개선 */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead className="bg-gradient-to-b from-gray-100 to-gray-50 sticky top-0 z-20 shadow-sm">
-                      <tr className="text-gray-700">
-                        <th className="py-3 px-4 text-left text-gray-800 sticky left-0 bg-gradient-to-b from-gray-100 to-gray-50 z-20 border-r border-gray-200">
+                    <thead className="bg-slate-50">
+                      <tr className="text-slate-700">
+                        <th className="py-3 px-4 text-left text-slate-800 sticky left-0 bg-slate-50 z-20 border-r border-slate-200">
                           구분
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">
+                        <th className="py-3 px-4 text-right text-slate-800">
                           <div className="flex flex-col items-end leading-tight">
                             <span>(전년)</span>
                             <span>월전체</span>
@@ -1040,13 +916,13 @@ export default function PlForecastPage() {
                         </th>
                         {showAccum && (
                           <>
-                            <th className="py-3 px-3 text-right text-gray-800">
+                            <th className="py-3 px-4 text-right text-slate-800">
                               <div className="flex flex-col items-end leading-tight">
                                 <span>(전년)</span>
                                 <span>누적</span>
                               </div>
                             </th>
-                            <th className="py-3 px-3 text-right text-gray-800">
+                            <th className="py-3 px-4 text-right text-slate-800">
                               <div className="flex flex-col items-end leading-tight">
                                 <span>(전년)</span>
                                 <span>진척률</span>
@@ -1054,31 +930,31 @@ export default function PlForecastPage() {
                             </th>
                           </>
                         )}
-                        <th className="py-3 px-3 text-right text-gray-800 bg-sky-50">
+                        <th className="py-3 px-4 text-right text-slate-800 bg-sky-50">
                           <div className="flex flex-col items-end leading-tight">
                             <span>(당월)</span>
                             <span>목표</span>
                           </div>
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">
+                        <th className="py-3 px-4 text-right text-slate-800">
                           <div className="flex flex-col items-end leading-tight">
                             <span>(당월)</span>
                             <span>누적실적</span>
                           </div>
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800 bg-sky-50">
+                        <th className="py-3 px-4 text-right text-slate-800 bg-sky-50">
                           <div className="flex flex-col items-end leading-tight">
                             <span>(당월)</span>
                             <span>월말예상</span>
                           </div>
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">
+                        <th className="py-3 px-4 text-right text-slate-800">
                           <div className="flex flex-col items-end leading-tight">
                             <span>(당월말)</span>
                             <span>전년비</span>
                           </div>
                         </th>
-                        <th className="py-3 px-3 text-right text-gray-800">
+                        <th className="py-3 px-4 text-right text-slate-800">
                           <div className="flex flex-col items-end leading-tight">
                             <span>(목표비)</span>
                             <span>달성율</span>
