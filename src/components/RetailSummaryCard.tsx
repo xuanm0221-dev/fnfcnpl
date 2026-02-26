@@ -12,9 +12,9 @@ const TYPE_LABELS: Record<RetailSummaryType, string> = {
 };
 
 const BRAND_TITLES: Record<'M' | 'I' | 'X', string> = {
-  M: 'MLB 리테일 매출(대리상 OFF)',
-  I: 'MLB KIDS 리테일 매출(대리상 OFF)',
-  X: 'DISCOVERY 리테일 매출(대리상 OFF)',
+  M: 'MLB 리테일 (대리상 OFF)',
+  I: 'MLB KIDS 리테일 (대리상 OFF)',
+  X: 'DISCOVERY 리테일 (대리상 OFF)',
 };
 
 function formatPeriodDisplay(periodStart: string, periodEnd: string): string {
@@ -239,11 +239,20 @@ export default function RetailSummaryCard({ ym, brand }: { ym: string; brand: 'M
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-2 pr-4 font-semibold text-gray-700">구분</th>
-                    {visibleLevel2.map((row) => (
-                      <th key={row.key} className="text-center py-2 px-2 font-semibold text-gray-700">
-                        {row.key}
-                      </th>
-                    ))}
+                    {visibleLevel2.map((row) => {
+                      const tooltipText = row.cities && row.cities.length > 0
+                        ? `주요 도시: ${row.cities.join(', ')}`
+                        : undefined;
+                      return (
+                        <th
+                          key={row.key}
+                          className={`text-center py-2 px-2 font-semibold text-gray-700 ${tooltipText ? 'cursor-help' : ''}`}
+                          {...(tooltipText ? { title: tooltipText } : {})}
+                        >
+                          {row.labelKo || row.key}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>

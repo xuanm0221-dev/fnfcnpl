@@ -13,6 +13,7 @@ import {
   getCategorySalesByMonth,
 } from '@/lib/plforecast/snowflake';
 import { getKstCurrentYm, getKstYesterdayDate } from '@/lib/plforecast/date';
+import { getCachedData, setCachedData, deleteDailyCache } from '@/lib/redis/cache';
 
 function getRetailMonthEndDate(ym: string): string {
   const currentYm = getKstCurrentYm();
@@ -32,6 +33,8 @@ export type RetailSummaryType = 'tradeZone' | 'shopLevel' | 'tier' | 'region';
 
 export interface RetailSummaryLevel2Row {
   key: string;
+  labelKo?: string;
+  cities?: string[];
   cySalesAmt: number;
   pySalesAmt: number;
   yoy: number | null;
@@ -103,6 +106,25 @@ export async function GET(request: NextRequest) {
   }
 
   const range = mode;
+
+  // 캐시 키: retail-summary용 (mode + type 조합)
+  const cacheKey = `retailsummary_${mode}_${type}`;
+  const isDev = process.env.NODE_ENV === 'development';
+
+  // Redis 캐시 확인 (Cache Aside 패턴)
+  const cachedData = await getCachedData<RetailSummaryResponse>(ym, brandCode, cacheKey);
+  if (cachedData) {
+    console.log(`[retail-summary Cache HIT] ${ym}/${brandCode}/${mode}/${type}`);
+    return NextResponse.json(cachedData, {
+      headers: {
+        'Cache-Control': isDev
+          ? 'no-store, no-cache, must-revalidate'
+          : 'public, max-age=3600',
+        'X-Cache': 'HIT',
+      },
+    });
+  }
+  console.log(`[retail-summary Cache MISS] ${ym}/${brandCode}/${mode}/${type} - Snowflake 조회 시작`);
 
   try {
     let retailLastDt = await getRetailSalesLastDt(brandCode, ym);
@@ -181,8 +203,14 @@ export async function GET(request: NextRequest) {
 
       const yoy = pySalesAmt > 0 ? row.salesAmt / pySalesAmt : null;
 
+      // Snowflake에서 제공하는 한국어 라벨과 도시 정보 사용 (region/tier)
+      const labelKo = (row as { labelKo?: string }).labelKo;
+      const cities = (row as { cities?: string[] }).cities;
+
       return {
         key: row.key || 'Unknown',
+        ...(labelKo && { labelKo }),
+        ...(cities && cities.length > 0 && { cities }),
         cySalesAmt: row.salesAmt,
         pySalesAmt,
         yoy,
@@ -222,11 +250,20 @@ export async function GET(request: NextRequest) {
       level2: sortByFixedOrder(level2, order),
     };
 
+    // Redis 캐시에 저장
+    try {
+      await setCachedData(ym, brandCode, response, cacheKey);
+      console.log(`[retail-summary Cache SET] ${ym}/${brandCode}/${mode}/${type}`);
+    } catch (cacheErr) {
+      console.error('[retail-summary Cache Error] 저장 실패:', cacheErr);
+    }
+
     return NextResponse.json(response, {
       headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        Pragma: 'no-cache',
-        Expires: '0',
+        'Cache-Control': isDev
+          ? 'no-store, no-cache, must-revalidate'
+          : 'public, max-age=3600',
+        'X-Cache': 'MISS',
       },
     });
   } catch (error) {
@@ -236,6 +273,35 @@ export async function GET(request: NextRequest) {
         error: '데이터 조회 중 오류가 발생했습니다.',
         detail: error instanceof Error ? error.message : String(error),
       },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const ym = searchParams.get('ym');
+  const brand = searchParams.get('brand');
+  const mode = searchParams.get('mode') as 'monthly' | 'ytd' | null;
+  const type = searchParams.get('type') as RetailSummaryType | null;
+
+  if (!ym || !brand || !mode || !type) {
+    return NextResponse.json(
+      { error: 'ym, brand, mode, type 파라미터가 필요합니다.' },
+      { status: 400 }
+    );
+  }
+
+  const cacheKey = `retailsummary_${mode}_${type}`;
+
+  try {
+    await deleteDailyCache(ym, brand, cacheKey);
+    console.log(`[retail-summary Cache DELETE] ${ym}/${brand}/${mode}/${type}`);
+    return NextResponse.json({ success: true, deleted: `${ym}/${brand}/${cacheKey}` });
+  } catch (error) {
+    console.error('[retail-summary Cache DELETE] 에러:', error);
+    return NextResponse.json(
+      { error: '캐시 삭제 중 오류가 발생했습니다.' },
       { status: 500 }
     );
   }
