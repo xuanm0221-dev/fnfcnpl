@@ -1092,6 +1092,13 @@ interface ShopSalesDetailResult {
   FR_OR_CLS: string;
 }
 
+export interface BrandRetailChannelSummaryRow {
+  brandCode: 'M' | 'I' | 'X';
+  channel: 'dealer' | 'direct';
+  cySalesAmt: number;
+  pySalesAmt: number;
+}
+
 /**
  * 매장별 판매매출 상세 조회 (모달용)
  * - 대리상 오프라인 정규매장만 (매장 브랜드 무관)
@@ -1163,6 +1170,163 @@ export async function getShopSalesDetails(
 }
 
 // 티어별/지역별 조회 결과
+export async function getAllRetailSalesLastDt(ym: string): Promise<string> {
+  const connection = await getConnection();
+  try {
+    const [year, month] = ym.split('-').map(Number);
+    const sql = `
+      SELECT MAX(s.sale_dt) AS LAST_DT
+      FROM CHN.dw_sale s
+      INNER JOIN (
+        SELECT DISTINCT d.shop_id
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE m.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ) vs ON s.shop_id = vs.shop_id
+      WHERE s.brd_cd IN ('M', 'I', 'X')
+        AND s.sale_dt >= DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01')
+        AND s.sale_dt < DATE_TRUNC('MONTH', DATE '${year}-${String(month).padStart(2, '0')}-01') + INTERVAL '1 MONTH'
+    `;
+
+    const rows = await executeQuery<{ LAST_DT: string }>(connection, sql);
+
+    if (rows.length === 0 || !rows[0]?.LAST_DT) {
+      return '';
+    }
+
+    const lastDt = rows[0].LAST_DT;
+    if (typeof lastDt === 'string') {
+      return lastDt.split('T')[0];
+    }
+    return '';
+  } catch (error) {
+    console.error('[getAllRetailSalesLastDt] 에러 발생:', error);
+    return '';
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+export async function getBrandRetailChannelSummary(
+  ym: string,
+  lastDt: string,
+  range: 'monthly' | 'ytd' = 'monthly'
+): Promise<BrandRetailChannelSummaryRow[]> {
+  const connection = await getConnection();
+  try {
+    const [year, month] = ym.split('-').map(Number);
+    const prevYear = year - 1;
+    const lastDay = lastDt.split('-')[2];
+    const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const pyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+
+    const sql = `
+      WITH valid_shops AS (
+        SELECT DISTINCT
+          d.shop_id,
+          d.brd_nm,
+          CASE WHEN d.fr_or_cls = 'FR' THEN 'dealer' ELSE 'direct' END AS channel
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE m.anlys_onoff_cls_nm = 'Offline'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ),
+      brand_map AS (
+        SELECT 'M' AS brand_code, 'MLB' AS shop_brand
+        UNION ALL SELECT 'I', 'MLB KIDS'
+        UNION ALL SELECT 'X', 'DISCOVERY'
+      ),
+      channels AS (
+        SELECT 'dealer' AS channel
+        UNION ALL SELECT 'direct'
+      ),
+      cy_shop_sales AS (
+        SELECT
+          sale.brd_cd,
+          vs.brd_nm,
+          vs.channel,
+          SUM(sale.sale_amt) AS sales_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
+          AND sale.brd_cd IN ('M', 'I', 'X')
+        GROUP BY sale.brd_cd, vs.brd_nm, vs.channel
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      py_shop_sales AS (
+        SELECT
+          sale.brd_cd,
+          vs.brd_nm,
+          vs.channel,
+          SUM(sale.sale_amt) AS sales_amt
+        FROM CHN.dw_sale sale
+        INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
+        WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
+          AND sale.brd_cd IN ('M', 'I', 'X')
+        GROUP BY sale.brd_cd, vs.brd_nm, vs.channel
+        HAVING SUM(sale.sale_amt) > 0
+      ),
+      base_rows AS (
+        SELECT bm.brand_code, bm.shop_brand, ch.channel
+        FROM brand_map bm
+        CROSS JOIN channels ch
+      ),
+      cy_summary AS (
+        SELECT
+          b.brand_code,
+          b.channel,
+          COALESCE(SUM(css.sales_amt), 0) AS sales_amt
+        FROM base_rows b
+        LEFT JOIN cy_shop_sales css
+          ON css.brd_cd = b.brand_code
+         AND css.brd_nm = b.shop_brand
+         AND css.channel = b.channel
+        GROUP BY b.brand_code, b.channel
+      ),
+      py_summary AS (
+        SELECT
+          b.brand_code,
+          b.channel,
+          COALESCE(SUM(pss.sales_amt), 0) AS sales_amt
+        FROM base_rows b
+        LEFT JOIN py_shop_sales pss
+          ON pss.brd_cd = b.brand_code
+         AND pss.brd_nm = b.shop_brand
+         AND pss.channel = b.channel
+        GROUP BY b.brand_code, b.channel
+      )
+      SELECT
+        cy.brand_code AS BRAND_CODE,
+        cy.channel AS CHANNEL,
+        cy.sales_amt AS CY_SALES_AMT,
+        py.sales_amt AS PY_SALES_AMT
+      FROM cy_summary cy
+      INNER JOIN py_summary py
+        ON py.brand_code = cy.brand_code
+       AND py.channel = cy.channel
+      ORDER BY cy.brand_code, cy.channel
+    `;
+
+    const rows = await executeQuery<{
+      BRAND_CODE: 'M' | 'I' | 'X';
+      CHANNEL: 'dealer' | 'direct';
+      CY_SALES_AMT: number;
+      PY_SALES_AMT: number;
+    }>(connection, sql, [cyStartDt, lastDt, pyStartDt, prevYearLastDt]);
+
+    return rows.map((row) => ({
+      brandCode: row.BRAND_CODE,
+      channel: row.CHANNEL,
+      cySalesAmt: Number(row.CY_SALES_AMT) || 0,
+      pySalesAmt: Number(row.PY_SALES_AMT) || 0,
+    }));
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
 interface TierRegionResult {
   GROUP_KEY: string;
   SALES_AMT: number;

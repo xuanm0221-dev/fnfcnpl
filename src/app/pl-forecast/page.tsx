@@ -7,6 +7,7 @@ import { brandTabs, codeToLabel } from '@/lib/plforecast/brand';
 import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from '@/lib/plforecast/format';
 import { getKstCurrentYm } from '@/lib/plforecast/date';
 import RetailSummaryCard from '@/components/RetailSummaryCard';
+import RetailBrandSummaryCard from '@/components/RetailBrandSummaryCard';
 import KpiCard from '@/components/ui/KpiCard';
 import {
   BarChart,
@@ -563,6 +564,7 @@ export default function PlForecastPage() {
                 <RetailSummaryCard ym={ym} brand="M" />
                 <RetailSummaryCard ym={ym} brand="I" />
                 <RetailSummaryCard ym={ym} brand="X" />
+                <RetailBrandSummaryCard ym={ym} />
               </div>
               {summary && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
