@@ -39,35 +39,36 @@ export default function KpiCard({
   const barWidth = Math.min(progressValue, 100);
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-6 hover:shadow-xl transition-shadow">
-      <h3 className="text-sm font-medium text-slate-600">{title}</h3>
+    <div className="relative overflow-hidden bg-white rounded-2xl border border-slate-200/90 p-5 shadow-md shadow-slate-200/60 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg">
+      <div className="absolute -right-8 -top-8 h-20 w-20 rounded-full bg-cyan-100/60 blur-2xl" />
+      <h3 className="text-sm font-semibold tracking-tight text-slate-700">{title}</h3>
 
       {/* 현시점 (누적) */}
       <div className="mt-2">
-        <span className="text-2xl font-bold text-slate-900 tabular-nums">{mainValue}</span>
+        <span className="text-[28px] leading-none font-bold text-slate-900 tabular-nums tracking-tight">{mainValue}</span>
         {secondaryValue != null && secondaryValue !== '' && (
-          <span className="ml-2 text-sm text-slate-500">({secondaryValue})</span>
+          <span className="ml-2 text-sm font-medium text-slate-500">({secondaryValue})</span>
         )}
-        <span className="ml-2 text-sm text-slate-500">(현시점)</span>
+        <span className="ml-2 text-xs text-slate-500">(현시점)</span>
       </div>
 
       {/* 월말예상 */}
       {forecastValue != null && (
-        <div className="mt-3">
+        <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2">
           <span className="text-lg font-semibold text-slate-800 tabular-nums">{forecastValue}</span>
           {forecastSecondaryValue != null && forecastSecondaryValue !== '' && (
             <span className="ml-2 text-sm text-slate-500">({forecastSecondaryValue})</span>
           )}
-          <span className="ml-2 text-sm text-slate-500">{forecastLabel}</span>
+          <span className="ml-2 text-xs text-slate-500">{forecastLabel}</span>
         </div>
       )}
 
       {/* 프로그레스 바 */}
       {showProgressBar && (
         <div className="mt-4">
-          <div className="w-full bg-slate-200 rounded-full h-2.5">
+          <div className="w-full bg-slate-200/80 rounded-full h-2.5">
             <div
-              className="h-2.5 rounded-full bg-indigo-600 transition-[width] duration-200"
+              className="h-2.5 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 transition-[width] duration-200"
               style={{ width: `${barWidth}%` }}
             />
           </div>
