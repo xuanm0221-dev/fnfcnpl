@@ -26,7 +26,7 @@ function formatPeriodDisplay(periodStart: string, periodEnd: string): string {
 
 function formatYoy(yoy: number | null): string {
   if (yoy === null) return 'YoY -';
-  return `YoY ${(yoy * 100).toFixed(1)}%`;
+  return `${(yoy * 100).toFixed(1)}%`;
 }
 
 export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
@@ -110,8 +110,10 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                           <th className={`w-28 px-4 py-3 text-left font-semibold ${section.accent}`}>
                             {section.title}
                           </th>
-                          <th className="px-3 py-3 text-right font-semibold text-slate-600">당월YTD (YoY)</th>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-600">연간MTD (YoY)</th>
+                          <th className="px-3 py-3 text-right font-semibold text-slate-600">당월YTD</th>
+                          <th className="px-3 py-3 text-right font-semibold text-slate-600">YoY</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-600">연간MTD</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-600">YoY</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -126,31 +128,31 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                               <td className="px-4 py-3 font-semibold text-slate-900">{BRAND_LABELS[brand]}</td>
                               <td className="px-3 py-3 text-right">
                                 <div className="font-semibold text-slate-900">{formatK(monthly.cySalesAmt)}K</div>
-                                <div
-                                  className={`text-[11px] ${
-                                    monthly.yoy === null
-                                      ? 'text-slate-400'
-                                      : monthly.yoy >= 1
-                                        ? 'text-emerald-700'
-                                        : 'text-rose-700'
-                                  }`}
-                                >
-                                  {formatYoy(monthly.yoy)}
-                                </div>
+                              </td>
+                              <td
+                                className={`px-3 py-3 text-right font-semibold ${
+                                  monthly.yoy === null
+                                    ? 'text-slate-400'
+                                    : monthly.yoy >= 1
+                                      ? 'text-emerald-700'
+                                      : 'text-rose-700'
+                                }`}
+                              >
+                                {formatYoy(monthly.yoy)}
                               </td>
                               <td className="px-4 py-3 text-right">
                                 <div className="font-semibold text-slate-900">{formatK(ytd.cySalesAmt)}K</div>
-                                <div
-                                  className={`text-[11px] ${
-                                    ytd.yoy === null
-                                      ? 'text-slate-400'
-                                      : ytd.yoy >= 1
-                                        ? 'text-emerald-700'
-                                        : 'text-rose-700'
-                                  }`}
-                                >
-                                  {formatYoy(ytd.yoy)}
-                                </div>
+                              </td>
+                              <td
+                                className={`px-4 py-3 text-right font-semibold ${
+                                  ytd.yoy === null
+                                    ? 'text-slate-400'
+                                    : ytd.yoy >= 1
+                                      ? 'text-emerald-700'
+                                      : 'text-rose-700'
+                                }`}
+                              >
+                                {formatYoy(ytd.yoy)}
                               </td>
                             </tr>
                           );
