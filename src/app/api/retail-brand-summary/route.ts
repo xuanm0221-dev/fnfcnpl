@@ -4,6 +4,7 @@ export const revalidate = 0;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getKstCurrentYm, getKstYesterdayDate } from '@/lib/plforecast/date';
+import { getCachedData, setCachedData, deleteDailyCache } from '@/lib/redis/cache';
 import {
   getAllRetailSalesLastDt,
   getBrandRetailChannelSummary,
@@ -69,10 +70,25 @@ function applyRows(
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const ym = searchParams.get('ym');
+  const isDev = process.env.NODE_ENV === 'development';
+  const cacheKey = 'retail_brand_summary';
 
   if (!ym) {
     return NextResponse.json({ error: 'ym 파라미터가 필요합니다.' }, { status: 400 });
   }
+
+  const cachedData = await getCachedData<RetailBrandSummaryResponse>(ym, 'all', cacheKey);
+  if (cachedData) {
+    console.log(`[retail-brand-summary Cache HIT] ${ym}`);
+    return NextResponse.json(cachedData, {
+      headers: {
+        'Cache-Control': isDev ? 'no-store, no-cache, must-revalidate' : 'public, max-age=3600',
+        'X-Cache': 'HIT',
+      },
+    });
+  }
+
+  console.log(`[retail-brand-summary Cache MISS] ${ym} - Snowflake 조회 시작`);
 
   try {
     let retailLastDt = await getAllRetailSalesLastDt(ym);
@@ -96,9 +112,17 @@ export async function GET(request: NextRequest) {
     applyRows(response, monthlyRows, 'monthly');
     applyRows(response, ytdRows, 'ytd');
 
+    try {
+      await setCachedData(ym, 'all', response, cacheKey);
+      console.log(`[retail-brand-summary Cache SET] ${ym}`);
+    } catch (cacheErr) {
+      console.error('[retail-brand-summary Cache Error] 저장 실패:', cacheErr);
+    }
+
     return NextResponse.json(response, {
       headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Cache-Control': isDev ? 'no-store, no-cache, must-revalidate' : 'public, max-age=3600',
+        'X-Cache': 'MISS',
       },
     });
   } catch (error) {
@@ -108,6 +132,28 @@ export async function GET(request: NextRequest) {
         error: '데이터 조회 중 오류가 발생했습니다.',
         detail: error instanceof Error ? error.message : String(error),
       },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const ym = searchParams.get('ym');
+  const cacheKey = 'retail_brand_summary';
+
+  if (!ym) {
+    return NextResponse.json({ error: 'ym 파라미터가 필요합니다.' }, { status: 400 });
+  }
+
+  try {
+    await deleteDailyCache(ym, 'all', cacheKey);
+    console.log(`[retail-brand-summary Cache DELETE] ${ym}`);
+    return NextResponse.json({ success: true, deleted: `${ym}/all/${cacheKey}` });
+  } catch (error) {
+    console.error('[retail-brand-summary Cache DELETE] 에러:', error);
+    return NextResponse.json(
+      { error: '캐시 삭제 중 오류가 발생했습니다.' },
       { status: 500 }
     );
   }
