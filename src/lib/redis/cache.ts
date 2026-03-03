@@ -140,6 +140,37 @@ export async function deleteDailyCache(ym: string, brand: string, seasonKey: str
   }
 }
 
+/**
+ * 특정 월(ym)의 dashboard 캐시 전체 삭제 (pl-forecast 등)
+ * ym 형식: 2026-02 (YYYY-MM) 또는 202602 (YYYYMM)
+ * @param dryRun true면 삭제하지 않고 매칭되는 키 개수만 반환
+ */
+export async function deleteCacheByYm(ym: string, dryRun = false): Promise<number> {
+  if (!kv) return 0;
+  try {
+    const ymCompact = ym.replace(/-/g, '');
+    const patterns = [`dashboard:${ym}:*`, `dashboard:${ymCompact}:*`];
+    let deleted = 0;
+    const kvWithScan = kv as unknown as { scanIterator: (o?: { match?: string; count?: number }) => AsyncIterable<string> };
+    const seenKeys = new Set<string>();
+    for (const pattern of patterns) {
+      for await (const key of kvWithScan.scanIterator({ match: pattern, count: 100 })) {
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          if (!dryRun) await kv.del(key);
+          deleted++;
+          console.log(`[Cache ${dryRun ? 'DRYRUN' : 'DELETE'}] ${key}`);
+        }
+      }
+    }
+    console.log(`[Cache ${dryRun ? 'DRYRUN' : 'DELETE'}] ym=${ym} 총 ${deleted}개`);
+    return deleted;
+  } catch (error) {
+    console.error('[Cache Error] deleteCacheByYm 실패:', error);
+    return 0;
+  }
+}
+
 // ─────────────────────────────────────────────
 // 스냅샷 유틸리티 (영구 저장, TTL 없음)
 //

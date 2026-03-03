@@ -49,7 +49,7 @@ import {
 import { getRetailPlan, isRetailSalesBrand } from '@/data/plforecast/retailPlan';
 import { codeToLabel } from '@/lib/plforecast/brand';
 import { getKstYesterdayDate, getKstCurrentYm } from '@/lib/plforecast/date';
-import { getCachedData, setCachedData, getSnapshot, hasSnapshot } from '@/lib/redis/cache';
+import { getCachedData, setCachedData, getSnapshot, hasSnapshot, deleteCacheByYm, deleteDailyCache } from '@/lib/redis/cache';
 
 // 마감된 월 리스트 (Snowflake에 전체 데이터가 있는 월)
 const CLOSED_MONTHS = ['2025-12', '2026-01'];
@@ -2902,4 +2902,46 @@ function getPreviousClothingSeason(currentSeason: string): string {
   const season = currentSeason.substring(2);
   const prevYear = year - 1;
   return `${prevYear.toString().padStart(2, '0')}${season}`;
+}
+
+export async function DELETE(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const ym = searchParams.get('ym');
+  const dryRun = searchParams.get('dryRun') === '1';
+
+  if (!ym) {
+    return NextResponse.json(
+      { error: 'ym 파라미터가 필요합니다. (예: ym=2026-02)' },
+      { status: 400 }
+    );
+  }
+
+  // YYYY-MM 또는 YYYYMM 형식 검증
+  const normalizedYm = ym.includes('-') ? ym : `${ym.slice(0, 4)}-${ym.slice(4)}`;
+  if (!/^\d{4}-\d{2}$/.test(normalizedYm)) {
+    return NextResponse.json(
+      { error: 'ym은 YYYY-MM 또는 YYYYMM 형식이어야 합니다.' },
+      { status: 400 }
+    );
+  }
+
+  try {
+    // 1) scan으로 패턴 매칭 삭제
+    let deleted = await deleteCacheByYm(normalizedYm, dryRun);
+    // 2) pl-forecast가 사용하는 정확한 키 직접 삭제 (seasonCacheKey)
+    const cySeason = getDefaultClothingSeason(normalizedYm);
+    const pySeason = getPreviousClothingSeason(cySeason);
+    const seasonCacheKey = `${cySeason}_${pySeason}`;
+    for (const brand of ['all', 'M', 'K', 'I', 'X']) {
+      if (!dryRun) await deleteDailyCache(normalizedYm, brand, seasonCacheKey);
+    }
+    console.log(`[pl-forecast Cache DELETE] ym=${normalizedYm} ${dryRun ? 'dryRun' : '삭제 완료'}: ${deleted}+ 직접키`);
+    return NextResponse.json({ success: true, deleted, dryRun });
+  } catch (error) {
+    console.error('[pl-forecast Cache DELETE] 에러:', error);
+    return NextResponse.json(
+      { error: '캐시 삭제 중 오류가 발생했습니다.' },
+      { status: 500 }
+    );
+  }
 }

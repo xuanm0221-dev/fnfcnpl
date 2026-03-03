@@ -13,6 +13,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+// .env.local 로드 (Redis 접속용 - standalone 스크립트는 Next.js env 로딩 없음)
+const envLocalPath = path.join(process.cwd(), '.env.local');
+if (fs.existsSync(envLocalPath)) {
+  const envContent = fs.readFileSync(envLocalPath, 'utf-8');
+  for (const line of envContent.split('\n')) {
+    const match = line.match(/^([^#=]+)=(.*)$/);
+    if (match) {
+      const key = match[1].trim();
+      let value = match[2].trim();
+      // 따옴표 제거
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (!process.env[key]) process.env[key] = value;
+    }
+  }
+}
+
 const TARGET_DIR = 'D:\\로컬파일\\월중손익\\예상손익';
 const RETAIL_PLAN_DIR = 'D:\\로컬파일\\월중손익\\목표retail';
 const ACTUALS_DIR = 'D:\\로컬파일\\월중손익\\실적';
@@ -305,13 +323,14 @@ ${legend}
 
 /**
  * 실적 CSV 파일들을 읽어서 actuals.ts 생성
+ * @returns 업데이트된 월 목록 (YYYY-MM 형식)
  */
-function generateActualsFile(): void {
+function generateActualsFile(): string[] {
   console.log(`[실적] 폴더 확인: ${ACTUALS_DIR}`);
   
   if (!fs.existsSync(ACTUALS_DIR)) {
     console.error(`[실적] 폴더가 존재하지 않습니다: ${ACTUALS_DIR}`);
-    return;
+    return [];
   }
 
   // 월별 폴더 스캔 (YYYY-MM 형식) - 동적으로 모든 폴더 스캔
@@ -322,7 +341,7 @@ function generateActualsFile(): void {
 
   if (monthFolders.length === 0) {
     console.warn(`[실적] 월별 폴더를 찾을 수 없습니다: ${ACTUALS_DIR}`);
-    return;
+    return [];
   }
 
   console.log(`[실적] 발견된 월별 폴더: ${monthFolders.length}개`);
@@ -359,7 +378,7 @@ function generateActualsFile(): void {
 
   if (csvMap.length === 0) {
     console.warn(`[실적] 읽을 수 있는 CSV 파일이 없습니다`);
-    return;
+    return [];
   }
 
   // TypeScript 파일 생성
@@ -427,14 +446,63 @@ ${legend}
 
   fs.writeFileSync(OUTPUT_ACTUALS_FILE, tsContent, 'utf-8');
   console.log(`[실적] ✅ 생성 완료: ${OUTPUT_ACTUALS_FILE}`);
+
+  return [...new Set(csvMap.map((item) => item.fullYm))].sort();
+}
+
+// pl-forecast seasonCacheKey 계산 (route.ts와 동일 로직)
+function getDefaultClothingSeason(ym: string): string {
+  const month = parseInt(ym.substring(5, 7));
+  const year = parseInt(ym.substring(0, 4));
+  if (month >= 1 && month <= 6) {
+    return `${(year - 1).toString().substring(2)}F`;
+  }
+  return `${year.toString().substring(2)}S`;
+}
+function getPreviousClothingSeason(currentSeason: string): string {
+  const year = parseInt(currentSeason.substring(0, 2));
+  const season = currentSeason.substring(2);
+  return `${(year - 1).toString().padStart(2, '0')}${season}`;
+}
+
+/**
+ * pl-forecast Redis 캐시 삭제 (업데이트된 월 기준)
+ */
+async function clearPlForecastCacheForMonths(months: string[]): Promise<void> {
+  if (months.length === 0) return;
+
+  if (!process.env.KV_REST_API_URL && !process.env.UPSTASH_REDIS_REST_URL) {
+    console.warn('[캐시 삭제] Redis 미설정 - KV_REST_API_* 또는 UPSTASH_REDIS_REST_* 필요. 캐시 삭제 건너뜀.');
+    return;
+  }
+
+  const { deleteCacheByYm, deleteDailyCache } = await import('@/lib/redis/cache');
+
+  for (const ym of months) {
+    await deleteCacheByYm(ym);
+    const cySeason = getDefaultClothingSeason(ym);
+    const pySeason = getPreviousClothingSeason(cySeason);
+    const seasonCacheKey = `${cySeason}_${pySeason}`;
+    for (const brand of ['all', 'M', 'K', 'I', 'X']) {
+      await deleteDailyCache(ym, brand, seasonCacheKey);
+    }
+    console.log(`[캐시 삭제] pl-forecast ${ym}`);
+  }
+  console.log(`[캐시 삭제] ✅ pl-forecast 캐시 삭제 완료: ${months.join(', ')}`);
 }
 
 // 메인 실행
-console.log('=== CSV 데이터 업데이트 시작 ===\n');
-generateTargetsFile();
-console.log('');
-generateRetailPlanFile();
-console.log('');
-generateActualsFile();
-console.log('\n=== CSV 데이터 업데이트 완료 ===');
+(async () => {
+  console.log('=== CSV 데이터 업데이트 시작 ===\n');
+  generateTargetsFile();
+  console.log('');
+  generateRetailPlanFile();
+  console.log('');
+  const actualsMonths = generateActualsFile();
+  if (actualsMonths.length > 0) {
+    console.log('');
+    await clearPlForecastCacheForMonths(actualsMonths);
+  }
+  console.log('\n=== CSV 데이터 업데이트 완료 ===');
+})();
 
