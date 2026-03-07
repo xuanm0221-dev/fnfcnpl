@@ -382,18 +382,18 @@ function summarizePayloadForClaude(payload: any): string {
     // 의류 판매율 (Top 10 + 전체)
     if (bd.clothingSales) {
       const cs = bd.clothingSales;
-      lines.push(`[의류 판매율] 전체: 당시즌=${cs.total?.cyRate != null ? `${(cs.total.cyRate * 100).toFixed(1)}%` : '-'}, 전년시즌=${cs.total?.pyRate != null ? `${(cs.total.pyRate * 100).toFixed(1)}%` : '-'}, YoY=${cs.total?.yoy != null ? `${(cs.total.yoy * 100).toFixed(1)}%p` : '-'}`);
+      lines.push(`[의류 판매율] 전체: 당시즌=${cs.total?.cyRate != null ? `${cs.total.cyRate.toFixed(1)}%` : '-'}, 전년시즌=${cs.total?.pyRate != null ? `${cs.total.pyRate.toFixed(1)}%` : '-'}, YoY=${cs.total?.yoy != null ? `${cs.total.yoy.toFixed(1)}%p` : '-'}`);
       if (cs.items && cs.items.length > 0) {
         const sorted = [...cs.items].sort((a: any, b: any) => (b.cySalesAmt || 0) - (a.cySalesAmt || 0));
         lines.push(`[Top 10 판매 아이템]`);
         sorted.slice(0, 10).forEach((item: any) => {
-          lines.push(`  ${item.itemNm}: 판매율=${item.cyRate != null ? `${(item.cyRate * 100).toFixed(1)}%` : '-'}, YoY=${item.yoy != null ? `${(item.yoy * 100).toFixed(1)}%p` : '-'}, 발주수=${item.cyPoQty}`);
+          lines.push(`  ${item.itemNm}: 판매율=${item.cyRate != null ? `${item.cyRate.toFixed(1)}%` : '-'}, YoY=${item.yoy != null ? `${item.yoy.toFixed(1)}%p` : '-'}, 발주수=${item.cyPoQty}`);
         });
-        const weakItems = cs.items.filter((i: any) => i.cyRate != null && i.cyRate < 0.3 && i.cyPoQty > 0);
+        const weakItems = cs.items.filter((i: any) => i.cyRate != null && i.cyRate < 30 && i.cyPoQty > 0);
         if (weakItems.length > 0) {
           lines.push(`[판매율 부진 아이템 (30% 미만)]`);
           weakItems.slice(0, 5).forEach((item: any) => {
-            lines.push(`  ${item.itemNm}: 판매율=${(item.cyRate * 100).toFixed(1)}%, 발주수=${item.cyPoQty}`);
+            lines.push(`  ${item.itemNm}: 판매율=${item.cyRate.toFixed(1)}%, 발주수=${item.cyPoQty}`);
           });
         }
       }
