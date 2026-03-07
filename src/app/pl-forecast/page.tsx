@@ -8,6 +8,7 @@ import { formatK, formatPercent, formatPercentNoDecimal, formatDateShort } from 
 import { getKstCurrentYm } from '@/lib/plforecast/date';
 import RetailSummaryCard from '@/components/RetailSummaryCard';
 import RetailBrandSummaryCard from '@/components/RetailBrandSummaryCard';
+import AiAnalysisModal from '@/components/AiAnalysisModal';
 import KpiCard from '@/components/ui/KpiCard';
 import {
   BarChart,
@@ -81,11 +82,11 @@ function getWaterfallColor(type: string): string {
 
 export default function PlForecastPage() {
   const router = useRouter();
-  // 초기값은 2026-02 (기본 조회월)
+  // 초기값은 2026-03 (기본 조회월)
   const [ym, setYm] = useState(() => {
-    if (typeof window === 'undefined') return '2026-02';
+    if (typeof window === 'undefined') return '2026-03';
     const p = new URLSearchParams(window.location.search);
-    return p.get('ym') || '2026-02';
+    return p.get('ym') || '2026-03';
   });
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,6 +102,9 @@ export default function PlForecastPage() {
   const [weeklySnapped, setWeeklySnapped] = useState(false);
   const [weeklySnapLoading, setWeeklySnapLoading] = useState(false);
   const [weeklyDropOpen, setWeeklyDropOpen] = useState(false);
+
+  // ── AI 분석 모달 상태 ──
+  const [showAiModal, setShowAiModal] = useState(false);
 
   // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
   useEffect(() => {
@@ -474,7 +478,7 @@ export default function PlForecastPage() {
           </div>
 
           {/* 탭 */}
-          <div className="flex gap-1 mt-4">
+          <div className="flex items-center gap-1 mt-4">
             {brandTabs.map((tab) => (
               <button
                 key={tab.slug}
@@ -490,6 +494,16 @@ export default function PlForecastPage() {
                 {tab.label}
               </button>
             ))}
+            {/* AI 분석 버튼 */}
+            <button
+              onClick={() => setShowAiModal(true)}
+              className="ml-3 flex items-center gap-1.5 px-4 py-2 rounded-t-lg text-sm font-medium bg-gradient-to-r from-violet-600 to-violet-500 text-white hover:from-violet-700 hover:to-violet-600 transition-all shadow-sm"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.346A3.89 3.89 0 0116 16.5V17a2 2 0 01-2 2h-4a2 2 0 01-2-2v-.5a3.89 3.89 0 01-1.071-2.653l-.347-.346z" />
+              </svg>
+              AI 분석
+            </button>
           </div>
         </div>
       </header>
@@ -1053,6 +1067,11 @@ export default function PlForecastPage() {
           </div>
         )}
       </main>
+
+      {/* AI 분석 모달 */}
+      {showAiModal && (
+        <AiAnalysisModal ym={ym} onClose={() => setShowAiModal(false)} />
+      )}
     </div>
   );
 }

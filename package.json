@@ -10,6 +10,7 @@
     "update-csv": "tsx scripts/update-csv-data.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@vercel/kv": "^3.0.0",
     "csv-parse": "^6.1.0",
     "next": "16.1.1",
