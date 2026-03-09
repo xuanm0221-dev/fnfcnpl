@@ -5,14 +5,15 @@ export const revalidate = 0;
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import { Redis } from '@upstash/redis';
 
-// ── 캐시 파일 경로 (/tmp는 Vercel 환경에서도 쓰기 가능)
-const CACHE_FILE = path.join(
-  process.env.VERCEL ? '/tmp' : process.cwd(),
-  'analysis_cache.json',
-);
+// ── Upstash Redis 클라이언트 (공유 캐시 — Vercel 서버리스 환경 대응)
+const redis = new Redis({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
+
+const CACHE_TTL_SECONDS = 60 * 60 * 20; // 20시간 (당일 분석 유지)
 
 // ── 분석 대상 브랜드
 const ANALYSIS_BRANDS = ['M', 'I', 'X'] as const;
@@ -229,21 +230,23 @@ interface AnalysisResult {
   ANOMALY_ALERTS?: string[];
 }
 
-function readCache(): AnalysisCache | null {
-  try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
-      return JSON.parse(raw) as AnalysisCache;
-    }
-  } catch {
-    // 캐시 읽기 실패 시 무시
-  }
-  return null;
+function getCacheKey(ym: string): string {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return `analysis:${ym}:${today}`;
 }
 
-function writeCache(cache: AnalysisCache): void {
+async function readCache(ym: string): Promise<AnalysisCache | null> {
   try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2), 'utf-8');
+    const data = await redis.get<AnalysisCache>(getCacheKey(ym));
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCache(ym: string, cache: AnalysisCache): Promise<void> {
+  try {
+    await redis.set(getCacheKey(ym), cache, { ex: CACHE_TTL_SECONDS });
   } catch {
     // 캐시 쓰기 실패 시 무시 (분석 결과는 정상 반환)
   }
@@ -566,9 +569,9 @@ export async function GET(request: NextRequest) {
     const hash = generateHash(payload);
     console.log(`[analyze] 페이로드 해시: ${hash.slice(0, 12)}...`);
 
-    // 3. 캐시 확인
-    const cached = readCache();
-    if (cached && cached.hash === hash) {
+    // 3. 캐시 확인 (당일 날짜 기반 Redis 캐시)
+    const cached = await readCache(ym);
+    if (cached) {
       console.log(`[analyze] 캐시 히트 - Claude 호출 생략`);
       return NextResponse.json({
         ok: true,
@@ -628,13 +631,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 6. 캐시 저장
+    // 6. 캐시 저장 (Redis — 당일 20시간 유지)
     const newCache: AnalysisCache = {
       hash,
       base_date: ym,
       analysis,
     };
-    writeCache(newCache);
+    await writeCache(ym, newCache);
 
     console.log(`[analyze] 완료: model=${message.model}`);
     return NextResponse.json({
