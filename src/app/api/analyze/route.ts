@@ -534,6 +534,7 @@ function generateHash(payload: unknown): string {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const ym = searchParams.get('ym') || '2026-02';
+  const force = searchParams.get('force') === 'true';
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -547,7 +548,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // 1. 데이터 수집
-    console.log(`[analyze] 데이터 수집 시작: ym=${ym}`);
+    console.log(`[analyze] 데이터 수집 시작: ym=${ym}, force=${force}`);
     const payload = await buildPayload(baseUrl, ym);
 
     // 2. 해시 생성
@@ -555,19 +556,24 @@ export async function GET(request: NextRequest) {
     console.log(`[analyze] 페이로드 해시: ${hash.slice(0, 12)}...`);
 
     // 3. 캐시 확인 (당일 날짜 기반 Redis 캐시)
+    // force=true 이면 캐시를 건너뛰고 Claude 재호출
     // BRANDS 키가 없으면 구 구조 캐시로 판단 → 재호출
-    const cached = await readCache(ym);
-    if (cached && cached.analysis?.BRANDS) {
-      console.log(`[analyze] 캐시 히트 - Claude 호출 생략`);
-      return NextResponse.json({
-        ok: true,
-        cached: true,
-        base_date: cached.base_date,
-        analysis: cached.analysis,
-      });
-    }
-    if (cached && !cached.analysis?.BRANDS) {
-      console.log(`[analyze] 구 구조 캐시 감지 - Claude 재호출`);
+    if (!force) {
+      const cached = await readCache(ym);
+      if (cached && cached.analysis?.BRANDS) {
+        console.log(`[analyze] 캐시 히트 - Claude 호출 생략`);
+        return NextResponse.json({
+          ok: true,
+          cached: true,
+          base_date: cached.base_date,
+          analysis: cached.analysis,
+        });
+      }
+      if (cached && !cached.analysis?.BRANDS) {
+        console.log(`[analyze] 구 구조 캐시 감지 - Claude 재호출`);
+      }
+    } else {
+      console.log(`[analyze] force=true - 캐시 건너뜀, Claude 재호출`);
     }
 
     // 4. 이상감지

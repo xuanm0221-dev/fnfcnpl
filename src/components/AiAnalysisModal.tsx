@@ -353,30 +353,34 @@ export default function AiAnalysisModal({ ym, onClose }: AiAnalysisModalProps) {
   const [cached, setCached] = useState(false);
   const [baseDate, setBaseDate] = useState('');
 
-  React.useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      setLoading(true);
-      setError('');
-      try {
-        const res = await fetch(`/api/analyze?ym=${ym}`);
-        if (cancelled) return;
-        const json = await res.json();
-        if (json.error) { setError(json.error); }
-        else {
-          setAnalysis(json.analysis as AnalysisResult);
-          setCached(json.cached === true);
-          setBaseDate(json.base_date || ym);
-        }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : '알 수 없는 오류');
-      } finally {
-        if (!cancelled) setLoading(false);
+  const fetchAnalysis = React.useCallback(async (force = false) => {
+    setLoading(true);
+    setError('');
+    try {
+      const url = force ? `/api/analyze?ym=${ym}&force=true` : `/api/analyze?ym=${ym}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.error) { setError(json.error); }
+      else {
+        setAnalysis(json.analysis as AnalysisResult);
+        setCached(json.cached === true);
+        setBaseDate(json.base_date || ym);
       }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '알 수 없는 오류');
+    } finally {
+      setLoading(false);
     }
-    run();
-    return () => { cancelled = true; };
   }, [ym]);
+
+  React.useEffect(() => {
+    fetchAnalysis();
+  }, [fetchAnalysis]);
+
+  const handleRegenerate = () => {
+    if (!window.confirm('캐시를 무시하고 AI 분석을 재생성합니다.\n약 30~90초가 소요됩니다. 계속하시겠습니까?')) return;
+    fetchAnalysis(true);
+  };
 
   React.useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -412,11 +416,24 @@ export default function AiAnalysisModal({ ym, onClose }: AiAnalysisModalProps) {
               )}
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRegenerate}
+              disabled={loading}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="캐시 무시하고 AI 재분석"
+            >
+              <svg className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              재생성
+            </button>
+            <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* 탭 바 */}
