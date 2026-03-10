@@ -52,7 +52,7 @@ import { getKstYesterdayDate, getKstCurrentYm } from '@/lib/plforecast/date';
 import { getCachedData, setCachedData, getSnapshot, hasSnapshot, deleteCacheByYm, deleteDailyCache } from '@/lib/redis/cache';
 
 // 마감된 월 리스트 (Snowflake에 전체 데이터가 있는 월)
-const CLOSED_MONTHS = ['2025-12', '2026-01'];
+const CLOSED_MONTHS = ['2025-12', '2026-01', '2026-02'];
 
 // 마감 여부 판단
 function isClosedMonth(ym: string): boolean {
