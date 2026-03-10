@@ -174,6 +174,18 @@ BRANDS rules (apply independently to each brand):
 - Every bullet must connect at least two metrics and include business interpretation
 - Never write shallow single-metric descriptions
 
+- Any bullet using apparel sell-through, seasonal metrics, or prior-season comparisons must begin with an explicit season label in brackets.
+- This rule also applies to kpi_bullets, risks, growth_points, and top10_items whenever the sentence is based on seasonal data.
+- Use formats such as [25F], [26S], [25F vs 24F], or [26S vs 25S].
+- Never write an unlabeled seasonal sentence such as "의류 판매율은 60.1%로 전년 65.0% 대비 4.9%p 하락".
+- If the sentence describes total apparel sell-through or "전체 의류" performance, it must always include the exact season label.
+- Correct example: [25F vs 24F] 전체 의류 판매율은 60.1%로 전년 65.0% 대비 4.9%p 하락하여 재고 회전 압박이 확대됨
+
+- apparel_sellthrough must explicitly separate and analyze both 25F and 26S when both seasons are available in the dashboard context.
+- Every apparel_sellthrough bullet must begin with a season label such as [25F], [26S], or [25F vs 24F].
+- Do not merge 25F and 26S into one unlabeled sentence. If both seasons are discussed, name both explicitly.
+- Prefer at least one bullet for 25F and at least one bullet for 26S when both seasons are available.
+
 OVERALL rules:
 - headline: one-sentence overall performance statement for the entire China subsidiary (all 3 brands combined)
 - anomaly_notes: cross-brand systemic anomalies or macro risks (can be empty array if none)
