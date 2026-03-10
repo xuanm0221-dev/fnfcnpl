@@ -119,7 +119,7 @@ export default function RetailSummaryCard({ ym, brand }: { ym: string; brand: 'M
                   : 'text-gray-600 hover:bg-white hover:text-gray-800 hover:shadow-sm'
               }`}
             >
-              당월YTD
+              당월MTD
             </button>
             <button
               onClick={() => setMode('ytd')}
@@ -129,7 +129,7 @@ export default function RetailSummaryCard({ ym, brand }: { ym: string; brand: 'M
                   : 'text-gray-600 hover:bg-white hover:text-gray-800 hover:shadow-sm'
               }`}
             >
-              연간MTD
+              연간YTD
             </button>
           </div>
           <div className="flex gap-1.5 rounded-xl bg-white/55 p-1 ring-1 ring-white/80 backdrop-blur-sm">

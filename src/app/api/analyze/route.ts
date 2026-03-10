@@ -96,11 +96,11 @@ The goal is NOT to describe numbers. The goal is to extract business meaning.
 8. BUSINESS DECISION FOCUS: Each section must identify growth drivers, gaps, risks, and management implications.
 
 ANOMALY AUTO-DETECTION:
-If input includes ANOMALY_ALERTS, reflect them prominently in EXECUTIVE_SUMMARY.risks and STRATEGY_ACTION_PLAN.risk_mitigation.
+If input includes ANOMALY_ALERTS, reflect them in the relevant brand's BRANDS[brand].risks and in OVERALL.anomaly_notes.
 Anomaly signals to watch:
-- 점당매출 YoY < -20% → flag as productivity alert
-- Trade Zone 할인율 급등 > +5%p → flag as margin risk
-- 의류 판매율 YoY < -10%p → flag as inventory risk
+- 점당매출 YoY < -20% → flag as productivity alert in that brand's risks
+- Trade Zone 할인율 급등 > +5%p → flag as margin risk in that brand's risks
+- 의류 판매율 YoY < -10%p → flag as inventory risk in that brand's risks
 
 GENERAL RULES:
 - Do not mention excluded brands.
@@ -112,85 +112,74 @@ GENERAL RULES:
 
 Return ONLY valid JSON. Do not include explanations, markdown, or code blocks before or after the JSON.
 
-The report must have THREE major sections:
-1. EXECUTIVE_SUMMARY — 핵심 KPI 및 주요 이슈 (high-level, concise)
-2. DETAILED_ANALYSIS — 각종 상세 분석 (deep, comparative, insight-driven)
-3. STRATEGY_ACTION_PLAN — 전략 및 실행 과제 (management-ready recommendations)
+BRAND SEPARATION RULES (ABSOLUTE — NO EXCEPTIONS):
+- Each brand (MLB, MLB_KIDS, DISCOVERY) MUST be output as a completely separate object under BRANDS.
+- NEVER mix two or more brands within a single bullet string. Each bullet must describe ONLY one brand.
+- OVERALL must NOT contain brand-specific detailed analysis — only high-level cross-brand summary and strategy.
+- If data is missing or insufficient for any field, return an empty array []. Never omit the field.
 
 Return JSON with exactly the following structure:
 
 {
-  "EXECUTIVE_SUMMARY": {
-    "headline": "string",
-    "kpi_bullets": ["string", "string", "string"],
-    "growth_points": ["string", "string", "string"],
-    "risks": ["string", "string", "string"],
-    "anomaly_notes": ["string"]
-  },
-  "DETAILED_ANALYSIS": {
-    "headline": "string",
-    "brand_analysis": [
-      {
-        "brand": "string",
-        "bullets": ["string", "string", "string", "string"]
-      }
-    ],
-    "trade_zone_analysis": {
-      "bullets": ["string", "string", "string", "string", "string"]
+  "BRANDS": {
+    "MLB": {
+      "kpi_bullets":         ["string", "string", "string"],
+      "growth_points":       ["string", "string", "string"],
+      "risks":               ["string", "string", "string"],
+      "trade_zone":          ["string", "string", "string", "string"],
+      "sales_per_store":     ["string", "string", "string"],
+      "category":            ["string", "string", "string"],
+      "apparel_sellthrough": ["string", "string", "string"],
+      "top10_items":         ["string", "string", "string"]
     },
-    "sales_per_store_analysis": {
-      "bullets": ["string", "string", "string", "string"]
+    "MLB_KIDS": {
+      "kpi_bullets":         ["string", "string", "string"],
+      "growth_points":       ["string", "string", "string"],
+      "risks":               ["string", "string", "string"],
+      "trade_zone":          ["string", "string", "string", "string"],
+      "sales_per_store":     ["string", "string", "string"],
+      "category":            ["string", "string", "string"],
+      "apparel_sellthrough": ["string", "string", "string"],
+      "top10_items":         ["string", "string", "string"]
     },
-    "category_analysis": {
-      "bullets": ["string", "string", "string", "string"]
-    },
-    "apparel_sellthrough_analysis": {
-      "bullets": ["string", "string", "string", "string"]
-    },
-    "top10_item_analysis": {
-      "bullets": ["string", "string", "string", "string"]
-    },
-    "shop_level_analysis": {
-      "bullets": ["string", "string", "string"]
-    },
-    "tier_analysis": {
-      "bullets": ["string", "string", "string"]
-    },
-    "region_analysis": {
-      "bullets": ["string", "string", "string"]
-    },
-    "treemap_level2_analysis": {
-      "bullets": ["string", "string", "string"]
+    "DISCOVERY": {
+      "kpi_bullets":         ["string", "string", "string"],
+      "growth_points":       ["string", "string", "string"],
+      "risks":               ["string", "string", "string"],
+      "trade_zone":          ["string", "string", "string", "string"],
+      "sales_per_store":     ["string", "string", "string"],
+      "category":            ["string", "string", "string"],
+      "apparel_sellthrough": ["string", "string", "string"],
+      "top10_items":         ["string", "string", "string"]
     }
   },
-  "STRATEGY_ACTION_PLAN": {
-    "headline": "string",
-    "growth_strategy": ["string", "string", "string"],
-    "risk_mitigation": ["string", "string", "string"],
-    "operational_improvements": ["string", "string", "string"]
-  },
-  "ANOMALY_ALERTS": ["string"]
+  "OVERALL": {
+    "headline":                  "string",
+    "anomaly_notes":             ["string"],
+    "growth_strategy":           ["string", "string", "string"],
+    "risk_mitigation":           ["string", "string", "string"],
+    "operational_improvements":  ["string", "string", "string"]
+  }
 }
 
-EXECUTIVE_SUMMARY rules:
-- headline: one-sentence overall performance statement
-- kpi_bullets: 3–5 key KPI observations with numbers (brand retail, YoY, sales per store, sell-through, discount rate)
-- growth_points: 3–4 most important growth drivers with cross-metric interpretation
-- risks: 3–4 most important risks or structural concerns
-- anomaly_notes: any detected anomalies (can be empty array if none)
-- Total must be readable in 30 seconds
-
-DETAILED_ANALYSIS rules:
-- Each section must have minimum 3–5 bullets
-- Every bullet must connect at least two metrics
-- Include ranking and comparative statements in each section
+BRANDS rules (apply independently to each brand):
+- kpi_bullets: 3–5 key KPI observations WITH numbers for THIS brand only (retail sales K, YoY, sales per store 위안, sell-through %, discount rate %)
+- growth_points: 3–4 most important growth drivers for THIS brand with cross-metric interpretation
+- risks: 3–4 most important risks or structural concerns for THIS brand (incorporate any anomaly alerts detected for this brand)
+- trade_zone: 3–5 Trade Zone analysis bullets for THIS brand (rank zones, connect sales + discount + sales-per-store metrics)
+- sales_per_store: 3–4 sales-per-store analysis bullets for THIS brand
+- category: 3–4 category analysis bullets for THIS brand
+- apparel_sellthrough: 3–4 apparel sell-through analysis bullets for THIS brand
+- top10_items: 3–4 top 10 item analysis bullets for THIS brand
+- Every bullet must connect at least two metrics and include business interpretation
 - Never write shallow single-metric descriptions
 
-STRATEGY_ACTION_PLAN rules:
-- growth_strategy: 3 concrete expansion or investment recommendations
-- risk_mitigation: 3 concrete risk response actions
-- operational_improvements: 3 concrete operational efficiency actions
-- Each action must reference specific zones, categories, or brands from the data
+OVERALL rules:
+- headline: one-sentence overall performance statement for the entire China subsidiary (all 3 brands combined)
+- anomaly_notes: cross-brand systemic anomalies or macro risks (can be empty array if none)
+- growth_strategy: 3 concrete cross-brand expansion or investment recommendations referencing specific zones, categories, or brands
+- risk_mitigation: 3 concrete cross-brand risk response actions
+- operational_improvements: 3 concrete cross-brand operational efficiency actions
 - Format as actionable management directives`;
 
 // ── 캐시 읽기/쓰기 유틸
@@ -200,34 +189,30 @@ interface AnalysisCache {
   analysis: AnalysisResult;
 }
 
+interface BrandAnalysis {
+  kpi_bullets: string[];
+  growth_points: string[];
+  risks: string[];
+  trade_zone: string[];
+  sales_per_store: string[];
+  category: string[];
+  apparel_sellthrough: string[];
+  top10_items: string[];
+}
+
 interface AnalysisResult {
-  EXECUTIVE_SUMMARY: {
+  BRANDS: {
+    MLB: BrandAnalysis;
+    MLB_KIDS: BrandAnalysis;
+    DISCOVERY: BrandAnalysis;
+  };
+  OVERALL: {
     headline: string;
-    kpi_bullets: string[];
-    growth_points: string[];
-    risks: string[];
     anomaly_notes: string[];
-  };
-  DETAILED_ANALYSIS: {
-    headline: string;
-    brand_analysis: { brand: string; bullets: string[] }[];
-    trade_zone_analysis: { bullets: string[] };
-    sales_per_store_analysis: { bullets: string[] };
-    category_analysis: { bullets: string[] };
-    apparel_sellthrough_analysis: { bullets: string[] };
-    top10_item_analysis: { bullets: string[] };
-    shop_level_analysis: { bullets: string[] };
-    tier_analysis: { bullets: string[] };
-    region_analysis: { bullets: string[] };
-    treemap_level2_analysis: { bullets: string[] };
-  };
-  STRATEGY_ACTION_PLAN: {
-    headline: string;
     growth_strategy: string[];
     risk_mitigation: string[];
     operational_improvements: string[];
   };
-  ANOMALY_ALERTS?: string[];
 }
 
 function getCacheKey(ym: string): string {
@@ -354,31 +339,31 @@ function summarizePayloadForClaude(payload: any): string {
     lines.push(`\n=== ${brandLabel} ===`);
     lines.push(`마감일: ${bd.lastDt || '-'}, 누적일수: ${bd.accumDays || '-'}`);
 
-    // 점당매출 데이터 (점당매출/월환산 = 위안CNY, 매출합계 = K단위)
+    // 점당매출 데이터 — 대리상(OFF) 채널 전용 (점당매출/월환산 = 위안CNY, 매출합계 = K단위)
     if (bd.retailSalesTable) {
       const rt = bd.retailSalesTable;
-      lines.push(`[점당매출] 리테일매출합계(단위:K): 실적=${rt.salesK?.actual ?? '-'}K, YoY=${rt.salesK?.yoy != null ? `${(rt.salesK.yoy * 100).toFixed(1)}%` : '-'}, 진척률=${rt.salesK?.progressRate != null ? `${(rt.salesK.progressRate * 100).toFixed(1)}%` : '-'}`);
-      lines.push(`[점당매출] 점당매출(단위:위안CNY): 실적=${rt.salesPerShop?.actual ?? '-'}위안, YoY=${rt.salesPerShop?.yoy != null ? `${(rt.salesPerShop.yoy * 100).toFixed(1)}%` : '-'}`);
-      lines.push(`[점당매출] 점당매출_월환산(단위:위안CNY): 실적=${rt.salesPerShopMonthly?.actual ?? '-'}위안, YoY=${rt.salesPerShopMonthly?.yoy != null ? `${(rt.salesPerShopMonthly.yoy * 100).toFixed(1)}%` : '-'}`);
-      lines.push(`[점당매출] 매장수: ${rt.shopCount?.actual ?? '-'}개, 전년: ${rt.shopCount?.prevYear ?? '-'}개`);
+      lines.push(`[점당매출 - 대리상(OFF)] 리테일매출합계(단위:K): 실적=${rt.salesK?.actual != null ? Math.round(rt.salesK.actual) : '-'}K, YoY=${rt.salesK?.yoy != null ? `${(rt.salesK.yoy * 100).toFixed(1)}%` : '-'}, 진척률=${rt.salesK?.progressRate != null ? `${(rt.salesK.progressRate * 100).toFixed(1)}%` : '-'}`);
+      lines.push(`[점당매출 - 대리상(OFF)] 점당매출(단위:위안CNY): 실적=${rt.salesPerShop?.actual != null ? Math.round(rt.salesPerShop.actual) : '-'}위안, YoY=${rt.salesPerShop?.yoy != null ? `${(rt.salesPerShop.yoy * 100).toFixed(1)}%` : '-'}`);
+      lines.push(`[점당매출 - 대리상(OFF)] 점당매출_월환산(단위:위안CNY): 실적=${rt.salesPerShopMonthly?.actual != null ? Math.round(rt.salesPerShopMonthly.actual) : '-'}위안, YoY=${rt.salesPerShopMonthly?.yoy != null ? `${(rt.salesPerShopMonthly.yoy * 100).toFixed(1)}%` : '-'}`);
+      lines.push(`[점당매출 - 대리상(OFF)] 매장수: ${rt.shopCount?.actual ?? '-'}개, 전년: ${rt.shopCount?.prevYear ?? '-'}개`);
     }
 
-    // Trade Zone 데이터 (매출합계=K, 점당매출=위안CNY)
+    // Trade Zone 데이터 — 대리상(OFF) 채널 전용 (매출합계=raw위안→K변환, 점당매출=위안CNY)
     if (bd.tierRegionData?.tradeZones) {
-      lines.push(`[Trade Zone] 매출합계단위:K / 점당매출단위:위안CNY`);
+      lines.push(`[Trade Zone - 대리상(OFF)] 매출합계단위:K / 점당매출단위:위안CNY`);
       for (const tz of bd.tierRegionData.tradeZones) {
         const yoy = tz.discountRateYoy != null ? `할인율YoY=${tz.discountRateYoy.toFixed(1)}%p` : '';
         const dr = tz.discountRate != null ? `할인율=${tz.discountRate.toFixed(1)}%` : '';
         const spYoy = tz.prevSalesPerShop > 0 ? `점당매출YoY=${(((tz.salesPerShop / tz.prevSalesPerShop) - 1) * 100).toFixed(1)}%` : '';
-        lines.push(`  ${tz.key}: 매출=${tz.salesAmt}K, 전년매출=${tz.prevSalesAmt}K, 점당매출=${tz.salesPerShop}위안, ${spYoy}, ${dr}, ${yoy}`);
+        lines.push(`  ${tz.key}: 매출=${Math.round(tz.salesAmt / 1000)}K, 전년매출=${Math.round(tz.prevSalesAmt / 1000)}K, 점당매출=${Math.round(tz.salesPerShop)}위안, ${spYoy}, ${dr}, ${yoy}`);
       }
     }
 
-    // 카테고리 데이터 (K)
+    // 카테고리 데이터 (raw위안→K변환)
     if (bd.categorySales && bd.categorySales.length > 0) {
       lines.push(`[카테고리별 판매매출] 단위:K`);
       for (const cat of bd.categorySales) {
-        lines.push(`  ${cat.category}: 당년=${cat.cyAccumAmt}K, 전년=${cat.pyAccumAmt}K, YoY=${cat.yoy != null ? `${(cat.yoy * 100).toFixed(1)}%` : '-'}`);
+        lines.push(`  ${cat.category}: 당년=${Math.round(cat.cyAccumAmt / 1000)}K, 전년=${Math.round(cat.pyAccumAmt / 1000)}K, YoY=${cat.yoy != null ? `${cat.yoy.toFixed(1)}%` : '-'}`);
       }
     }
 
@@ -402,74 +387,74 @@ function summarizePayloadForClaude(payload: any): string {
       }
     }
 
-    // Tier 데이터 (매출합계=K, 점당매출=위안CNY)
+    // Tier 데이터 — 대리상(OFF) 채널 전용 (raw위안→K변환, 점당매출=위안CNY)
     if (bd.tierRegionData?.tiers) {
-      lines.push(`[Tier별] 매출합계단위:K / 점당매출단위:위안CNY`);
+      lines.push(`[Tier별 - 대리상(OFF)] 매출합계단위:K / 점당매출단위:위안CNY`);
       for (const t of bd.tierRegionData.tiers) {
         const spYoy = t.prevSalesPerShop > 0 ? `${(((t.salesPerShop / t.prevSalesPerShop) - 1) * 100).toFixed(1)}%` : '-';
         const dr = t.discountRate != null ? `${t.discountRate.toFixed(1)}%` : '-';
-        lines.push(`  ${t.key}: 매출=${t.salesAmt}K, 전년매출=${t.prevSalesAmt}K, 점당매출=${t.salesPerShop}위안, 점당매출YoY=${spYoy}, 할인율=${dr}`);
+        lines.push(`  ${t.key}: 매출=${Math.round(t.salesAmt / 1000)}K, 전년매출=${Math.round(t.prevSalesAmt / 1000)}K, 점당매출=${Math.round(t.salesPerShop)}위안, 점당매출YoY=${spYoy}, 할인율=${dr}`);
       }
     }
 
-    // Region 데이터 (매출합계=K, 점당매출=위안CNY)
+    // Region 데이터 — 대리상(OFF) 채널 전용 (raw위안→K변환, 점당매출=위안CNY)
     if (bd.tierRegionData?.regions) {
-      lines.push(`[Region별] 매출합계단위:K / 점당매출단위:위안CNY`);
+      lines.push(`[Region별 - 대리상(OFF)] 매출합계단위:K / 점당매출단위:위안CNY`);
       for (const r of bd.tierRegionData.regions) {
         const labelKo = r.labelKo || r.key;
         const spYoy = r.prevSalesPerShop > 0 ? `${(((r.salesPerShop / r.prevSalesPerShop) - 1) * 100).toFixed(1)}%` : '-';
-        lines.push(`  ${labelKo}: 매출=${r.salesAmt}K, 전년매출=${r.prevSalesAmt}K, 점당매출=${r.salesPerShop}위안, 점당매출YoY=${spYoy}`);
+        lines.push(`  ${labelKo}: 매출=${Math.round(r.salesAmt / 1000)}K, 전년매출=${Math.round(r.prevSalesAmt / 1000)}K, 점당매출=${Math.round(r.salesPerShop)}위안, 점당매출YoY=${spYoy}`);
       }
     }
 
-    // Retail Summary - 월별/YTD (모두 K)
+    // Retail Summary — 대리상(OFF) 채널 전용 (raw위안→K변환)
     const retailKey = brandKey as keyof typeof payload.retail_summary;
     const rs = payload.retail_summary?.[retailKey];
     if (rs) {
       const monthlyTZ = rs.monthly?.tradeZone as any;
       const ytdTZ = rs.ytd?.tradeZone as any;
       if (monthlyTZ?.level1) {
-        lines.push(`[리테일 매출 당월(단위:K)] 실적=${monthlyTZ.level1.cySalesAmt}K, 전년=${monthlyTZ.level1.pySalesAmt}K, YoY=${monthlyTZ.level1.yoy != null ? `${(monthlyTZ.level1.yoy * 100).toFixed(1)}%` : '-'}`);
+        lines.push(`[리테일 매출 당월 - 대리상(OFF)(단위:K)] 실적=${Math.round(monthlyTZ.level1.cySalesAmt / 1000)}K, 전년=${Math.round(monthlyTZ.level1.pySalesAmt / 1000)}K, YoY=${monthlyTZ.level1.yoy != null ? `${(monthlyTZ.level1.yoy * 100).toFixed(1)}%` : '-'}`);
         if (monthlyTZ.level2) {
           for (const row of monthlyTZ.level2) {
             const label = row.labelKo || row.key;
-            lines.push(`  TZ당월 ${label}: 실적=${row.cySalesAmt}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}, 할인율=${row.discountRate != null ? `${(row.discountRate * 100).toFixed(1)}%` : '-'}`);
+            lines.push(`  TZ당월 ${label}: 실적=${Math.round(row.cySalesAmt / 1000)}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}, 할인율=${row.discountRate != null ? `${(row.discountRate * 100).toFixed(1)}%` : '-'}`);
           }
         }
       }
       if (ytdTZ?.level1) {
-        lines.push(`[리테일 매출 YTD(단위:K)] 실적=${ytdTZ.level1.cySalesAmt}K, 전년=${ytdTZ.level1.pySalesAmt}K, YoY=${ytdTZ.level1.yoy != null ? `${(ytdTZ.level1.yoy * 100).toFixed(1)}%` : '-'}`);
+        lines.push(`[리테일 매출 YTD - 대리상(OFF)(단위:K)] 실적=${Math.round(ytdTZ.level1.cySalesAmt / 1000)}K, 전년=${Math.round(ytdTZ.level1.pySalesAmt / 1000)}K, YoY=${ytdTZ.level1.yoy != null ? `${(ytdTZ.level1.yoy * 100).toFixed(1)}%` : '-'}`);
         if (ytdTZ.level2) {
           for (const row of ytdTZ.level2) {
             const label = row.labelKo || row.key;
-            lines.push(`  TZ_YTD ${label}: 실적=${row.cySalesAmt}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}, 할인율=${row.discountRate != null ? `${(row.discountRate * 100).toFixed(1)}%` : '-'}`);
+            lines.push(`  TZ_YTD ${label}: 실적=${Math.round(row.cySalesAmt / 1000)}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}, 할인율=${row.discountRate != null ? `${(row.discountRate * 100).toFixed(1)}%` : '-'}`);
           }
         }
       }
 
-      // Tier summary (K)
+      // Tier summary (raw위안→K변환)
       const monthlyTier = rs.monthly?.tier as any;
       const ytdTier = rs.ytd?.tier as any;
       if (monthlyTier?.level2) {
-        lines.push(`[Tier 리테일 당월(단위:K)]`);
+        lines.push(`[Tier 리테일 당월 - 대리상(OFF)(단위:K)]`);
         for (const row of monthlyTier.level2) {
-          lines.push(`  ${row.key}: 실적=${row.cySalesAmt}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}, 할인율=${row.discountRate != null ? `${(row.discountRate * 100).toFixed(1)}%` : '-'}`);
+          lines.push(`  ${row.key}: 실적=${Math.round(row.cySalesAmt / 1000)}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}, 할인율=${row.discountRate != null ? `${(row.discountRate * 100).toFixed(1)}%` : '-'}`);
         }
       }
       if (ytdTier?.level2) {
-        lines.push(`[Tier 리테일 YTD(단위:K)]`);
+        lines.push(`[Tier 리테일 YTD - 대리상(OFF)(단위:K)]`);
         for (const row of ytdTier.level2) {
-          lines.push(`  ${row.key}: 실적=${row.cySalesAmt}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}`);
+          lines.push(`  ${row.key}: 실적=${Math.round(row.cySalesAmt / 1000)}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}`);
         }
       }
 
-      // Region summary (K)
+      // Region summary (raw위안→K변환)
       const monthlyRegion = rs.monthly?.region as any;
       if (monthlyRegion?.level2) {
-        lines.push(`[Region 리테일 당월(단위:K)]`);
+        lines.push(`[Region 리테일 당월 - 대리상(OFF)(단위:K)]`);
         for (const row of monthlyRegion.level2) {
           const label = row.labelKo || row.key;
-          lines.push(`  ${label}: 실적=${row.cySalesAmt}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}`);
+          lines.push(`  ${label}: 실적=${Math.round(row.cySalesAmt / 1000)}K, YoY=${row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}`);
         }
       }
     }
@@ -570,8 +555,9 @@ export async function GET(request: NextRequest) {
     console.log(`[analyze] 페이로드 해시: ${hash.slice(0, 12)}...`);
 
     // 3. 캐시 확인 (당일 날짜 기반 Redis 캐시)
+    // BRANDS 키가 없으면 구 구조 캐시로 판단 → 재호출
     const cached = await readCache(ym);
-    if (cached) {
+    if (cached && cached.analysis?.BRANDS) {
       console.log(`[analyze] 캐시 히트 - Claude 호출 생략`);
       return NextResponse.json({
         ok: true,
@@ -579,6 +565,9 @@ export async function GET(request: NextRequest) {
         base_date: cached.base_date,
         analysis: cached.analysis,
       });
+    }
+    if (cached && !cached.analysis?.BRANDS) {
+      console.log(`[analyze] 구 구조 캐시 감지 - Claude 재호출`);
     }
 
     // 4. 이상감지
@@ -591,7 +580,7 @@ export async function GET(request: NextRequest) {
     console.log(`[analyze] Claude 호출 시작...`);
     const summaryText = summarizePayloadForClaude(payload);
     const anomalySection = anomalyAlerts.length > 0
-      ? `\n\n[ANOMALY_ALERTS - 이상감지 항목, CEO_REPORT에 반드시 반영]\n${anomalyAlerts.map(a => `- ${a}`).join('\n')}`
+      ? `\n\n[ANOMALY_ALERTS - 이상감지 항목, 해당 브랜드의 BRANDS[brand].risks 및 OVERALL.anomaly_notes에 반드시 반영]\n${anomalyAlerts.map(a => `- ${a}`).join('\n')}`
       : '';
 
     const client = new Anthropic({ apiKey });

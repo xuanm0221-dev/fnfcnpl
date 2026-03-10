@@ -83,9 +83,9 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
         <div className="mt-2 text-xs text-slate-500">
           {currentData ? (
             <>
-              <span>당월YTD {formatPeriodDisplay(currentData.monthlyPeriodStart, currentData.periodEnd)}</span>
+              <span>당월MTD {formatPeriodDisplay(currentData.monthlyPeriodStart, currentData.periodEnd)}</span>
               <span className="mx-2 text-slate-300">|</span>
-              <span>연간MTD {formatPeriodDisplay(currentData.ytdPeriodStart, currentData.periodEnd)}</span>
+              <span>연간YTD {formatPeriodDisplay(currentData.ytdPeriodStart, currentData.periodEnd)}</span>
             </>
           ) : (
             <span>기간 확인 중</span>
@@ -110,9 +110,9 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                           <th className={`w-28 px-4 py-3 text-left font-semibold ${section.accent}`}>
                             {section.title}
                           </th>
-                          <th className="px-3 py-3 text-right font-semibold text-slate-600">당월YTD</th>
+                          <th className="px-3 py-3 text-right font-semibold text-slate-600">당월MTD</th>
                           <th className="px-3 py-3 text-right font-semibold text-slate-600">YoY</th>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-600">연간MTD</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-600">연간YTD</th>
                           <th className="px-4 py-3 text-right font-semibold text-slate-600">YoY</th>
                         </tr>
                       </thead>

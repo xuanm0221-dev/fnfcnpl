@@ -4,42 +4,32 @@ import React, { useState } from 'react';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-interface ExecSummary {
-  headline: string;
+interface BrandAnalysis {
   kpi_bullets: string[];
   growth_points: string[];
   risks: string[];
+  trade_zone: string[];
+  sales_per_store: string[];
+  category: string[];
+  apparel_sellthrough: string[];
+  top10_items: string[];
+}
+
+interface OverallAnalysis {
+  headline: string;
   anomaly_notes: string[];
-}
-
-interface BulletSection { bullets: string[] }
-
-interface DetailedAnalysis {
-  headline: string;
-  brand_analysis: { brand: string; bullets: string[] }[];
-  trade_zone_analysis: BulletSection;
-  sales_per_store_analysis: BulletSection;
-  category_analysis: BulletSection;
-  apparel_sellthrough_analysis: BulletSection;
-  top10_item_analysis: BulletSection;
-  shop_level_analysis: BulletSection;
-  tier_analysis: BulletSection;
-  region_analysis: BulletSection;
-  treemap_level2_analysis: BulletSection;
-}
-
-interface StrategyActionPlan {
-  headline: string;
   growth_strategy: string[];
   risk_mitigation: string[];
   operational_improvements: string[];
 }
 
 interface AnalysisResult {
-  EXECUTIVE_SUMMARY: ExecSummary;
-  DETAILED_ANALYSIS: DetailedAnalysis;
-  STRATEGY_ACTION_PLAN: StrategyActionPlan;
-  ANOMALY_ALERTS?: string[];
+  BRANDS: {
+    MLB: BrandAnalysis;
+    MLB_KIDS: BrandAnalysis;
+    DISCOVERY: BrandAnalysis;
+  };
+  OVERALL: OverallAnalysis;
 }
 
 interface AiAnalysisModalProps {
@@ -178,51 +168,25 @@ function LoadingState() {
   );
 }
 
-// ── CEO 요약 탭 (EXECUTIVE_SUMMARY) ──────────────────────────────────────────
+// ── 브랜드 탭 (MLB / MLB KIDS / DISCOVERY) ───────────────────────────────────
 
-function CeoTab({ data, anomalyAlerts }: { data: ExecSummary; anomalyAlerts?: string[] }) {
-  const hasAnomaly = (anomalyAlerts?.length ?? 0) > 0 || (data.anomaly_notes?.length ?? 0) > 0;
-  const allAnomalies = [...(anomalyAlerts ?? []), ...(data.anomaly_notes ?? [])];
-
+function BrandTab({ data }: { data: BrandAnalysis }) {
   return (
     <div className="space-y-4">
-      {/* 헤드라인 */}
-      <div className="rounded-xl bg-slate-800 px-6 py-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1.5">Executive Summary</p>
-            <h3 className="text-base font-bold text-white leading-snug">{data.headline}</h3>
-          </div>
-          {hasAnomaly && (
-            <span className="flex-shrink-0 mt-1 rounded-full bg-red-500 px-3 py-1 text-xs font-bold text-white">주의</span>
-          )}
-        </div>
+      {/* 채널 안내 배너 */}
+      <div className="rounded-lg border border-blue-400 bg-blue-50 px-4 py-3 flex items-start gap-2.5">
+        <svg className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p className="text-sm font-semibold text-blue-900">
+          리테일 매출 · 점당매출 · Trade Zone 데이터는 <span className="font-bold underline decoration-blue-400">오프라인 대리상(OFF) 채널</span> 기준입니다.
+        </p>
       </div>
 
-      {/* 이상감지 */}
-      {hasAnomaly && allAnomalies.length > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4">
-          <div className="flex items-center gap-2 mb-2">
-            <svg className="h-4 w-4 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z" />
-            </svg>
-            <p className="text-xs font-bold text-red-700 uppercase tracking-widest">⚠ 이상징후 탐지</p>
-          </div>
-          <ul className="space-y-1.5">
-            {allAnomalies.map((a, i) => (
-              <li key={i} className="flex gap-2 text-sm text-red-700">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                {a}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* KPI 핵심 지표 */}
+      {/* 핵심 KPI */}
       {data.kpi_bullets?.length > 0 && (
         <InsightBox
-          title="핵심 KPI 요약"
+          title="핵심 KPI"
           items={data.kpi_bullets}
           color="slate"
           icon={
@@ -233,10 +197,10 @@ function CeoTab({ data, anomalyAlerts }: { data: ExecSummary; anomalyAlerts?: st
         />
       )}
 
-      {/* 주요 성장 포인트 */}
+      {/* 성장 포인트 */}
       {data.growth_points?.length > 0 && (
         <InsightBox
-          title="주요 성장 포인트"
+          title="성장 포인트"
           items={data.growth_points}
           color="green"
           icon={
@@ -247,10 +211,10 @@ function CeoTab({ data, anomalyAlerts }: { data: ExecSummary; anomalyAlerts?: st
         />
       )}
 
-      {/* 주요 리스크 */}
+      {/* 리스크 */}
       {data.risks?.length > 0 && (
         <InsightBox
-          title="주요 리스크"
+          title="리스크 & 주의사항"
           items={data.risks}
           color="red"
           icon={
@@ -260,137 +224,116 @@ function CeoTab({ data, anomalyAlerts }: { data: ExecSummary; anomalyAlerts?: st
           }
         />
       )}
+
+      {/* Trade Zone */}
+      {data.trade_zone?.length > 0 && (
+        <SectionCard num={1} title="Trade Zone 분석">
+          <BulletList bullets={data.trade_zone} />
+        </SectionCard>
+      )}
+
+      {/* 점당매출 */}
+      {data.sales_per_store?.length > 0 && (
+        <SectionCard num={2} title="점당매출 분석">
+          <BulletList bullets={data.sales_per_store} />
+        </SectionCard>
+      )}
+
+      {/* 카테고리 */}
+      {data.category?.length > 0 && (
+        <SectionCard num={3} title="카테고리 분석">
+          <BulletList bullets={data.category} />
+        </SectionCard>
+      )}
+
+      {/* 의류 판매율 */}
+      {data.apparel_sellthrough?.length > 0 && (
+        <SectionCard num={4} title="의류 판매율 분석">
+          <BulletList bullets={data.apparel_sellthrough} />
+        </SectionCard>
+      )}
+
+      {/* Top 10 아이템 */}
+      {data.top10_items?.length > 0 && (
+        <SectionCard num={5} title="Top 10 아이템 분석">
+          <BulletList bullets={data.top10_items} />
+        </SectionCard>
+      )}
     </div>
   );
 }
 
-// ── 실무분석 탭 (DETAILED_ANALYSIS + STRATEGY_ACTION_PLAN) ───────────────────
+// ── 전체 탭 (OVERALL) ─────────────────────────────────────────────────────────
 
-function DetailedTab({ detailed, strategy }: { detailed: DetailedAnalysis; strategy: StrategyActionPlan }) {
+function OverallTab({ data }: { data: OverallAnalysis }) {
+  const hasAnomaly = data.anomaly_notes?.length > 0;
+
   return (
     <div className="space-y-4">
-      {/* 섹션 헤드라인 */}
-      <div className="rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 px-6 py-5">
-        <p className="text-xs text-indigo-200 uppercase tracking-widest font-semibold mb-1">Detailed Analysis</p>
-        <h3 className="text-base font-bold text-white leading-snug">{detailed.headline}</h3>
+      {/* 헤드라인 */}
+      <div className="rounded-xl bg-slate-800 px-6 py-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1.5">법인 종합 요약</p>
+            <h3 className="text-base font-bold text-white leading-snug">{data.headline}</h3>
+          </div>
+          {hasAnomaly && (
+            <span className="flex-shrink-0 mt-1 rounded-full bg-red-500 px-3 py-1 text-xs font-bold text-white">주의</span>
+          )}
+        </div>
       </div>
 
-      {/* 1. 브랜드별 분석 */}
-      {detailed.brand_analysis?.length > 0 && (
-        <SectionCard num={1} title="브랜드별 분석">
-          <div className="space-y-5">
-            {detailed.brand_analysis.map((b, i) => (
-              <div key={i} className="border-l-4 border-indigo-300 pl-4 py-0.5">
-                <p className="text-xs font-bold text-indigo-700 mb-2 uppercase tracking-wider">{b.brand}</p>
-                <BulletList bullets={b.bullets} />
-              </div>
+      {/* 이상감지 */}
+      {hasAnomaly && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4">
+          <div className="flex items-center gap-2 mb-2">
+            <svg className="h-4 w-4 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z" />
+            </svg>
+            <p className="text-xs font-bold text-red-700 uppercase tracking-widest">이상징후 탐지</p>
+          </div>
+          <ul className="space-y-1.5">
+            {data.anomaly_notes.map((a, i) => (
+              <li key={i} className="flex gap-2 text-sm text-red-700">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                {a}
+              </li>
             ))}
-          </div>
-        </SectionCard>
-      )}
-
-      {/* 2. Trade Zone 분석 */}
-      {detailed.trade_zone_analysis?.bullets?.length > 0 && (
-        <SectionCard num={2} title="Trade Zone 분석">
-          <BulletList bullets={detailed.trade_zone_analysis.bullets} />
-        </SectionCard>
-      )}
-
-      {/* 3. 점당매출 분석 */}
-      {detailed.sales_per_store_analysis?.bullets?.length > 0 && (
-        <SectionCard num={3} title="점당매출 분석">
-          <BulletList bullets={detailed.sales_per_store_analysis.bullets} />
-        </SectionCard>
-      )}
-
-      {/* 4. 카테고리 분석 */}
-      {detailed.category_analysis?.bullets?.length > 0 && (
-        <SectionCard num={4} title="카테고리 분석">
-          <BulletList bullets={detailed.category_analysis.bullets} />
-        </SectionCard>
-      )}
-
-      {/* 5. 의류 판매율 분석 */}
-      {detailed.apparel_sellthrough_analysis?.bullets?.length > 0 && (
-        <SectionCard num={5} title="의류 판매율 분석 (25F / 26S)">
-          <BulletList bullets={detailed.apparel_sellthrough_analysis.bullets} />
-        </SectionCard>
-      )}
-
-      {/* 6. Top 10 아이템 분석 */}
-      {detailed.top10_item_analysis?.bullets?.length > 0 && (
-        <SectionCard num={6} title="Top 10 아이템 분석">
-          <BulletList bullets={detailed.top10_item_analysis.bullets} />
-        </SectionCard>
-      )}
-
-      {/* 7. 세부 카테고리 인사이트 */}
-      {detailed.treemap_level2_analysis?.bullets?.length > 0 && (
-        <SectionCard num={7} title="세부 카테고리 인사이트">
-          <BulletList bullets={detailed.treemap_level2_analysis.bullets} />
-        </SectionCard>
-      )}
-
-      {/* 접이식: Shop Level / Tier / Region */}
-      {(detailed.shop_level_analysis?.bullets?.length > 0 ||
-        detailed.tier_analysis?.bullets?.length > 0 ||
-        detailed.region_analysis?.bullets?.length > 0) && (
-        <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 px-1">세부 차원 분석</p>
-          <div className="space-y-2">
-            {detailed.shop_level_analysis?.bullets?.length > 0 && (
-              <SectionCard title="Shop Level 분석" collapsible>
-                <BulletList bullets={detailed.shop_level_analysis.bullets} />
-              </SectionCard>
-            )}
-            {detailed.tier_analysis?.bullets?.length > 0 && (
-              <SectionCard title="Tier 분석" collapsible>
-                <BulletList bullets={detailed.tier_analysis.bullets} />
-              </SectionCard>
-            )}
-            {detailed.region_analysis?.bullets?.length > 0 && (
-              <SectionCard title="Region 분석" collapsible>
-                <BulletList bullets={detailed.region_analysis.bullets} />
-              </SectionCard>
-            )}
-          </div>
+          </ul>
         </div>
       )}
 
-      {/* ── Strategy & Action Plan ── */}
-      <div className="pt-2">
+      {/* Strategy & Action Plan */}
+      <div className="pt-1">
         <div className="rounded-xl bg-gradient-to-r from-violet-600 to-violet-500 px-6 py-4 mb-4">
           <p className="text-xs text-violet-200 uppercase tracking-widest font-semibold mb-1">Strategy & Action Plan</p>
-          <h3 className="text-base font-bold text-white leading-snug">{strategy.headline}</h3>
+          <p className="text-sm text-violet-100 leading-snug">3개 브랜드 통합 전략 및 실행 과제</p>
         </div>
 
         <div className="space-y-4">
-          {/* 성장 확대 전략 */}
-          {strategy.growth_strategy?.length > 0 && (
+          {data.growth_strategy?.length > 0 && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4">
               <p className="text-xs font-bold text-emerald-800 uppercase tracking-widest mb-3">성장 확대 전략</p>
               <div className="space-y-3">
-                {strategy.growth_strategy.map((a, i) => <ActionItem key={i} num={i + 1} text={a} />)}
+                {data.growth_strategy.map((a, i) => <ActionItem key={i} num={i + 1} text={a} />)}
               </div>
             </div>
           )}
 
-          {/* 리스크 대응 전략 */}
-          {strategy.risk_mitigation?.length > 0 && (
+          {data.risk_mitigation?.length > 0 && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4">
               <p className="text-xs font-bold text-red-800 uppercase tracking-widest mb-3">리스크 대응 전략</p>
               <div className="space-y-3">
-                {strategy.risk_mitigation.map((a, i) => <ActionItem key={i} num={i + 1} text={a} />)}
+                {data.risk_mitigation.map((a, i) => <ActionItem key={i} num={i + 1} text={a} />)}
               </div>
             </div>
           )}
 
-          {/* 운영 개선 과제 */}
-          {strategy.operational_improvements?.length > 0 && (
+          {data.operational_improvements?.length > 0 && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
               <p className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-3">운영 개선 과제</p>
               <div className="space-y-3">
-                {strategy.operational_improvements.map((a, i) => <ActionItem key={i} num={i + 1} text={a} />)}
+                {data.operational_improvements.map((a, i) => <ActionItem key={i} num={i + 1} text={a} />)}
               </div>
             </div>
           )}
@@ -403,7 +346,7 @@ function DetailedTab({ detailed, strategy }: { detailed: DetailedAnalysis; strat
 // ── 메인 모달 ─────────────────────────────────────────────────────────────────
 
 export default function AiAnalysisModal({ ym, onClose }: AiAnalysisModalProps) {
-  const [tab, setTab] = useState<'ceo' | 'detailed'>('ceo');
+  const [tab, setTab] = useState<'MLB' | 'MLB_KIDS' | 'DISCOVERY' | 'OVERALL'>('MLB');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -478,9 +421,11 @@ export default function AiAnalysisModal({ ym, onClose }: AiAnalysisModalProps) {
 
         {/* 탭 바 */}
         {!loading && !error && analysis && (
-          <div className="flex-shrink-0 flex gap-0 px-6 bg-white border-b border-gray-200">
-            <TabBtn label="CEO 요약" active={tab === 'ceo'} onClick={() => setTab('ceo')} />
-            <TabBtn label="실무분석" active={tab === 'detailed'} onClick={() => setTab('detailed')} />
+          <div className="flex-shrink-0 flex gap-0 px-6 bg-white border-b border-gray-200 overflow-x-auto">
+            <TabBtn label="MLB" active={tab === 'MLB'} onClick={() => setTab('MLB')} />
+            <TabBtn label="MLB KIDS" active={tab === 'MLB_KIDS'} onClick={() => setTab('MLB_KIDS')} />
+            <TabBtn label="DISCOVERY" active={tab === 'DISCOVERY'} onClick={() => setTab('DISCOVERY')} />
+            <TabBtn label="전체 전략" active={tab === 'OVERALL'} onClick={() => setTab('OVERALL')} />
           </div>
         )}
 
@@ -502,11 +447,17 @@ export default function AiAnalysisModal({ ym, onClose }: AiAnalysisModalProps) {
 
           {!loading && !error && analysis && (
             <>
-              {tab === 'ceo' && (
-                <CeoTab data={analysis.EXECUTIVE_SUMMARY} anomalyAlerts={analysis.ANOMALY_ALERTS} />
+              {tab === 'MLB' && analysis.BRANDS?.MLB && (
+                <BrandTab data={analysis.BRANDS.MLB} />
               )}
-              {tab === 'detailed' && (
-                <DetailedTab detailed={analysis.DETAILED_ANALYSIS} strategy={analysis.STRATEGY_ACTION_PLAN} />
+              {tab === 'MLB_KIDS' && analysis.BRANDS?.MLB_KIDS && (
+                <BrandTab data={analysis.BRANDS.MLB_KIDS} />
+              )}
+              {tab === 'DISCOVERY' && analysis.BRANDS?.DISCOVERY && (
+                <BrandTab data={analysis.BRANDS.DISCOVERY} />
+              )}
+              {tab === 'OVERALL' && analysis.OVERALL && (
+                <OverallTab data={analysis.OVERALL} />
               )}
             </>
           )}
