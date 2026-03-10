@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const brandCode = searchParams.get('brandCode');
   const itemCd = searchParams.get('itemCd');
   const lastDt = searchParams.get('lastDt');
-  const season = searchParams.get('season') || '25F'; // 기본값: 25F
+  const season = searchParams.get('season') || '26S'; // 기본값: 26S
 
   if (!brandCode || !itemCd || !lastDt) {
     return NextResponse.json({

@@ -2533,12 +2533,16 @@ function getDefaultSeasonByYm(ym: string): string {
   const year = parseInt(ym.substring(0, 4));
   const shortYear = year.toString().substring(2);
   
-  // 25년 12월 ~ 26년 3월: 25F
+  // 25년 12월 ~ 26년 2월: 25F
   if (year === 2025 && month === 12) {
     return '25F';
   }
-  if (year === 2026 && month >= 1 && month <= 3) {
+  if (year === 2026 && month >= 1 && month <= 2) {
     return '25F';
+  }
+  // 26년 3월부터: 26S
+  if (year === 2026 && month === 3) {
+    return '26S';
   }
   
   // 그 외: 1-6월은 전년도 F시즌, 7-12월은 당해년도 S시즌
@@ -2548,6 +2552,20 @@ function getDefaultSeasonByYm(ym: string): string {
   } else {
     return `${shortYear}S`;
   }
+}
+
+// AI 분석용 시즌 목록 (전환월에는 두 시즌, 일반월에는 한 시즌)
+function getSeasonsToAnalyze(ym: string): string[] {
+  const month = parseInt(ym.substring(5, 7));
+  const year = parseInt(ym.substring(0, 4));
+  const sy = year.toString().substring(2);
+  const py = (year - 1).toString().substring(2);
+
+  if (month === 3) return [`${py}F`, `${sy}S`];   // 전환월: 전년F + 당해S
+  if (month === 9) return [`${sy}S`, `${sy}F`];   // 전환월: 당해S + 당해F
+  if (month >= 4 && month <= 8) return [`${sy}S`]; // S시즌
+  if (month >= 10) return [`${sy}F`];              // F시즌
+  return [`${py}F`];                               // 1~2월: 전년F
 }
 
 // 전년 시즌 계산
@@ -3566,6 +3584,8 @@ export default function BrandPlForecastPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showAccum, setShowAccum] = useState(false);
   const [isLegendExpanded, setIsLegendExpanded] = useState(false);
+  // 전환월 시 두 번째 시즌 의류 판매율 데이터 (AI 분석용)
+  const [clothingSalesSecondary, setClothingSalesSecondary] = useState<ClothingSalesData | null>(null);
   
   // 매장별 상세 모달 상태
   const [showShopModal, setShowShopModal] = useState(false);
@@ -3611,6 +3631,7 @@ export default function BrandPlForecastPage() {
     async function fetchData() {
       setLoading(true);
       setError(null);
+      setClothingSalesSecondary(null);
       try {
         // 기본 시즌 계산 (의류 판매율용) - ym 기준으로 계산
         const defaultSeason = getDefaultSeasonByYm(ym);
@@ -3638,6 +3659,22 @@ export default function BrandPlForecastPage() {
             });
           }
           setExpandedRows(defaultExpanded);
+
+          // 전환월(3월, 9월)에는 두 번째 시즌 의류 판매율도 별도 조회 (AI 분석용)
+          const seasons = getSeasonsToAnalyze(ym);
+          if (seasons.length === 2) {
+            const secondSeason = seasons[0]; // 첫 번째가 이전 시즌 (예: 3월→25F, 9월→26S)
+            if (secondSeason !== defaultSeason) {
+              const secondPySeason = getPreviousSeason(secondSeason);
+              try {
+                const res2 = await fetch(`/api/pl-forecast?ym=${ym}&brand=${brandCode}&cySeason=${secondSeason}&pySeason=${secondPySeason}`);
+                const json2: ApiResponse = await res2.json();
+                if (!json2.error && json2.clothingSales) {
+                  setClothingSalesSecondary(json2.clothingSales);
+                }
+              } catch { /* 두 번째 시즌 조회 실패는 무시 */ }
+            }
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : '데이터 조회 실패');
@@ -4664,7 +4701,13 @@ export default function BrandPlForecastPage() {
               
               {/* AI 분석 섹션 */}
               {data && (
-                <AnalysisSection data={data} brandLabel={brandLabel} ym={ym} />
+                <AnalysisSection
+                  data={data}
+                  brandLabel={brandLabel}
+                  ym={ym}
+                  seasons={getSeasonsToAnalyze(ym)}
+                  clothingSalesSecondary={clothingSalesSecondary}
+                />
               )}
               
               {/* 카테고리별 판매매출 */}

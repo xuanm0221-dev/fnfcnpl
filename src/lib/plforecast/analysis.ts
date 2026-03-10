@@ -286,7 +286,8 @@ export function generateRetailSalesAnalysis(
 export function generateClothingSalesAnalysis(
   clothingSales: ClothingSalesData | undefined,
   brandLabel: string,
-  isClosed: boolean
+  isClosed: boolean,
+  seasonLabel?: string
 ): string[] {
   const lines: string[] = [];
 
@@ -295,6 +296,12 @@ export function generateClothingSalesAnalysis(
   }
 
   const status = getStatusText(isClosed);
+
+  if (seasonLabel) {
+    lines.push(`**[${seasonLabel} 기준]** Tag누적판매 상위 5개 아이템 분석:`);
+  } else {
+    lines.push(`Tag누적판매 기준 상위 5개 아이템 분석:`);
+  }
 
   // Tag누적판매(cySalesAmt) 기준 Top5 분석
   const items = clothingSales.items || [];
@@ -305,9 +312,6 @@ export function generateClothingSalesAnalysis(
       .slice(0, 5);
     
     if (sortedBySalesAmt.length > 0) {
-      lines.push(
-        `Tag누적판매 기준 상위 5개 아이템 분석:`
-      );
       
       sortedBySalesAmt.forEach((item, idx) => {
         // 전년비 판매금액 YOY (의류판매율 표와 동일하게 계산: cy / py)

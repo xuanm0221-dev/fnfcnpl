@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { ApiResponse } from '@/lib/plforecast/types';
+import type { ApiResponse, ClothingSalesData } from '@/lib/plforecast/types';
 import {
   collectAnalysisData,
   generateProfitAnalysis,
@@ -112,10 +112,17 @@ interface AnalysisSectionProps {
   data: ApiResponse;
   brandLabel: string;
   ym: string;
+  seasons?: string[];
+  clothingSalesSecondary?: ClothingSalesData | null;
 }
 
-export default function AnalysisSection({ data, brandLabel, ym }: AnalysisSectionProps) {
+export default function AnalysisSection({ data, brandLabel, ym, seasons, clothingSalesSecondary }: AnalysisSectionProps) {
   const analysisData = collectAnalysisData(data, brandLabel, ym);
+
+  const isTransition = seasons && seasons.length === 2;
+  // 전환월: seasons[0] = 이전 시즌(secondary), seasons[1] = 현재 시즌(primary)
+  const primarySeason = isTransition ? seasons[1] : (seasons?.[0] ?? undefined);
+  const secondarySeason = isTransition ? seasons[0] : undefined;
 
   const profitAnalysis = generateProfitAnalysis(
     analysisData.summary,
@@ -130,11 +137,23 @@ export default function AnalysisSection({ data, brandLabel, ym }: AnalysisSectio
     analysisData.isClosed
   );
 
+  // 현재 시즌(primary) 의류 분석
   const clothingSalesAnalysis = generateClothingSalesAnalysis(
     analysisData.clothingSales,
     analysisData.brandLabel,
-    analysisData.isClosed
+    analysisData.isClosed,
+    isTransition ? primarySeason : undefined
   );
+
+  // 이전 시즌(secondary) 의류 분석 - 전환월에만
+  const clothingSalesAnalysisSecondary = isTransition && clothingSalesSecondary
+    ? generateClothingSalesAnalysis(
+        clothingSalesSecondary,
+        analysisData.brandLabel,
+        analysisData.isClosed,
+        secondarySeason
+      )
+    : null;
 
   const riskAnalysis = generateRiskAnalysis(
     analysisData.summary,
@@ -160,9 +179,22 @@ export default function AnalysisSection({ data, brandLabel, ym }: AnalysisSectio
         <AnalysisCard title="점당매출 · 채널 구조 분석" content={retailSalesAnalysis} variant="success" />
       )}
 
-      {/* 카드 3: 상품(의류) 판매 구조 분석 */}
+      {/* 카드 3-A: 현재 시즌 의류 판매 구조 분석 */}
       {clothingSalesAnalysis.length > 0 && (
-        <AnalysisCard title="상품(의류) 판매 구조 분석" content={clothingSalesAnalysis} variant="info" />
+        <AnalysisCard
+          title={isTransition ? `상품(의류) 판매 구조 분석 — ${primarySeason}` : '상품(의류) 판매 구조 분석'}
+          content={clothingSalesAnalysis}
+          variant="info"
+        />
+      )}
+
+      {/* 카드 3-B: 이전 시즌 의류 판매 구조 분석 (전환월에만) */}
+      {clothingSalesAnalysisSecondary && clothingSalesAnalysisSecondary.length > 0 && (
+        <AnalysisCard
+          title={`상품(의류) 판매 구조 분석 — ${secondarySeason}`}
+          content={clothingSalesAnalysisSecondary}
+          variant="info"
+        />
       )}
 
       {/* 카드 4: 리스크 & 체크포인트 (조건부) */}
