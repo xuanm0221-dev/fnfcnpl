@@ -14,6 +14,7 @@ import {
 } from '@/lib/plforecast/snowflake';
 import { getKstCurrentYm, getKstYesterdayDate } from '@/lib/plforecast/date';
 import { getCachedData, setCachedData, deleteDailyCache } from '@/lib/redis/cache';
+import { calculateAdjustedProgressRate } from '@/lib/plforecast/progressRateAdjustment';
 
 function getRetailMonthEndDate(ym: string): string {
   const currentYm = getKstCurrentYm();
@@ -40,6 +41,8 @@ export interface RetailSummaryLevel2Row {
   yoy: number | null;
   discountRate: number | null;
   discountRateYoy: number | null;
+  cyShopCnt: number;
+  pyShopCnt: number;
 }
 
 export interface RetailSummaryCategoryLevel1Item {
@@ -58,10 +61,16 @@ export interface RetailSummaryResponse {
   periodStart: string;
   periodEnd: string;
   mode: 'monthly' | 'ytd';
+  monthCount: number;
   level1: {
     cySalesAmt: number;
     pySalesAmt: number;
     yoy: number | null;
+    cyShopCnt: number;
+    pyShopCnt: number;
+    progressRate: number;
+    lyFullShopCnt: number;
+    isProgressRateAdjusted: boolean;
   };
   categoryLevel1: RetailSummaryCategoryLevel1 | null;
   level2: RetailSummaryLevel2Row[];
@@ -149,6 +158,12 @@ export async function GET(request: NextRequest) {
         ? `${ym.substring(0, 4)}-01-01`
         : `${ym}-01`;
     const periodEnd = retailLastDt;
+    const monthCount = range === 'ytd' ? Number(ym.split('-')[1]) : 1;
+
+    const progressRateResult = range === 'ytd'
+      ? { progressRate: retailData.lyFullSalesAmt > 0 ? retailData.lyCumSalesAmt / retailData.lyFullSalesAmt : 0, isAdjusted: false }
+      : calculateAdjustedProgressRate(ym, retailLastDt, retailData.lyCumSalesAmt, retailData.lyFullSalesAmt);
+    const progressRate = progressRateResult.progressRate;
 
     const level1 = {
       cySalesAmt: retailData.cySalesAmt,
@@ -157,6 +172,11 @@ export async function GET(request: NextRequest) {
         retailData.lyCumSalesAmt > 0
           ? retailData.cySalesAmt / retailData.lyCumSalesAmt
           : null,
+      cyShopCnt: retailData.cyShopCnt,
+      pyShopCnt: retailData.lyCumShopCnt,
+      progressRate,
+      lyFullShopCnt: retailData.lyFullShopCnt,
+      isProgressRateAdjusted: progressRateResult.isAdjusted,
     };
 
     const ACC_CATEGORIES = ['신발', '모자', '가방', '기타'];
@@ -207,6 +227,8 @@ export async function GET(request: NextRequest) {
       const labelKo = (row as { labelKo?: string }).labelKo;
       const cities = (row as { cities?: string[] }).cities;
 
+      const pyShopCnt = prev?.prevCumShopCnt ?? prev?.shopCnt ?? 0;
+
       return {
         key: row.key || 'Unknown',
         ...(labelKo && { labelKo }),
@@ -216,6 +238,8 @@ export async function GET(request: NextRequest) {
         yoy,
         discountRate,
         discountRateYoy,
+        cyShopCnt: row.shopCnt,
+        pyShopCnt,
       };
     });
 
@@ -245,6 +269,7 @@ export async function GET(request: NextRequest) {
       periodStart,
       periodEnd,
       mode,
+      monthCount,
       level1,
       categoryLevel1,
       level2: sortByFixedOrder(level2, order),

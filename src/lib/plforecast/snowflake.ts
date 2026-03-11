@@ -985,59 +985,62 @@ export async function getRetailSalesData(
       ),
       -- 당해 누적 (월초 또는 1/1~기준일) - valid_shops에 있는 매장만, 판매액 > 0
       cy_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       cy_sales AS (
-        SELECT 
+        SELECT
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as sales_amt,
-          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
+          SUM(CASE WHEN css.brd_nm = ? THEN 1 ELSE 0 END) as shop_cnt
         FROM cy_shop_sales css
       ),
       -- 전년 누적 (전년 월초 또는 1/1~전년 기준일) - valid_shops에 있는 매장만, 판매액 > 0
       ly_cum_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_cum_sales AS (
-        SELECT 
+        SELECT
           COALESCE(SUM(CASE WHEN lcs.brd_nm = ? THEN lcs.shop_sales_amt ELSE 0 END), 0) as sales_amt,
-          COUNT(DISTINCT CASE WHEN lcs.brd_nm = ? THEN lcs.shop_id END) as shop_cnt
+          SUM(CASE WHEN lcs.brd_nm = ? THEN 1 ELSE 0 END) as shop_cnt
         FROM ly_cum_shop_sales lcs
       ),
       -- 전년 기간 전체 (월별: 전년 월말까지, YTD: 전년 12/31까지) - valid_shops에 있는 매장만, 판매액 > 0
       ly_full_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_sales AS (
-        SELECT 
+        SELECT
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as sales_amt,
-          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as shop_cnt
+          SUM(CASE WHEN lfs.brd_nm = ? THEN 1 ELSE 0 END) as shop_cnt
         FROM ly_full_shop_sales lfs
       )
       SELECT 
@@ -1442,21 +1445,22 @@ export async function getTierSalesData(
       ),
       -- 당해 티어별 매출 (판매액 > 0인 매장만)
       cy_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       -- 티어별 도시 정보 (매장수 기준 상위 4개)
       tier_cities AS (
-        SELECT 
+        SELECT
           vs.city_tier_nm,
           m.city_nm,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
@@ -1479,59 +1483,61 @@ export async function getTierSalesData(
         GROUP BY city_tier_nm
       ),
       cy_tier AS (
-        SELECT 
+        SELECT
           vs.city_tier_nm as GROUP_KEY,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN css.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
         GROUP BY vs.city_tier_nm
       ),
       -- 전년 티어별 매출 (판매액 > 0인 매장만)
       ly_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_tier AS (
-        SELECT 
+        SELECT
           vs.city_tier_nm as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lss.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY vs.city_tier_nm
       ),
       -- 전년 기간 전체 티어별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_tier AS (
-        SELECT 
+        SELECT
           vs.city_tier_nm as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lfs.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
         GROUP BY vs.city_tier_nm
@@ -1696,21 +1702,22 @@ export async function getRegionSalesData(
       ),
       -- 당해 지역별 매출 (판매액 > 0인 매장만)
       cy_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       -- 지역별 도시 정보 (매장수 기준 상위 4개)
       region_cities AS (
-        SELECT 
+        SELECT
           COALESCE(vs.sale_region_nm, '기타') as sale_region_nm,
           m.city_nm,
           COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as shop_cnt
@@ -1733,59 +1740,61 @@ export async function getRegionSalesData(
         GROUP BY sale_region_nm
       ),
       cy_region AS (
-        SELECT 
+        SELECT
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN css.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.sale_region_nm, '기타')
       ),
       -- 전년 지역별 매출 (판매액 > 0인 매장만)
       ly_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_region AS (
-        SELECT 
+        SELECT
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lss.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.sale_region_nm, '기타')
       ),
       -- 전년 기간 전체 지역별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_region AS (
-        SELECT 
+        SELECT
           COALESCE(vs.sale_region_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lfs.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.sale_region_nm, '기타')
@@ -1967,72 +1976,75 @@ export async function getTradeZoneSalesData(
       ),
       -- 당해 Trade Zone별 매출 (판매액 > 0인 매장만)
       cy_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       cy_trade_zone AS (
-        SELECT 
+        SELECT
           COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN css.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.trade_zone_nm, '기타')
       ),
       -- 전년 Trade Zone별 매출 (판매액 > 0인 매장만)
       ly_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_trade_zone AS (
-        SELECT 
+        SELECT
           COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lss.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.trade_zone_nm, '기타')
       ),
       -- 전년 기간 전체 Trade Zone별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_trade_zone AS (
-        SELECT 
+        SELECT
           COALESCE(vs.trade_zone_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lfs.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.trade_zone_nm, '기타')
@@ -2173,72 +2185,75 @@ export async function getShopLevelSalesData(
       ),
       -- 당해 Shop Level별 매출 (판매액 > 0인 매장만)
       cy_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       cy_shop_level AS (
-        SELECT 
+        SELECT
           COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN css.brd_nm = ? THEN css.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN css.brd_nm = ? THEN css.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN css.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM cy_shop_sales css
         INNER JOIN valid_shops vs ON css.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.shop_level_nm, '기타')
       ),
       -- 전년 Shop Level별 매출 (판매액 > 0인 매장만)
       ly_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_shop_level AS (
-        SELECT 
+        SELECT
           COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lss.brd_nm = ? THEN lss.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lss.brd_nm = ? THEN lss.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lss.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_shop_sales lss
         INNER JOIN valid_shops vs ON lss.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.shop_level_nm, '기타')
       ),
       -- 전년 기간 전체 Shop Level별 매출 (판매액 > 0인 매장만)
       ly_full_shop_sales AS (
-        SELECT 
+        SELECT
           sale.shop_id,
           vs.brd_nm,
+          DATE_TRUNC('MONTH', sale.sale_dt) as sale_month,
           SUM(sale.sale_amt) as shop_sales_amt,
           SUM(sale.tag_amt) as shop_tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
-        GROUP BY sale.shop_id, vs.brd_nm
+        GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
         HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_shop_level AS (
-        SELECT 
+        SELECT
           COALESCE(vs.shop_level_nm, '기타') as GROUP_KEY,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_sales_amt ELSE 0 END), 0) as SALES_AMT,
           COALESCE(SUM(CASE WHEN lfs.brd_nm = ? THEN lfs.shop_tag_amt ELSE 0 END), 0) as TAG_AMT,
-          COUNT(DISTINCT CASE WHEN lfs.brd_nm = ? THEN lfs.shop_id END) as SHOP_CNT
+          SUM(CASE WHEN lfs.brd_nm = ? THEN 1 ELSE 0 END) as SHOP_CNT
         FROM ly_full_shop_sales lfs
         INNER JOIN valid_shops vs ON lfs.shop_id = vs.shop_id
         GROUP BY COALESCE(vs.shop_level_nm, '기타')

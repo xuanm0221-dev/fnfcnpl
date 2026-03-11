@@ -170,8 +170,8 @@ export default function RetailSummaryCard({ ym, brand }: { ym: string; brand: 'M
         )}
         {data && !loading && !error && (
           <>
-            {/* 레벨1 카드 2개: 누적실적(YoY) + 의류/ACC */}
-            <div className="grid gap-4 mb-5 pb-5 border-b border-gray-200 lg:grid-cols-2">
+            {/* 레벨1 카드 3개: 누적실적(YoY) + 의류/ACC + 점당매출(YoY) */}
+            <div className="grid gap-4 mb-5 pb-5 border-b border-gray-200 lg:grid-cols-3">
               <div className="relative overflow-hidden rounded-2xl p-4 border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-white shadow-sm">
                 <div className="absolute right-3 top-3 h-10 w-10 rounded-full bg-indigo-200/35 blur-md" />
                 <div className="mb-1 inline-flex items-center rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-200/70">
@@ -235,6 +235,64 @@ export default function RetailSummaryCard({ ym, brand }: { ym: string; brand: 'M
                   <span className="text-gray-500">-</span>
                 )}
               </div>
+              {(() => {
+                const cyShopCntSum = data.level1.cyShopCnt ?? 0;
+                const pyShopCntSum = data.level1.pyShopCnt ?? 0;
+                const mc = data.monthCount ?? 1;
+                const salesPerShop = cyShopCntSum > 0 ? data.level1.cySalesAmt / cyShopCntSum : 0;
+                const pySalesPerShop = pyShopCntSum > 0 ? data.level1.pySalesAmt / pyShopCntSum : 0;
+                const salesPerShopYoy = pySalesPerShop > 0 ? salesPerShop / pySalesPerShop : null;
+                const avgShopCnt = mc > 0 ? Math.round(cyShopCntSum / mc) : 0;
+                const pr = data.level1.progressRate ?? 0;
+                const lyFullShopCnt = data.level1.lyFullShopCnt ?? 0;
+                const isYtd = data.mode === 'ytd';
+                const forecastSalesAmt = pr > 0 ? data.level1.cySalesAmt / pr : 0;
+                const forecastPerShop = isYtd
+                  ? (lyFullShopCnt > 0 ? forecastSalesAmt / lyFullShopCnt : 0)
+                  : (cyShopCntSum > 0 ? forecastSalesAmt / cyShopCntSum : 0);
+                const forecastLabel = isYtd ? '연말예상' : '월말예상';
+                const showForecast = pr > 0 && pr < 0.97;
+                return (
+                  <div className="relative overflow-hidden rounded-2xl p-4 border border-violet-200/80 bg-gradient-to-br from-violet-50 via-purple-50 to-white shadow-sm">
+                    <div className="absolute right-3 top-3 h-10 w-10 rounded-full bg-violet-200/35 blur-md" />
+                    <div className="mb-1 inline-flex items-center gap-1.5">
+                      <span className="inline-flex items-center rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200/70">
+                        점당매출 (YoY)
+                      </span>
+                      {data.level1.isProgressRateAdjusted && (
+                        <span className="inline-flex items-center rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
+                          명절보정
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-2xl font-bold tracking-tight text-gray-900">
+                      {formatK(salesPerShop)}K
+                      <span
+                        className={`ml-1.5 text-base font-semibold ${
+                          salesPerShopYoy !== null && salesPerShopYoy >= 1
+                            ? 'text-emerald-700'
+                            : salesPerShopYoy !== null
+                              ? 'text-rose-700'
+                              : 'text-gray-500'
+                        }`}
+                      >
+                        {salesPerShopYoy !== null
+                          ? `(YoY ${(salesPerShopYoy * 100).toFixed(1)}%)`
+                          : '(YoY -)'}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      전년 {formatK(pySalesPerShop)}K · 매장수 {avgShopCnt}개
+                    </div>
+                    {showForecast && (
+                      <div className="mt-1 text-xs font-semibold text-violet-700">
+                        {forecastLabel} {formatK(forecastPerShop)}K
+                        <span className="ml-1 text-[10px] text-gray-400">(진척률 {(pr * 100).toFixed(0)}%)</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* 레벨2 표: 실적·전년 0, YoY·할인율·전년비 모두 null인 컬럼 숨김 */}
@@ -273,37 +331,87 @@ export default function RetailSummaryCard({ ym, brand }: { ym: string; brand: 'M
                 </thead>
                 <tbody>
                   <tr className="bg-white hover:bg-slate-50/70 transition-colors">
-                    <td className="sticky left-0 z-[1] py-2.5 pl-4 pr-4 text-gray-700 font-semibold bg-white border-b border-gray-100">실적</td>
-                    {visibleLevel2.map((row) => (
-                      <td key={row.key} className="text-center py-2.5 px-2 font-semibold text-gray-900 border-b border-gray-100">
-                        {formatK(row.cySalesAmt)}
-                      </td>
-                    ))}
+                    <td className="sticky left-0 z-[1] py-2.5 pl-4 pr-4 text-gray-700 font-semibold bg-white border-b border-gray-100">점당실적</td>
+                    {visibleLevel2.map((row) => {
+                      const cnt = row.cyShopCnt ?? 0;
+                      return (
+                        <td key={row.key} className="text-center py-2.5 px-2 font-semibold text-gray-900 border-b border-gray-100">
+                          {cnt > 0 ? formatK(row.cySalesAmt / cnt) : '-'}
+                        </td>
+                      );
+                    })}
                   </tr>
                   <tr className="bg-gray-50/55 hover:bg-gray-100/70 transition-colors">
                     <td className="sticky left-0 z-[1] py-2.5 pl-4 pr-4 text-gray-600 font-medium bg-gray-50/55 border-b border-gray-100">전년</td>
-                    {visibleLevel2.map((row) => (
-                      <td key={row.key} className="text-center py-2.5 px-2 text-gray-500 border-b border-gray-100">
-                        {formatK(row.pySalesAmt)}
-                      </td>
-                    ))}
+                    {visibleLevel2.map((row) => {
+                      const cnt = row.pyShopCnt ?? 0;
+                      return (
+                        <td key={row.key} className="text-center py-2.5 px-2 text-gray-500 border-b border-gray-100">
+                          {cnt > 0 ? formatK(row.pySalesAmt / cnt) : '-'}
+                        </td>
+                      );
+                    })}
                   </tr>
                   <tr className="bg-white hover:bg-slate-50/70 transition-colors">
                     <td className="sticky left-0 z-[1] py-2.5 pl-4 pr-4 text-gray-700 font-medium bg-white border-b border-gray-100">YoY</td>
-                    {visibleLevel2.map((row) => (
-                      <td
-                        key={row.key}
-                        className={`text-center py-2.5 px-2 font-semibold border-b border-gray-100 ${
-                          row.yoy !== null && row.yoy >= 1
-                            ? 'text-emerald-700'
-                            : row.yoy !== null
-                              ? 'text-rose-700'
-                              : 'text-gray-500'
-                        }`}
-                      >
-                        {row.yoy != null ? `${(row.yoy * 100).toFixed(1)}%` : '-'}
-                      </td>
-                    ))}
+                    {visibleLevel2.map((row) => {
+                      const cyCnt = row.cyShopCnt ?? 0;
+                      const pyCnt = row.pyShopCnt ?? 0;
+                      const cyPerShop = cyCnt > 0 ? row.cySalesAmt / cyCnt : 0;
+                      const pyPerShop = pyCnt > 0 ? row.pySalesAmt / pyCnt : 0;
+                      const perShopYoy = pyPerShop > 0 ? cyPerShop / pyPerShop : null;
+                      return (
+                        <td
+                          key={row.key}
+                          className={`text-center py-2.5 px-2 font-semibold border-b border-gray-100 ${
+                            perShopYoy !== null && perShopYoy >= 1
+                              ? 'text-emerald-700'
+                              : perShopYoy !== null
+                                ? 'text-rose-700'
+                                : 'text-gray-500'
+                          }`}
+                        >
+                          {perShopYoy != null ? `${(perShopYoy * 100).toFixed(1)}%` : '-'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td colSpan={visibleLevel2.length + 1} className="py-0"><div className="border-t-2 border-gray-300" /></td>
+                  </tr>
+                  <tr className="bg-gray-50/55 hover:bg-gray-100/70 transition-colors">
+                    <td className="sticky left-0 z-[1] py-2.5 pl-4 pr-4 text-gray-700 font-medium bg-gray-50/55 border-b border-gray-100">매장수</td>
+                    {visibleLevel2.map((row) => {
+                      const mc = data.monthCount ?? 1;
+                      const avg = mc > 0 ? Math.round((row.cyShopCnt ?? 0) / mc) : 0;
+                      return (
+                        <td key={row.key} className="text-center py-2.5 px-2 font-semibold text-gray-900 border-b border-gray-100">
+                          {avg}개
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr className="bg-white hover:bg-slate-50/70 transition-colors">
+                    <td className="sticky left-0 z-[1] py-2.5 pl-4 pr-4 text-gray-700 font-medium bg-white border-b border-gray-100">증감</td>
+                    {visibleLevel2.map((row) => {
+                      const mc = data.monthCount ?? 1;
+                      const cyAvg = mc > 0 ? Math.round((row.cyShopCnt ?? 0) / mc) : 0;
+                      const pyAvg = mc > 0 ? Math.round((row.pyShopCnt ?? 0) / mc) : 0;
+                      const diff = cyAvg - pyAvg;
+                      return (
+                        <td
+                          key={row.key}
+                          className={`text-center py-2.5 px-2 font-semibold border-b border-gray-100 ${
+                            diff > 0 ? 'text-emerald-700' : diff < 0 ? 'text-rose-700' : 'text-gray-500'
+                          }`}
+                        >
+                          {diff > 0 ? `+${diff}개` : diff === 0 ? '0개' : `${diff}개`}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td colSpan={visibleLevel2.length + 1} className="py-0"><div className="border-t-2 border-gray-300" /></td>
                   </tr>
                   <tr className="bg-gray-50/55 hover:bg-gray-100/70 transition-colors">
                     <td className="sticky left-0 z-[1] py-2.5 pl-4 pr-4 text-gray-700 font-medium bg-gray-50/55 border-b border-gray-100">할인율</td>
