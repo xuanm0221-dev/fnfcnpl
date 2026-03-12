@@ -2590,7 +2590,7 @@ function CategorySalesTable({
     '25F의류',
     '25S의류',
     '24SF의류',
-    '과시즌 의류',
+    '과시즌의류',
     '신발',
     '모자',
     '가방',
@@ -2610,13 +2610,49 @@ function CategorySalesTable({
   const total = data.reduce(
     (acc, row) => ({
       cyAccumAmt: acc.cyAccumAmt + row.cyAccumAmt,
-      pyAccumAmt: acc.pyAccumAmt + row.pyAccumAmt
+      pyAccumAmt: acc.pyAccumAmt + row.pyAccumAmt,
+      cyYtdAmt: acc.cyYtdAmt + (row.cyYtdAmt ?? 0),
+      pyYtdAmt: acc.pyYtdAmt + (row.pyYtdAmt ?? 0),
     }),
-    { cyAccumAmt: 0, pyAccumAmt: 0 }
+    { cyAccumAmt: 0, pyAccumAmt: 0, cyYtdAmt: 0, pyYtdAmt: 0 }
   );
   const totalYoy = total.pyAccumAmt > 0 
     ? (total.cyAccumAmt / total.pyAccumAmt) * 100 
     : null;
+  const totalYtdYoy = total.pyYtdAmt > 0
+    ? (total.cyYtdAmt / total.pyYtdAmt) * 100
+    : null;
+
+  // 의류합계 (ACC 제외한 나머지: 차기시즌, 의류 계열, 과시즌의류)
+  const accCategories = ['신발', '모자', '가방', '기타'];
+  const clothingTotal = data
+    .filter(r => !accCategories.includes(r.category))
+    .reduce(
+      (acc, row) => ({
+        cyAccumAmt: acc.cyAccumAmt + row.cyAccumAmt,
+        pyAccumAmt: acc.pyAccumAmt + row.pyAccumAmt,
+        cyYtdAmt: acc.cyYtdAmt + (row.cyYtdAmt ?? 0),
+        pyYtdAmt: acc.pyYtdAmt + (row.pyYtdAmt ?? 0),
+      }),
+      { cyAccumAmt: 0, pyAccumAmt: 0, cyYtdAmt: 0, pyYtdAmt: 0 }
+    );
+  const clothingYoy = clothingTotal.pyAccumAmt > 0 ? (clothingTotal.cyAccumAmt / clothingTotal.pyAccumAmt) * 100 : null;
+  const clothingYtdYoy = clothingTotal.pyYtdAmt > 0 ? (clothingTotal.cyYtdAmt / clothingTotal.pyYtdAmt) * 100 : null;
+
+  // ACC합계 (신발, 모자, 가방, 기타)
+  const accTotal = data
+    .filter(r => accCategories.includes(r.category))
+    .reduce(
+      (acc, row) => ({
+        cyAccumAmt: acc.cyAccumAmt + row.cyAccumAmt,
+        pyAccumAmt: acc.pyAccumAmt + row.pyAccumAmt,
+        cyYtdAmt: acc.cyYtdAmt + (row.cyYtdAmt ?? 0),
+        pyYtdAmt: acc.pyYtdAmt + (row.pyYtdAmt ?? 0),
+      }),
+      { cyAccumAmt: 0, pyAccumAmt: 0, cyYtdAmt: 0, pyYtdAmt: 0 }
+    );
+  const accYoy = accTotal.pyAccumAmt > 0 ? (accTotal.cyAccumAmt / accTotal.pyAccumAmt) * 100 : null;
+  const accYtdYoy = accTotal.pyYtdAmt > 0 ? (accTotal.cyYtdAmt / accTotal.pyYtdAmt) * 100 : null;
 
   // K 단위 포맷 (천 위안)
   const formatK = (value: number) => {
@@ -2627,7 +2663,7 @@ function CategorySalesTable({
   // YOY 포맷 (백분율 표시법: 당년/전년×100)
   const formatYoy = (value: number | null) => {
     if (value === null) return '-';
-    return `${value.toFixed(1)}%`;
+    return `${Math.round(value)}%`;
   };
 
   // YOY 색상 (100% 기준)
@@ -2640,39 +2676,224 @@ function CategorySalesTable({
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
         <h3 className="text-sm font-semibold text-gray-700">
-          카테고리별 판매매출 ({formatDateShort(lastDt)} 까지)
+          카테고리별 판매매출 ({formatDateShort(lastDt)} 까지) CNY K
         </h3>
       </div>
       <div className="p-4 overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left px-3 py-2 font-semibold text-gray-700">카테고리</th>
-              <th className="text-right px-3 py-2 font-semibold text-gray-700">당년도 당월 누적</th>
-              <th className="text-right px-3 py-2 font-semibold text-gray-700">전년도 동기간 누적</th>
-              <th className="text-right px-3 py-2 font-semibold text-gray-700">YOY</th>
+              <th className="text-left px-3 py-2 font-semibold text-gray-700" rowSpan={2}>카테고리</th>
+              <th className="text-center px-3 py-2 font-semibold text-blue-700 border-l border-gray-200" colSpan={3}>당월 누적 (MTD)</th>
+              <th className="text-center px-3 py-2 font-semibold text-indigo-700 border-l border-gray-200" colSpan={3}>연간 누적 (YTD)</th>
+            </tr>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-right px-3 py-2 font-semibold text-gray-600 border-l border-gray-200">당년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">전년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">YoY</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600 border-l border-gray-200">당년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">전년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">YoY</th>
             </tr>
           </thead>
           <tbody>
             {sortedData.map((row, idx) => (
               <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="px-3 py-2 text-gray-700">{row.category}</td>
-                <td className="px-3 py-2 text-right text-gray-900">{formatK(row.cyAccumAmt)}K</td>
-                <td className="px-3 py-2 text-right text-gray-900">{formatK(row.pyAccumAmt)}K</td>
+                <td className="px-3 py-2 text-right text-gray-900 border-l border-gray-200">{formatK(row.cyAccumAmt)}</td>
+                <td className="px-3 py-2 text-right text-gray-900">{formatK(row.pyAccumAmt)}</td>
                 <td className={`px-3 py-2 text-right font-medium ${getYoyColor(row.yoy)}`}>
                   {formatYoy(row.yoy)}
+                </td>
+                <td className="px-3 py-2 text-right text-gray-900 border-l border-gray-200">{formatK(row.cyYtdAmt ?? 0)}</td>
+                <td className="px-3 py-2 text-right text-gray-900">{formatK(row.pyYtdAmt ?? 0)}</td>
+                <td className={`px-3 py-2 text-right font-medium ${getYoyColor(row.ytdYoy ?? null)}`}>
+                  {formatYoy(row.ytdYoy ?? null)}
                 </td>
               </tr>
             ))}
             {/* 합계 행 */}
             <tr className="bg-blue-50 border-t-2 border-blue-200 font-semibold">
               <td className="px-3 py-2 text-gray-800">합계</td>
-              <td className="px-3 py-2 text-right text-gray-900">{formatK(total.cyAccumAmt)}K</td>
-              <td className="px-3 py-2 text-right text-gray-900">{formatK(total.pyAccumAmt)}K</td>
+              <td className="px-3 py-2 text-right text-gray-900 border-l border-gray-200">{formatK(total.cyAccumAmt)}</td>
+              <td className="px-3 py-2 text-right text-gray-900">{formatK(total.pyAccumAmt)}</td>
               <td className={`px-3 py-2 text-right font-medium ${getYoyColor(totalYoy)}`}>
                 {formatYoy(totalYoy)}
               </td>
+              <td className="px-3 py-2 text-right text-gray-900 border-l border-gray-200">{formatK(total.cyYtdAmt)}</td>
+              <td className="px-3 py-2 text-right text-gray-900">{formatK(total.pyYtdAmt)}</td>
+              <td className={`px-3 py-2 text-right font-medium ${getYoyColor(totalYtdYoy)}`}>
+                {formatYoy(totalYtdYoy)}
+              </td>
             </tr>
+            {/* 의류합계 서브 행 */}
+            <tr className="bg-green-50 border-t border-green-200 text-green-800">
+              <td className="px-3 py-2 font-medium">ㄴ 의류합계</td>
+              <td className="px-3 py-2 text-right border-l border-gray-200">{formatK(clothingTotal.cyAccumAmt)}</td>
+              <td className="px-3 py-2 text-right">{formatK(clothingTotal.pyAccumAmt)}</td>
+              <td className={`px-3 py-2 text-right font-medium ${getYoyColor(clothingYoy)}`}>
+                {formatYoy(clothingYoy)}
+              </td>
+              <td className="px-3 py-2 text-right border-l border-gray-200">{formatK(clothingTotal.cyYtdAmt)}</td>
+              <td className="px-3 py-2 text-right">{formatK(clothingTotal.pyYtdAmt)}</td>
+              <td className={`px-3 py-2 text-right font-medium ${getYoyColor(clothingYtdYoy)}`}>
+                {formatYoy(clothingYtdYoy)}
+              </td>
+            </tr>
+            {/* ACC합계 서브 행 */}
+            <tr className="bg-orange-50 border-t border-orange-200 text-orange-800">
+              <td className="px-3 py-2 font-medium">ㄴ ACC합계</td>
+              <td className="px-3 py-2 text-right border-l border-gray-200">{formatK(accTotal.cyAccumAmt)}</td>
+              <td className="px-3 py-2 text-right">{formatK(accTotal.pyAccumAmt)}</td>
+              <td className={`px-3 py-2 text-right font-medium ${getYoyColor(accYoy)}`}>
+                {formatYoy(accYoy)}
+              </td>
+              <td className="px-3 py-2 text-right border-l border-gray-200">{formatK(accTotal.cyYtdAmt)}</td>
+              <td className="px-3 py-2 text-right">{formatK(accTotal.pyYtdAmt)}</td>
+              <td className={`px-3 py-2 text-right font-medium ${getYoyColor(accYtdYoy)}`}>
+                {formatYoy(accYtdYoy)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// 카테고리별 할인율 테이블 컴포넌트
+function CategoryDiscountTable({
+  data,
+  lastDt
+}: {
+  data: CategorySalesRow[];
+  lastDt: string;
+}) {
+  const categoryOrder = [
+    '차기시즌', '25F의류', '25S의류', '24SF의류', '과시즌의류',
+    '신발', '모자', '가방', '기타'
+  ];
+
+  const sortedData = [...data].sort((a, b) => {
+    const aIndex = categoryOrder.indexOf(a.category);
+    const bIndex = categoryOrder.indexOf(b.category);
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
+
+  // 할인율 계산 헬퍼: (1 - sale / tag) * 100
+  const calcRate = (saleAmt: number, tagAmt: number): number | null =>
+    tagAmt > 0 ? (1 - saleAmt / tagAmt) * 100 : null;
+
+  // %p 차이 포맷
+  const formatDiff = (cy: number | null, py: number | null): string => {
+    if (cy === null || py === null) return '-';
+    const diff = cy - py;
+    return `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%p`;
+  };
+
+  // %p YoY 색상: 할인율 증가(양수) → 빨강, 감소(음수) → 초록
+  const getDiffColor = (cy: number | null, py: number | null): string => {
+    if (cy === null || py === null) return 'text-gray-500';
+    return cy - py > 0 ? 'text-red-600' : cy - py < 0 ? 'text-green-600' : 'text-gray-700';
+  };
+
+  const formatRate = (value: number | null): string =>
+    value === null ? '-' : `${value.toFixed(1)}%`;
+
+  // 합계 (tag/sale 합산 후 할인율 계산)
+  const accCategories = ['신발', '모자', '가방', '기타'];
+
+  const sumGroup = (rows: CategorySalesRow[]) =>
+    rows.reduce(
+      (acc, r) => ({
+        cyMtd: acc.cyMtd + r.cyAccumAmt,
+        pyMtd: acc.pyMtd + r.pyAccumAmt,
+        cyMtdTag: acc.cyMtdTag + (r.cyMtdTagAmt ?? 0),
+        pyMtdTag: acc.pyMtdTag + (r.pyMtdTagAmt ?? 0),
+        cyYtd: acc.cyYtd + (r.cyYtdAmt ?? 0),
+        pyYtd: acc.pyYtd + (r.pyYtdAmt ?? 0),
+        cyYtdTag: acc.cyYtdTag + (r.cyYtdTagAmt ?? 0),
+        pyYtdTag: acc.pyYtdTag + (r.pyYtdTagAmt ?? 0),
+      }),
+      { cyMtd: 0, pyMtd: 0, cyMtdTag: 0, pyMtdTag: 0, cyYtd: 0, pyYtd: 0, cyYtdTag: 0, pyYtdTag: 0 }
+    );
+
+  const totalSum = sumGroup(data);
+  const clothingSum = sumGroup(data.filter(r => !accCategories.includes(r.category)));
+  const accSum = sumGroup(data.filter(r => accCategories.includes(r.category)));
+
+  const renderSumRow = (
+    label: string,
+    s: ReturnType<typeof sumGroup>,
+    className: string
+  ) => {
+    const cyMtdRate = calcRate(s.cyMtd, s.cyMtdTag);
+    const pyMtdRate = calcRate(s.pyMtd, s.pyMtdTag);
+    const cyYtdRate = calcRate(s.cyYtd, s.cyYtdTag);
+    const pyYtdRate = calcRate(s.pyYtd, s.pyYtdTag);
+    return (
+      <tr className={className}>
+        <td className="px-3 py-2 font-medium">{label}</td>
+        <td className="px-3 py-2 text-right border-l border-gray-200">{formatRate(cyMtdRate)}</td>
+        <td className="px-3 py-2 text-right">{formatRate(pyMtdRate)}</td>
+        <td className={`px-3 py-2 text-right font-medium ${getDiffColor(cyMtdRate, pyMtdRate)}`}>{formatDiff(cyMtdRate, pyMtdRate)}</td>
+        <td className="px-3 py-2 text-right border-l border-gray-200">{formatRate(cyYtdRate)}</td>
+        <td className="px-3 py-2 text-right">{formatRate(pyYtdRate)}</td>
+        <td className={`px-3 py-2 text-right font-medium ${getDiffColor(cyYtdRate, pyYtdRate)}`}>{formatDiff(cyYtdRate, pyYtdRate)}</td>
+      </tr>
+    );
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+        <h3 className="text-sm font-semibold text-gray-700">
+          카테고리별 할인율 ({formatDateShort(lastDt)} 까지)
+        </h3>
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-left px-3 py-2 font-semibold text-gray-700" rowSpan={2}>카테고리</th>
+              <th className="text-center px-3 py-2 font-semibold text-blue-700 border-l border-gray-200" colSpan={3}>당월 누적 (MTD)</th>
+              <th className="text-center px-3 py-2 font-semibold text-indigo-700 border-l border-gray-200" colSpan={3}>연간 누적 (YTD)</th>
+            </tr>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-right px-3 py-2 font-semibold text-gray-600 border-l border-gray-200">당년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">전년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">YoY</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600 border-l border-gray-200">당년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">전년</th>
+              <th className="text-right px-3 py-2 font-semibold text-gray-600">YoY</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedData.map((row, idx) => {
+              const cyMtdRate = calcRate(row.cyAccumAmt, row.cyMtdTagAmt ?? 0);
+              const pyMtdRate = calcRate(row.pyAccumAmt, row.pyMtdTagAmt ?? 0);
+              const cyYtdRate = calcRate(row.cyYtdAmt ?? 0, row.cyYtdTagAmt ?? 0);
+              const pyYtdRate = calcRate(row.pyYtdAmt ?? 0, row.pyYtdTagAmt ?? 0);
+              return (
+                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="px-3 py-2 text-gray-700">{row.category}</td>
+                  <td className="px-3 py-2 text-right text-gray-900 border-l border-gray-200">{formatRate(cyMtdRate)}</td>
+                  <td className="px-3 py-2 text-right text-gray-900">{formatRate(pyMtdRate)}</td>
+                  <td className={`px-3 py-2 text-right font-medium ${getDiffColor(cyMtdRate, pyMtdRate)}`}>{formatDiff(cyMtdRate, pyMtdRate)}</td>
+                  <td className="px-3 py-2 text-right text-gray-900 border-l border-gray-200">{formatRate(cyYtdRate)}</td>
+                  <td className="px-3 py-2 text-right text-gray-900">{formatRate(pyYtdRate)}</td>
+                  <td className={`px-3 py-2 text-right font-medium ${getDiffColor(cyYtdRate, pyYtdRate)}`}>{formatDiff(cyYtdRate, pyYtdRate)}</td>
+                </tr>
+              );
+            })}
+            {/* 합계 행 */}
+            {renderSumRow('합계', totalSum, 'bg-blue-50 border-t-2 border-blue-200 font-semibold text-gray-800')}
+            {/* 의류합계 서브 행 */}
+            {renderSumRow('ㄴ 의류합계', clothingSum, 'bg-green-50 border-t border-green-200 text-green-800 font-medium')}
+            {/* ACC합계 서브 행 */}
+            {renderSumRow('ㄴ ACC합계', accSum, 'bg-orange-50 border-t border-orange-200 text-orange-800 font-medium')}
           </tbody>
         </table>
       </div>
@@ -4713,8 +4934,18 @@ export default function BrandPlForecastPage() {
               {/* 카테고리별 판매매출 */}
               {data && data.categorySales && data.categorySales.length > 0 && (
                 <div className="mt-6">
-                  <CategorySalesTable 
-                    data={data.categorySales} 
+                  <CategorySalesTable
+                    data={data.categorySales}
+                    lastDt={data.clothingLastDt || data.lastDt}
+                  />
+                </div>
+              )}
+
+              {/* 카테고리별 할인율 */}
+              {data && data.categorySales && data.categorySales.length > 0 && (
+                <div className="mt-4">
+                  <CategoryDiscountTable
+                    data={data.categorySales}
                     lastDt={data.clothingLastDt || data.lastDt}
                   />
                 </div>

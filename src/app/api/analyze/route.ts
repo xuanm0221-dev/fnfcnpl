@@ -101,6 +101,7 @@ Anomaly signals to watch:
 - 점당매출 YoY < -20% → flag as productivity alert in that brand's risks
 - Trade Zone 할인율 급등 > +5%p → flag as margin risk in that brand's risks
 - 의류 판매율 YoY < -10%p → flag as inventory risk in that brand's risks
+- 의류 판매율 YoY = 당년 판매율 - 전년 판매율 (%p). Never use 당년/전년 ratio.
 
 GENERAL RULES:
 - Do not mention excluded brands.
@@ -108,7 +109,43 @@ GENERAL RULES:
 - Do not translate brand names.
 - Do not invent causes. If inferring, clearly state it as an interpretation.
 - Card 4 (POP+WHS) data is reference-only. Do not make it a primary analysis driver.
-- Use both MTD and YTD equally.
+- Use both MTD (당월) and YTD (연간누적) equally.
+
+MTD & YTD COVERAGE (MANDATORY — NO EXCEPTIONS):
+(1) trade_zone, sales_per_store, category — ALL bullets MUST include BOTH:
+   - 당월 (MTD): 매출 K, 당월 YoY
+   - 연간누적 (YTD): YTD 매출 K, YTD YoY
+   - Format example: "O2 Zone 당월 4,428K(YoY 110%), YTD 52,000K(YoY 125%)로..."
+   - Never write only MTD or only YTD. Both are required.
+(2) kpi_bullets, growth_points, risks — MUST compare using BOTH 당월 AND 연간누적:
+   - Include both 당월 YoY and YTD YoY (or YTD 누적 매출 및 YoY) whenever the payload provides them.
+   - Example: "리테일 매출 당월 69,655K(YoY 89%), YTD 1,585,310K(YoY 119%)로..."
+   - growth_points and risks must reflect YTD context when describing trends or structural issues.
+
+BRAND SCALE CONTEXT RULES (apply dynamically based on payload data):
+- Before cross-brand comparison, always assess each brand's scale stage from the payload:
+  * Scale-up stage: store count YoY > 50% OR total sales < 5% of largest brand
+  * Mature stage: all others
+- For scale-up stage brands, Strategy and OVERALL must frame recommendations as "coverage expansion first, efficiency second."
+- Never place scale-up brands in the same strategic tier as mature brands in growth_strategy or operational_improvements.
+- Correct: "DISCOVERY는 현재 스케일업 단계로 점당매출보다 채널 커버리지 확대가 선행 과제이며, 수익성 검증은 매장 안정화(오픈 6개월 이후) 이후 단계로 설정"
+- Wrong: "DISCOVERY 점당매출을 MLB 수준으로 끌어올려야 한다"
+
+NEW STORE CONTRIBUTION RULE:
+- If a brand's store count YoY growth > 50%, growth_points MUST contain one bullet that separates:
+  (a) new store contribution to total sales growth
+  (b) LFL (Like-for-Like) growth of existing stores
+- If LFL data is unavailable, explicitly state the limitation and flag that total YoY growth is overstated by new store effect.
+- Example: "매장수 375% 급증(4개→19개)으로 전체 매출 591.4% 성장의 상당 부분은 신규 출점 효과이며, 기존 4개 매장 LFL 기준 실질 성장률은 별도 검증 필요"
+
+ACTIONABLE SPECIFICITY RULE:
+- operational_improvements and risk_mitigation bullets must each contain at least ONE of:
+  * A specific metric threshold (e.g. "할인율 상한 22% 캡")
+  * A specific timeline or trigger (e.g. "오픈 6개월 이후", "다음 시즌 발주 전")
+  * A specific scope (e.g. "O Zone 하위 점당매출 20% 매장 대상")
+- FORBIDDEN vague directives: "전략 고도화", "체계 구축", "시스템 점검" without specific action, owner, or measurable outcome
+- Correct: "O Zone 전 매장 할인율 상한 22% 설정 후 익월 마진율 변화 시뮬레이션 실시"
+- Wrong: "Trade Zone별 차별화 전략 고도화"
 
 Return ONLY valid JSON. Do not include explanations, markdown, or code blocks before or after the JSON.
 
@@ -163,12 +200,12 @@ Return JSON with exactly the following structure:
 }
 
 BRANDS rules (apply independently to each brand):
-- kpi_bullets: 3–5 key KPI observations WITH numbers for THIS brand only (retail sales K, YoY, sales per store 위안, sell-through %, discount rate %)
-- growth_points: 3–4 most important growth drivers for THIS brand with cross-metric interpretation
-- risks: 3–4 most important risks or structural concerns for THIS brand (incorporate any anomaly alerts detected for this brand)
-- trade_zone: 3–5 Trade Zone analysis bullets for THIS brand (rank zones, connect sales + discount + sales-per-store metrics)
-- sales_per_store: 3–4 sales-per-store analysis bullets for THIS brand
-- category: 3–4 category analysis bullets for THIS brand
+- kpi_bullets: 3–5 key KPI observations WITH numbers for THIS brand only. MUST include both 당월 and 연간누적(YTD): retail sales K + 당월 YoY + YTD 매출 K + YTD YoY, sales per store 위안 + 당월/YTD YoY, sell-through %, discount rate %. Never omit YTD when payload has it.
+- growth_points: 3–4 most important growth drivers for THIS brand. MUST reference both 당월 and 연간누적(YTD) when comparing growth. If store count YoY growth > 50%, explicitly separate "신규매장 기여분" from "동일매장 성장(LFL)".
+- risks: 3–4 most important risks for THIS brand. MUST consider both 당월 and 연간누적(YTD) trends when flagging structural issues. Incorporate any anomaly alerts.
+- trade_zone: 3–5 Trade Zone bullets. EACH bullet MUST include both 당월 (매출 K, YoY) AND 연간누적 (YTD 매출 K, YTD YoY). Rank zones, connect sales + discount + sales-per-store. Never write MTD-only or YTD-only.
+- sales_per_store: 3–4 bullets. EACH bullet MUST include both 당월 점당매출(YoY) AND YTD 점당매출(YoY) when payload provides them.
+- category: 카테고리 분석 시 (1) 먼저 전체·의류·ACC 각각 1개씩 종합 설명 — 각각 당월(매출, YoY) + YTD(매출, YoY) + 할인율 (2) 상세 카테고리별(차기시즌, 25F의류, 25S의류, 24SF의류, 과시즌의류, 신발, 모자, 가방, 기타) 1개 이상 bullet — 각 bullet에 당월/YTD 모두 포함. 총 5–9 bullets
 - apparel_sellthrough: 3–4 apparel sell-through analysis bullets for THIS brand
 - top10_items: 3–4 top 10 item analysis bullets for THIS brand
 - Every bullet must connect at least two metrics and include business interpretation
@@ -179,7 +216,8 @@ BRANDS rules (apply independently to each brand):
 - Use formats such as [25F], [26S], [25F vs 24F], or [26S vs 25S].
 - Never write an unlabeled seasonal sentence such as "의류 판매율은 60.1%로 전년 65.0% 대비 4.9%p 하락".
 - If the sentence describes total apparel sell-through or "전체 의류" performance, it must always include the exact season label.
-- Correct example: [25F vs 24F] 전체 의류 판매율은 60.1%로 전년 65.0% 대비 4.9%p 하락하여 재고 회전 압박이 확대됨
+- 의류 판매율 YoY = 당년 - 전년 (%p), NOT 당년/전년 ratio. Always use %p unit.
+- Correct example: [25F vs 24F] 전체 의류 판매율은 60.1%로 전년 65.0% 대비 -4.9%p(당년-전년) 하락하여 재고 회전 압박이 확대됨
 
 - apparel_sellthrough must explicitly separate and analyze both 25F and 26S when both seasons are available in the dashboard context.
 - Every apparel_sellthrough bullet must begin with a season label such as [25F], [26S], or [25F vs 24F].
@@ -189,9 +227,9 @@ BRANDS rules (apply independently to each brand):
 OVERALL rules:
 - headline: one-sentence overall performance statement for the entire China subsidiary (all 3 brands combined)
 - anomaly_notes: cross-brand systemic anomalies or macro risks (can be empty array if none)
-- growth_strategy: 3 concrete cross-brand expansion or investment recommendations referencing specific zones, categories, or brands
-- risk_mitigation: 3 concrete cross-brand risk response actions
-- operational_improvements: 3 concrete cross-brand operational efficiency actions
+- growth_strategy: 3 concrete cross-brand expansion or investment recommendations. MUST reference both 당월(MTD) and 연간누적(YTD) metrics when recommending (e.g. YTD 매출, YTD YoY, 점당매출 YTD)
+- risk_mitigation: 3 concrete cross-brand risk response actions. MUST consider both 당월 and 연간누적(YTD) trends when framing risks
+- operational_improvements: 3 concrete cross-brand operational efficiency actions. MUST include YTD context where applicable
 - Format as actionable management directives`;
 
 // ── 캐시 읽기/쓰기 유틸
@@ -360,6 +398,19 @@ function summarizePayloadForClaude(payload: any): string {
       lines.push(`[점당매출 - 대리상(OFF)] 매장수: ${rt.shopCount?.actual ?? '-'}개, 전년: ${rt.shopCount?.prevYear ?? '-'}개`);
     }
 
+    // 연간 누적 점당매출 YOY — retail_summary YTD tradeZone level1에서 계산
+    const rsYtd = payload.retail_summary?.[brandKey as keyof typeof payload.retail_summary];
+    const ytdTZ = rsYtd?.ytd?.tradeZone as { level1?: { cySalesAmt?: number; pySalesAmt?: number; cyShopCnt?: number; pyShopCnt?: number } } | undefined;
+    if (ytdTZ?.level1) {
+      const l1 = ytdTZ.level1;
+      const cyCnt = l1.cyShopCnt ?? 0;
+      const pyCnt = l1.pyShopCnt ?? 0;
+      const cySp = cyCnt > 0 && l1.cySalesAmt != null ? l1.cySalesAmt / cyCnt : null;
+      const pySp = pyCnt > 0 && l1.pySalesAmt != null ? l1.pySalesAmt / pyCnt : null;
+      const spYoy = cySp != null && pySp != null && pySp > 0 ? ((cySp / pySp) - 1) * 100 : null;
+      lines.push(`[연간 누적 점당매출 - 대리상(OFF)] YTD 점당매출(단위:위안CNY): 당년=${cySp != null ? Math.round(cySp) : '-'}위안, 전년=${pySp != null ? Math.round(pySp) : '-'}위안, YoY=${spYoy != null ? `${spYoy.toFixed(1)}%` : '-'}`);
+    }
+
     // Trade Zone 데이터 — 대리상(OFF) 채널 전용 (매출합계=raw위안→K변환, 점당매출=위안CNY)
     if (bd.tierRegionData?.tradeZones) {
       lines.push(`[Trade Zone - 대리상(OFF)] 매출합계단위:K / 점당매출단위:위안CNY`);
@@ -371,11 +422,31 @@ function summarizePayloadForClaude(payload: any): string {
       }
     }
 
-    // 카테고리 데이터 (raw위안→K변환)
+    // 카테고리별 실판매출 (MTD + YTD, 단위:K)
     if (bd.categorySales && bd.categorySales.length > 0) {
-      lines.push(`[카테고리별 판매매출] 단위:K`);
+      lines.push(`[카테고리별 실판매출] 단위:K`);
       for (const cat of bd.categorySales) {
-        lines.push(`  ${cat.category}: 당년=${Math.round(cat.cyAccumAmt / 1000)}K, 전년=${Math.round(cat.pyAccumAmt / 1000)}K, YoY=${cat.yoy != null ? `${cat.yoy.toFixed(1)}%` : '-'}`);
+        const mtd = `MTD 당년=${Math.round(cat.cyAccumAmt / 1000)}K, 전년=${Math.round(cat.pyAccumAmt / 1000)}K, YoY=${cat.yoy != null ? `${cat.yoy.toFixed(1)}%` : '-'}`;
+        const ytd = `YTD 당년=${Math.round((cat.cyYtdAmt ?? 0) / 1000)}K, 전년=${Math.round((cat.pyYtdAmt ?? 0) / 1000)}K, YoY=${cat.ytdYoy != null ? `${cat.ytdYoy.toFixed(1)}%` : '-'}`;
+        lines.push(`  ${cat.category}: ${mtd} | ${ytd}`);
+      }
+    }
+
+    // 카테고리별 할인율 (MTD + YTD, YoY=당년-전년 %p)
+    if (bd.categorySales && bd.categorySales.length > 0) {
+      lines.push(`[카테고리별 할인율] YoY=당년-전년(%p)`);
+      for (const cat of bd.categorySales) {
+        const cyMtdTag = cat.cyMtdTagAmt ?? 0;
+        const pyMtdTag = cat.pyMtdTagAmt ?? 0;
+        const cyYtdTag = cat.cyYtdTagAmt ?? 0;
+        const pyYtdTag = cat.pyYtdTagAmt ?? 0;
+        const mtdRate = cyMtdTag > 0 ? (1 - cat.cyAccumAmt / cyMtdTag) * 100 : null;
+        const pyMtdRate = pyMtdTag > 0 ? (1 - cat.pyAccumAmt / pyMtdTag) * 100 : null;
+        const ytdRate = cyYtdTag > 0 ? (1 - (cat.cyYtdAmt ?? 0) / cyYtdTag) * 100 : null;
+        const pyYtdRate = pyYtdTag > 0 ? (1 - (cat.pyYtdAmt ?? 0) / pyYtdTag) * 100 : null;
+        const mtdDiff = mtdRate != null && pyMtdRate != null ? `${mtdRate - pyMtdRate >= 0 ? '+' : ''}${(mtdRate - pyMtdRate).toFixed(1)}%p` : '-';
+        const ytdDiff = ytdRate != null && pyYtdRate != null ? `${ytdRate - pyYtdRate >= 0 ? '+' : ''}${(ytdRate - pyYtdRate).toFixed(1)}%p` : '-';
+        lines.push(`  ${cat.category}: MTD 당년=${mtdRate != null ? `${mtdRate.toFixed(1)}%` : '-'}, 전년=${pyMtdRate != null ? `${pyMtdRate.toFixed(1)}%` : '-'}, YoY=${mtdDiff} | YTD 당년=${ytdRate != null ? `${ytdRate.toFixed(1)}%` : '-'}, 전년=${pyYtdRate != null ? `${pyYtdRate.toFixed(1)}%` : '-'}, YoY=${ytdDiff}`);
       }
     }
 
@@ -527,9 +598,9 @@ function detectAnomalies(payload: any): string[] {
       }
     }
 
-    // 3. 의류 판매율 YoY 하락 (< -10%p)
-    if (bd.clothingSales?.total?.yoy != null && bd.clothingSales.total.yoy < -0.10) {
-      alerts.push(`[${brandLabel}] 의류 판매율 하락: YoY ${(bd.clothingSales.total.yoy * 100).toFixed(1)}%p`);
+    // 3. 의류 판매율 YoY 하락 (< -10%p). yoy = 당년 - 전년 (%p)
+    if (bd.clothingSales?.total?.yoy != null && bd.clothingSales.total.yoy < -10) {
+      alerts.push(`[${brandLabel}] 의류 판매율 하락: YoY ${bd.clothingSales.total.yoy.toFixed(1)}%p`);
     }
   }
 

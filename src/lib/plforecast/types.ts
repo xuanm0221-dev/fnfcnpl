@@ -284,10 +284,17 @@ export interface ClothingSalesData {
 
 // 카테고리별 판매매출 행 데이터
 export interface CategorySalesRow {
-  category: string; // 카테고리명 (차기시즌, 25F의류, 25S의류, 24SF의류, 과시즌 의류, 신발, 모자, 가방, 기타)
-  cyAccumAmt: number; // 당년도 당월 누적 (월초~lastDt의 전일까지)
-  pyAccumAmt: number; // 전년도 동기간 누적
-  yoy: number | null; // 전년비 (%)
+  category: string; // 카테고리명 (차기시즌, 25F의류, 25S의류, 24SF의류, 과시즌의류, 신발, 모자, 가방, 기타)
+  cyAccumAmt: number;    // 당년도 당월 누적 (MTD)
+  pyAccumAmt: number;    // 전년도 MTD 누적
+  yoy: number | null;    // MTD 전년비 (%)
+  cyYtdAmt: number;      // 당년도 연간 누적 (YTD)
+  pyYtdAmt: number;      // 전년도 YTD 누적
+  ytdYoy: number | null; // YTD 전년비 (%)
+  cyMtdTagAmt: number;   // 당년 MTD 정상가(tag) 합계
+  pyMtdTagAmt: number;   // 전년 MTD 정상가 합계
+  cyYtdTagAmt: number;   // 당년 YTD 정상가 합계
+  pyYtdTagAmt: number;   // 전년 YTD 정상가 합계
 }
 
 // 의류 아이템 상세 (product 단위)

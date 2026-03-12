@@ -2794,7 +2794,17 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     if (hasRetailSnap && brand !== 'all' && isRetailSalesBrand(brand)) {
       const snap = await getSnapshot<{ categorySales?: CategorySalesRow[] }>('retail', ym, brand);
       if (snap?.categorySales) {
-        categorySales = snap.categorySales;
+        // 구버전 스냅샷에 필드가 없을 경우 기본값 보정
+        categorySales = snap.categorySales.map(({ cyYtdAmt, pyYtdAmt, ytdYoy, cyMtdTagAmt, pyMtdTagAmt, cyYtdTagAmt, pyYtdTagAmt, ...rest }) => ({
+          ...rest,
+          cyYtdAmt: cyYtdAmt ?? 0,
+          pyYtdAmt: pyYtdAmt ?? 0,
+          ytdYoy: ytdYoy ?? null,
+          cyMtdTagAmt: cyMtdTagAmt ?? 0,
+          pyMtdTagAmt: pyMtdTagAmt ?? 0,
+          cyYtdTagAmt: cyYtdTagAmt ?? 0,
+          pyYtdTagAmt: pyYtdTagAmt ?? 0,
+        }));
         console.log(`[Snapshot] retail.categorySales 스냅샷 사용: ${ym}/${brand}`);
       }
     }
@@ -2802,7 +2812,22 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     if (!categorySales && brand !== 'all' && ['M', 'I', 'X', 'V', 'W'].includes(brand) && clothingLastDt) {
       try {
         console.log('[DEBUG] 카테고리별 판매매출 조회 시작:', { brand, ym, clothingLastDt });
-        categorySales = await getCategorySalesByMonth(brand, ym, clothingLastDt);
+        const [mtdRows, ytdRows] = await Promise.all([
+          getCategorySalesByMonth(brand, ym, clothingLastDt, 'monthly'),
+          getCategorySalesByMonth(brand, ym, clothingLastDt, 'ytd'),
+        ]);
+        const ytdMap = new Map(ytdRows.map(r => [r.category, r]));
+        categorySales = mtdRows.map(r => {
+          const ytd = ytdMap.get(r.category);
+          return {
+            ...r,
+            cyYtdAmt: ytd?.cyAccumAmt ?? 0,
+            pyYtdAmt: ytd?.pyAccumAmt ?? 0,
+            ytdYoy: ytd?.yoy ?? null,
+            cyYtdTagAmt: ytd?.cyMtdTagAmt ?? 0,
+            pyYtdTagAmt: ytd?.pyMtdTagAmt ?? 0,
+          };
+        });
         console.log('[DEBUG] 카테고리별 판매매출 조회 완료:', {
           count: categorySales?.length,
           categories: categorySales?.map(c => c.category)

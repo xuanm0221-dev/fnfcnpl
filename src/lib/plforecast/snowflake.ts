@@ -2858,16 +2858,7 @@ export async function getCategorySalesByMonth(
     const prevPrevPrevYearShort = String(parseInt(baseYearShort) - 3).padStart(2, '0'); // '22'
     
     const sql = `
-      WITH valid_shops AS (
-        SELECT DISTINCT d.shop_id
-        FROM CHN.dw_shop_wh_detail d
-        JOIN FNF.CHN.MST_SHOP_ALL s ON d.shop_id = s.shop_id
-        WHERE d.anlys_shop_type_nm IN ('FO', 'FP')
-          AND d.fr_or_cls = 'FR'
-          AND s.anlys_onoff_cls_nm = 'Offline'
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
-      ),
-      category_dim AS (
+      WITH category_dim AS (
         SELECT column1 as sort_order, column2 as category
         FROM (VALUES
           (1, '차기시즌'),
@@ -2887,9 +2878,9 @@ export async function getCategorySalesByMonth(
           s.sesn,
           UPPER(scs.parent_prdt_kind_nm_en) as parent_kind,
           UPPER(scs.prdt_kind_nm_en) as prdt_kind,
-          s.sale_amt
+          s.sale_amt,
+          s.tag_amt
         FROM CHN.dw_sale s
-        INNER JOIN valid_shops vs ON s.shop_id = vs.shop_id
         LEFT JOIN CHN.mst_prdt_scs scs ON s.prdt_scs_cd = scs.prdt_scs_cd
         WHERE s.brd_cd = ?
           AND (
@@ -2904,6 +2895,7 @@ export async function getCategorySalesByMonth(
           parent_kind,
           prdt_kind,
           sale_amt,
+          tag_amt,
           -- 당월(CY) 카테고리 매핑
           CASE
             -- 의류(WEAR) - 당월
@@ -2951,7 +2943,21 @@ export async function getCategorySalesByMonth(
             AND cs.py_category = dim.category
           THEN cs.sale_amt 
           ELSE 0 
-        END), 0) as py_accum_amt
+        END), 0) as py_accum_amt,
+        COALESCE(SUM(CASE
+          WHEN cs.sale_dt >= DATE '${cyStartDt}'
+            AND cs.sale_dt <= DATE '${cyEndDt}'
+            AND cs.cy_category = dim.category
+          THEN cs.tag_amt
+          ELSE 0
+        END), 0) as cy_tag_amt,
+        COALESCE(SUM(CASE
+          WHEN cs.sale_dt >= DATE '${pyStartDt}'
+            AND cs.sale_dt <= DATE '${pyEndDt}'
+            AND cs.py_category = dim.category
+          THEN cs.tag_amt
+          ELSE 0
+        END), 0) as py_tag_amt
       FROM category_dim dim
       LEFT JOIN categorized_sales cs ON 1=1
       GROUP BY dim.category, dim.sort_order
@@ -2999,7 +3005,15 @@ export async function getCategorySalesByMonth(
         category: row.CATEGORY || '',
         cyAccumAmt,
         pyAccumAmt,
-        yoy
+        yoy,
+        // YTD 필드는 route.ts 병합 단계에서 채워짐 (기본값)
+        cyYtdAmt: 0,
+        pyYtdAmt: 0,
+        ytdYoy: null,
+        cyMtdTagAmt: Number(row.CY_TAG_AMT) || 0,
+        pyMtdTagAmt: Number(row.PY_TAG_AMT) || 0,
+        cyYtdTagAmt: 0,
+        pyYtdTagAmt: 0,
       };
     });
     
