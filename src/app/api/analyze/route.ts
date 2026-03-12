@@ -214,6 +214,7 @@ BRANDS rules (apply independently to each brand):
 - Any bullet using apparel sell-through, seasonal metrics, or prior-season comparisons must begin with an explicit season label in brackets.
 - This rule also applies to kpi_bullets, risks, growth_points, and top10_items whenever the sentence is based on seasonal data.
 - Use formats such as [25F], [26S], [25F vs 24F], or [26S vs 25S].
+- SEASON TRANSITION (by 기준월 in payload): 기준월 1~2월 → 당시즌 25F, 전년 24F. Use [25F vs 24F] for apparel/kpi. 기준월 3월~ → 당시즌 26S, 전년 25S. Use [26S vs 25S]. Never mix; use only the season that matches the base month.
 - Never write an unlabeled seasonal sentence such as "의류 판매율은 60.1%로 전년 65.0% 대비 4.9%p 하락".
 - If the sentence describes total apparel sell-through or "전체 의류" performance, it must always include the exact season label.
 - 의류 판매율 YoY = 당년 - 전년 (%p), NOT 당년/전년 ratio. Always use %p unit.

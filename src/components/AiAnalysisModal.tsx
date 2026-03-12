@@ -39,15 +39,20 @@ interface AiAnalysisModalProps {
 
 // ── 파싱 헬퍼 ─────────────────────────────────────────────────────────────────
 
-function parseKpiMetrics(kpiBullets: string[]): {
+function parseKpiMetrics(kpiBullets: string[], baseDate?: string, apparelBullets?: string[]): {
   retailSales: string;
   yoyMtd: string;
   yoyYtd: string;
   salesPerShop: string;
   apparelRate: string;
   apparelRateYoyColor: 'red' | 'green' | 'gray';
+  apparelSeason: string;
+  apparelPrevRate: string;
+  apparelYoyPct: string;
 } {
-  const text = (kpiBullets?.[0] || '') + ' ' + (kpiBullets?.join(' ') || '');
+  const kpiText = (kpiBullets?.[0] || '') + ' ' + (kpiBullets?.join(' ') || '');
+  const apparelText = (apparelBullets || []).join(' ');
+  const text = kpiText + ' ' + apparelText;
   const retailMatch = text.match(/(\d{1,3}(?:,\d{3})*)K/);
   const yoyMtdMatch = text.match(/(?:전년\s*대비|YoY)\s*[^\d]*?(-?\d+\.?\d*)%/);
   const yoyYtdMatch = text.match(/YTD[^(]*\([^)]*YoY\s*(-?\d+\.?\d*)%/) ||
@@ -57,14 +62,37 @@ function parseKpiMetrics(kpiBullets: string[]): {
   const spMatch = text.match(/(\d{1,3}(?:,\d{3})*)위안/);
   const apparelMatch = text.match(/의류\s*판매율[^\d]*(\d+\.?\d*%)/);
   const apparelYoy = text.match(/의류\s*판매율[^(]*\((?:전년[^)]*)?(\d+\.?\d*%p|[-+]\d+\.?\d*%p|하락|개선)/);
+  const seasonMatch = text.match(/\[([^\]]+)\]/);
+  const prevRateMatch = text.match(/전년\s*(\d+\.?\d*)%/);
+  const yoyPctMatch = text.match(/전년[^)]*(-?\d+\.?\d*)%p/);
+  const apparelRateVal = apparelMatch ? parseFloat(apparelMatch[1]) : NaN;
+  const apparelPrevVal = prevRateMatch ? parseFloat(prevRateMatch[1]) : NaN;
+  let apparelYoyPct = '';
   let apparelRateYoyColor: 'red' | 'green' | 'gray' = 'gray';
-  if (apparelYoy) {
+  // 당년 - 전년(%p) 계산: apparelRate와 apparelPrevRate가 있으면 계산값 우선
+  if (!isNaN(apparelRateVal) && !isNaN(apparelPrevVal)) {
+    const diff = apparelRateVal - apparelPrevVal;
+    apparelYoyPct = diff.toFixed(1) + '%p';
+    apparelRateYoyColor = diff < 0 ? 'red' : diff > 0 ? 'green' : 'gray';
+  } else if (yoyPctMatch) {
+    const num = parseFloat(yoyPctMatch[1]);
+    if (!isNaN(num)) {
+      apparelYoyPct = num.toFixed(1) + '%p';
+      apparelRateYoyColor = num < 0 ? 'red' : num > 0 ? 'green' : 'gray';
+    }
+  }
+  if (!apparelYoyPct && apparelYoy) {
     const s = apparelYoy[1];
     if (s?.includes('하락') || s?.includes('-')) apparelRateYoyColor = 'red';
     else if (s?.includes('개선') || s?.includes('+')) apparelRateYoyColor = 'green';
   }
   const ytdVal = yoyYtdMatch?.[1] ?? yoyYtdMatch?.[2] ?? '';
   const yoyYtd = ytdVal ? ytdVal + '%' : '';
+  let apparelSeason = seasonMatch ? seasonMatch[1] : '';
+  if (!apparelSeason && baseDate) {
+    const month = parseInt(baseDate.split('-')[1], 10);
+    apparelSeason = month >= 3 ? '26S vs 25S' : '25F vs 24F';
+  }
   return {
     retailSales: retailMatch ? retailMatch[1] + 'K' : '-',
     yoyMtd: yoyMtdMatch ? yoyMtdMatch[1] + '%' : '-',
@@ -72,6 +100,9 @@ function parseKpiMetrics(kpiBullets: string[]): {
     salesPerShop: spMatch ? spMatch[1] + '위안' : '-',
     apparelRate: apparelMatch ? apparelMatch[1] : '-',
     apparelRateYoyColor,
+    apparelSeason,
+    apparelPrevRate: prevRateMatch ? prevRateMatch[1] + '%' : '',
+    apparelYoyPct,
   };
 }
 
@@ -166,14 +197,20 @@ function YoYBadges({ mtd, ytd }: { mtd: string; ytd: string }) {
 }
 
 /** KPI 요약 카드 4개 */
-function KpiSummaryCards({ kpiBullets }: { kpiBullets: string[] }) {
+function KpiSummaryCards({ kpiBullets, apparelBullets, baseDate }: { kpiBullets: string[]; apparelBullets?: string[]; baseDate?: string }) {
   if (!kpiBullets?.length) return null;
-  const m = parseKpiMetrics(kpiBullets);
+  const m = parseKpiMetrics(kpiBullets, baseDate, apparelBullets);
   const cards = [
     { label: '리테일 매출', value: m.retailSales, yoyMtd: m.yoyMtd, yoyYtd: m.yoyYtd },
     { label: 'YoY 성장률', value: m.yoyMtd, yoyMtd: m.yoyMtd, yoyYtd: m.yoyYtd },
     { label: '점당매출', value: m.salesPerShop, yoyMtd: m.yoyMtd, yoyYtd: m.yoyYtd },
-    { label: '의류판매율', value: m.apparelRate, badgeColor: m.apparelRateYoyColor },
+    {
+      label: m.apparelSeason ? `의류판매율 [${m.apparelSeason}]` : '의류판매율',
+      value: m.apparelRate,
+      badgeColor: m.apparelRateYoyColor,
+      apparelPrevRate: m.apparelPrevRate,
+      apparelYoyPct: m.apparelYoyPct,
+    },
   ];
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -181,16 +218,25 @@ function KpiSummaryCards({ kpiBullets }: { kpiBullets: string[] }) {
         <div key={i} className="rounded-xl border border-gray-200 bg-white px-4 py-3">
           <p className="text-xs text-gray-500 font-medium mb-1">{c.label}</p>
           <p className="text-lg font-bold text-gray-900">{c.value}</p>
-          {c.badgeColor ? (
-            <span
-              className={`inline-block mt-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
-                c.badgeColor === 'red' ? 'bg-red-100 text-red-700' : c.badgeColor === 'green' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
-              }`}
-            >
-              {c.badgeColor === 'red' ? '↓ 하락' : c.badgeColor === 'green' ? '↑ 개선' : '-'}
-            </span>
+          {i < 3 ? (
+            <YoYBadges mtd={(c as { yoyMtd: string }).yoyMtd ?? '-'} ytd={(c as { yoyYtd?: string }).yoyYtd ?? ''} />
           ) : (
-            <YoYBadges mtd={c.yoyMtd ?? '-'} ytd={c.yoyYtd ?? ''} />
+            <>
+              {(m.apparelPrevRate || m.apparelYoyPct) && (
+                <p className="mt-1.5 text-xs text-gray-500">
+                  전년 {m.apparelPrevRate || '-'}{m.apparelYoyPct ? ` / ${m.apparelYoyPct}` : ''}
+                </p>
+              )}
+              {(c.badgeColor === 'red' || c.badgeColor === 'green') && (
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                    c.badgeColor === 'red' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                  }`}
+                >
+                  {c.badgeColor === 'red' ? '↓ 하락' : '↑ 개선'}
+                </span>
+              )}
+            </>
           )}
         </div>
       ))}
@@ -373,7 +419,7 @@ function LoadingState() {
 
 // ── 브랜드 탭 (MLB / MLB KIDS / DISCOVERY) ───────────────────────────────────
 
-function BrandTab({ data }: { data: BrandAnalysis }) {
+function BrandTab({ data, baseDate }: { data: BrandAnalysis; baseDate?: string }) {
   const showScaleUpNotice = isScaleUpBrand(data.kpi_bullets || []);
 
   return (
@@ -392,7 +438,13 @@ function BrandTab({ data }: { data: BrandAnalysis }) {
       </div>
 
       {/* KPI 요약 카드 4개 */}
-      {data.kpi_bullets?.length > 0 && <KpiSummaryCards kpiBullets={data.kpi_bullets} />}
+      {data.kpi_bullets?.length > 0 && (
+        <KpiSummaryCards
+          kpiBullets={data.kpi_bullets}
+          apparelBullets={data.apparel_sellthrough}
+          baseDate={baseDate}
+        />
+      )}
 
       {/* 핵심 KPI */}
       {data.kpi_bullets?.length > 0 && (
@@ -899,13 +951,13 @@ export default function AiAnalysisModal({ ym, onClose }: AiAnalysisModalProps) {
           {!loading && !error && analysis && (
             <>
               {tab === 'MLB' && analysis.BRANDS?.MLB && (
-                <BrandTab data={analysis.BRANDS.MLB} />
+                <BrandTab data={analysis.BRANDS.MLB} baseDate={baseDate || ym} />
               )}
               {tab === 'MLB_KIDS' && analysis.BRANDS?.MLB_KIDS && (
-                <BrandTab data={analysis.BRANDS.MLB_KIDS} />
+                <BrandTab data={analysis.BRANDS.MLB_KIDS} baseDate={baseDate || ym} />
               )}
               {tab === 'DISCOVERY' && analysis.BRANDS?.DISCOVERY && (
-                <BrandTab data={analysis.BRANDS.DISCOVERY} />
+                <BrandTab data={analysis.BRANDS.DISCOVERY} baseDate={baseDate || ym} />
               )}
               {tab === 'OVERALL' && analysis.OVERALL && (
                 <OverallTab data={analysis.OVERALL} brands={analysis.BRANDS} />
