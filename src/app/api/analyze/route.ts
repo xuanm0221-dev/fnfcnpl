@@ -549,7 +549,13 @@ function summarizePayloadForClaude(payload: any): string {
   if (rbs) {
     lines.push(`\n=== 리테일 브랜드 요약(참고용, 단위:K) ===`);
     lines.push(`기준기간: ${rbs.monthlyPeriodStart} ~ ${rbs.periodEnd}`);
-    for (const [ch, chLabel] of [['dealer', '대리상'], ['direct', '직영']]) {
+    for (const [ch, chLabel] of [
+      ['total', '합계'],
+      ['dealer', 'OFF대리상'],
+      ['direct', 'OFF직영'],
+      ['onlineDealer', 'ON대리상'],
+      ['onlineDirect', 'ON직영'],
+    ] as const) {
       if (rbs[ch]) {
         for (const bc of ['M', 'I', 'X']) {
           const bLabel = BRAND_LABELS[bc];

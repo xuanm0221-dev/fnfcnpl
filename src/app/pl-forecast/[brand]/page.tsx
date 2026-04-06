@@ -2527,31 +2527,18 @@ function getDefaultSeason(): string {
   }
 }
 
-// 기본 시즌 계산 (ym 기준) - 25년 12월~26년 3월은 25F
+// 기본 시즌 계산 (ym 기준) — 달력은 getSeasonsToAnalyze와 동일. 전환월은 목록 첫 시즌(당해 S) 우선.
 function getDefaultSeasonByYm(ym: string): string {
-  const month = parseInt(ym.substring(5, 7));
-  const year = parseInt(ym.substring(0, 4));
-  const shortYear = year.toString().substring(2);
-  
-  // 25년 12월 ~ 26년 2월: 25F
-  if (year === 2025 && month === 12) {
-    return '25F';
-  }
-  if (year === 2026 && month >= 1 && month <= 2) {
-    return '25F';
-  }
-  // 26년 3월부터: 26S
-  if (year === 2026 && month === 3) {
-    return '26S';
-  }
-  
-  // 그 외: 1-6월은 전년도 F시즌, 7-12월은 당해년도 S시즌
-  if (month >= 1 && month <= 6) {
-    const prevYear = (year - 1).toString().substring(2);
-    return `${prevYear}F`;
-  } else {
-    return `${shortYear}S`;
-  }
+  const month = parseInt(ym.substring(5, 7), 10);
+  const year = parseInt(ym.substring(0, 4), 10);
+  const sy = year.toString().substring(2);
+  const py = (year - 1).toString().substring(2);
+
+  if (month === 3) return `${sy}S`;
+  if (month === 9) return `${sy}S`;
+  if (month >= 4 && month <= 8) return `${sy}S`;
+  if (month >= 10) return `${sy}F`;
+  return `${py}F`;
 }
 
 // AI 분석용 시즌 목록 (전환월에는 두 시즌, 일반월에는 한 시즌)
@@ -3884,7 +3871,7 @@ export default function BrandPlForecastPage() {
           // 전환월(3월, 9월)에는 두 번째 시즌 의류 판매율도 별도 조회 (AI 분석용)
           const seasons = getSeasonsToAnalyze(ym);
           if (seasons.length === 2) {
-            const secondSeason = seasons[0]; // 첫 번째가 이전 시즌 (예: 3월→25F, 9월→26S)
+            const secondSeason = seasons[0]; // 3월: 전년F / 9월: 당해S (default와 다를 때만 보조 조회)
             if (secondSeason !== defaultSeason) {
               const secondPySeason = getPreviousSeason(secondSeason);
               try {

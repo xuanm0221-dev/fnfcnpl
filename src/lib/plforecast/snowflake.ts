@@ -1214,7 +1214,8 @@ export async function getAllRetailSalesLastDt(ym: string): Promise<string> {
 export async function getBrandRetailChannelSummary(
   ym: string,
   lastDt: string,
-  range: 'monthly' | 'ytd' = 'monthly'
+  range: 'monthly' | 'ytd' = 'monthly',
+  onOffCls: 'Offline' | 'Online' = 'Offline'
 ): Promise<BrandRetailChannelSummaryRow[]> {
   const connection = await getConnection();
   try {
@@ -1233,7 +1234,7 @@ export async function getBrandRetailChannelSummary(
           CASE WHEN d.fr_or_cls = 'FR' THEN 'dealer' ELSE 'direct' END AS channel
         FROM CHN.dw_shop_wh_detail d
         JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
-        WHERE m.anlys_onoff_cls_nm = 'Offline'
+        WHERE m.anlys_onoff_cls_nm = ?
         QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
       ),
       brand_map AS (
@@ -1317,7 +1318,7 @@ export async function getBrandRetailChannelSummary(
       CHANNEL: 'dealer' | 'direct';
       CY_SALES_AMT: number;
       PY_SALES_AMT: number;
-    }>(connection, sql, [cyStartDt, lastDt, pyStartDt, prevYearLastDt]);
+    }>(connection, sql, [onOffCls, cyStartDt, lastDt, pyStartDt, prevYearLastDt]);
 
     return rows.map((row) => ({
       brandCode: row.BRAND_CODE,

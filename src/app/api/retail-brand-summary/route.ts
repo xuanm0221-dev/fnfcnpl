@@ -11,6 +11,8 @@ import {
   type BrandRetailChannelSummaryRow,
 } from '@/lib/plforecast/snowflake';
 
+const CACHE_KEY = 'retail_brand_summary_v2';
+
 function getRetailMonthEndDate(ym: string): string {
   const currentYm = getKstCurrentYm();
   if (ym === currentYm) return getKstYesterdayDate();
@@ -36,8 +38,11 @@ export interface RetailBrandSummaryResponse {
   monthlyPeriodStart: string;
   ytdPeriodStart: string;
   periodEnd: string;
+  total: Record<BrandCode, BrandRetailPeriodSummary>;
   dealer: Record<BrandCode, BrandRetailPeriodSummary>;
   direct: Record<BrandCode, BrandRetailPeriodSummary>;
+  onlineDealer: Record<BrandCode, BrandRetailPeriodSummary>;
+  onlineDirect: Record<BrandCode, BrandRetailPeriodSummary>;
 }
 
 function createMetric(cySalesAmt = 0, pySalesAmt = 0): BrandRetailMetric {
@@ -59,11 +64,39 @@ function createChannelSummary(): Record<BrandCode, BrandRetailPeriodSummary> {
 function applyRows(
   target: RetailBrandSummaryResponse,
   rows: BrandRetailChannelSummaryRow[],
-  period: 'monthly' | 'ytd'
+  period: 'monthly' | 'ytd',
+  mode: 'offline' | 'online'
 ) {
   rows.forEach((row) => {
-    const channelBucket = row.channel === 'dealer' ? target.dealer : target.direct;
+    const channelBucket =
+      mode === 'offline'
+        ? row.channel === 'dealer'
+          ? target.dealer
+          : target.direct
+        : row.channel === 'dealer'
+          ? target.onlineDealer
+          : target.onlineDirect;
     channelBucket[row.brandCode][period] = createMetric(row.cySalesAmt, row.pySalesAmt);
+  });
+}
+
+function fillTotalFromBuckets(target: RetailBrandSummaryResponse) {
+  const buckets: Array<Record<BrandCode, BrandRetailPeriodSummary>> = [
+    target.dealer,
+    target.direct,
+    target.onlineDealer,
+    target.onlineDirect,
+  ];
+  (['M', 'I', 'X'] as BrandCode[]).forEach((brand) => {
+    (['monthly', 'ytd'] as const).forEach((period) => {
+      let cy = 0;
+      let py = 0;
+      for (const b of buckets) {
+        cy += b[brand][period].cySalesAmt;
+        py += b[brand][period].pySalesAmt;
+      }
+      target.total[brand][period] = createMetric(cy, py);
+    });
   });
 }
 
@@ -71,13 +104,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const ym = searchParams.get('ym');
   const isDev = process.env.NODE_ENV === 'development';
-  const cacheKey = 'retail_brand_summary';
 
   if (!ym) {
     return NextResponse.json({ error: 'ym 파라미터가 필요합니다.' }, { status: 400 });
   }
 
-  const cachedData = await getCachedData<RetailBrandSummaryResponse>(ym, 'all', cacheKey);
+  const cachedData = await getCachedData<RetailBrandSummaryResponse>(ym, 'all', CACHE_KEY);
   if (cachedData) {
     console.log(`[retail-brand-summary Cache HIT] ${ym}`);
     return NextResponse.json(cachedData, {
@@ -96,24 +128,37 @@ export async function GET(request: NextRequest) {
       retailLastDt = getRetailMonthEndDate(ym);
     }
 
-    const [monthlyRows, ytdRows] = await Promise.all([
-      getBrandRetailChannelSummary(ym, retailLastDt, 'monthly'),
-      getBrandRetailChannelSummary(ym, retailLastDt, 'ytd'),
+    const [
+      monthlyOffline,
+      ytdOffline,
+      monthlyOnline,
+      ytdOnline,
+    ] = await Promise.all([
+      getBrandRetailChannelSummary(ym, retailLastDt, 'monthly', 'Offline'),
+      getBrandRetailChannelSummary(ym, retailLastDt, 'ytd', 'Offline'),
+      getBrandRetailChannelSummary(ym, retailLastDt, 'monthly', 'Online'),
+      getBrandRetailChannelSummary(ym, retailLastDt, 'ytd', 'Online'),
     ]);
 
     const response: RetailBrandSummaryResponse = {
       monthlyPeriodStart: `${ym}-01`,
       ytdPeriodStart: `${ym.substring(0, 4)}-01-01`,
       periodEnd: retailLastDt,
+      total: createChannelSummary(),
       dealer: createChannelSummary(),
       direct: createChannelSummary(),
+      onlineDealer: createChannelSummary(),
+      onlineDirect: createChannelSummary(),
     };
 
-    applyRows(response, monthlyRows, 'monthly');
-    applyRows(response, ytdRows, 'ytd');
+    applyRows(response, monthlyOffline, 'monthly', 'offline');
+    applyRows(response, ytdOffline, 'ytd', 'offline');
+    applyRows(response, monthlyOnline, 'monthly', 'online');
+    applyRows(response, ytdOnline, 'ytd', 'online');
+    fillTotalFromBuckets(response);
 
     try {
-      await setCachedData(ym, 'all', response, cacheKey);
+      await setCachedData(ym, 'all', response, CACHE_KEY);
       console.log(`[retail-brand-summary Cache SET] ${ym}`);
     } catch (cacheErr) {
       console.error('[retail-brand-summary Cache Error] 저장 실패:', cacheErr);
@@ -140,16 +185,15 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const ym = searchParams.get('ym');
-  const cacheKey = 'retail_brand_summary';
 
   if (!ym) {
     return NextResponse.json({ error: 'ym 파라미터가 필요합니다.' }, { status: 400 });
   }
 
   try {
-    await deleteDailyCache(ym, 'all', cacheKey);
+    await deleteDailyCache(ym, 'all', CACHE_KEY);
     console.log(`[retail-brand-summary Cache DELETE] ${ym}`);
-    return NextResponse.json({ success: true, deleted: `${ym}/all/${cacheKey}` });
+    return NextResponse.json({ success: true, deleted: `${ym}/all/${CACHE_KEY}` });
   } catch (error) {
     console.error('[retail-brand-summary Cache DELETE] 에러:', error);
     return NextResponse.json(
