@@ -1,13 +1,15 @@
 import snowflake from 'snowflake-sdk';
 import type { BrandCode, ChannelRowData, ShopSalesDetail, TierRegionSalesRow, ChannelActuals, ShopMonthlySalesData, ShopMonthlySalesRow, ShopMonthlySalesGroup, CategorySalesRow } from './types';
 
-// Snowflake 연결 설정
+// Snowflake 연결 설정 (JWT / private key 인증)
 function getConnection(): Promise<snowflake.Connection> {
   return new Promise((resolve, reject) => {
+    const privateKey = process.env.SNOWFLAKE_PRIVATE_KEY?.replace(/\\n/g, '\n');
     const connection = snowflake.createConnection({
       account: process.env.SNOWFLAKE_ACCOUNT || '',
       username: process.env.SNOWFLAKE_USERNAME || '',
-      password: process.env.SNOWFLAKE_PASSWORD || '',
+      authenticator: 'SNOWFLAKE_JWT',
+      privateKey,
       warehouse: process.env.SNOWFLAKE_WAREHOUSE || '',
       database: process.env.SNOWFLAKE_DATABASE || 'sap_fnf',
       schema: process.env.SNOWFLAKE_SCHEMA || 'public',
