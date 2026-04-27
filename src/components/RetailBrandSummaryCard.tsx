@@ -281,9 +281,11 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                     );
 
                     const channelRows = CHANNEL_ROWS.map((ch, chIndex) => {
-                      const bucket = currentData[ch.dataKey][brand];
-                      const monthly = bucket.monthly;
-                      const ytd = bucket.ytd;
+                      const bucketGroup = currentData[ch.dataKey];
+                      const bucket = bucketGroup?.[brand];
+                      const emptyMetric = { cySalesAmt: 0, pySalesAmt: 0, yoy: null };
+                      const monthly = bucket?.monthly ?? emptyMetric;
+                      const ytd = bucket?.ytd ?? emptyMetric;
                       const isLastChannel = chIndex === CHANNEL_ROWS.length - 1;
                       const rowSep =
                         isLastChannel && !isLastBrand ? 'border-b-2 border-slate-200' : 'border-b border-slate-100';
