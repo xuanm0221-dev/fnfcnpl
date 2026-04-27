@@ -1104,6 +1104,23 @@ export interface BrandRetailChannelSummaryRow {
   pySalesAmt: number;
 }
 
+export interface BrandRetailRawRow {
+  brandCode: 'M' | 'I' | 'X';
+  cySalesAmt: number;
+  pySalesAmt: number;
+}
+
+export interface BrandRetailUnassignedShopRow {
+  shopId: string;
+  shopName: string | null;
+  brdCd: 'M' | 'I' | 'X';
+  shopBrdNm: string | null;
+  onOffCls: string | null;
+  reason: 'NOT_IN_MASTER' | 'ONOFF_CLS_OTHER' | 'BRAND_MISMATCH';
+  cySalesAmt: number;
+  pySalesAmt: number;
+}
+
 /**
  * 매장별 판매매출 상세 조회 (모달용)
  * - 대리상 오프라인 정규매장만 (매장 브랜드 무관)
@@ -1325,6 +1342,155 @@ export async function getBrandRetailChannelSummary(
     return rows.map((row) => ({
       brandCode: row.BRAND_CODE,
       channel: row.CHANNEL,
+      cySalesAmt: Number(row.CY_SALES_AMT) || 0,
+      pySalesAmt: Number(row.PY_SALES_AMT) || 0,
+    }));
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+/**
+ * 브랜드별 dw_sale 원시 합계 (필터 무시 — 미지정 산출용)
+ */
+export async function getBrandRetailRawTotal(
+  ym: string,
+  lastDt: string,
+  range: 'monthly' | 'ytd' = 'monthly'
+): Promise<BrandRetailRawRow[]> {
+  const connection = await getConnection();
+  try {
+    const [year, month] = ym.split('-').map(Number);
+    const prevYear = year - 1;
+    const lastDay = lastDt.split('-')[2];
+    const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const pyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+
+    const sql = `
+      SELECT
+        brd_cd AS BRAND_CODE,
+        SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN sale_amt ELSE 0 END) AS CY_SALES_AMT,
+        SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN sale_amt ELSE 0 END) AS PY_SALES_AMT
+      FROM CHN.dw_sale
+      WHERE brd_cd IN ('M', 'I', 'X')
+        AND (
+              sale_dt BETWEEN ?::DATE AND ?::DATE
+           OR sale_dt BETWEEN ?::DATE AND ?::DATE
+        )
+      GROUP BY brd_cd
+    `;
+
+    const rows = await executeQuery<{
+      BRAND_CODE: 'M' | 'I' | 'X';
+      CY_SALES_AMT: number;
+      PY_SALES_AMT: number;
+    }>(connection, sql, [cyStartDt, lastDt, pyStartDt, prevYearLastDt, cyStartDt, lastDt, pyStartDt, prevYearLastDt]);
+
+    return rows.map((row) => ({
+      brandCode: row.BRAND_CODE,
+      cySalesAmt: Number(row.CY_SALES_AMT) || 0,
+      pySalesAmt: Number(row.PY_SALES_AMT) || 0,
+    }));
+  } finally {
+    await destroyConnection(connection);
+  }
+}
+
+/**
+ * 미지정 매장 상세 (팝업용)
+ * - 마스터 미등록(NOT_IN_MASTER)
+ * - 마스터에 있으나 anlys_onoff_cls_nm이 'Offline'/'Online' 아님(ONOFF_CLS_OTHER)
+ * - 마스터의 brd_nm이 sale.brd_cd와 매핑 불일치(BRAND_MISMATCH)
+ */
+export async function getBrandRetailUnassignedShops(
+  ym: string,
+  lastDt: string,
+  range: 'monthly' | 'ytd' = 'monthly',
+  brandCode?: 'M' | 'I' | 'X'
+): Promise<BrandRetailUnassignedShopRow[]> {
+  const connection = await getConnection();
+  try {
+    const [year, month] = ym.split('-').map(Number);
+    const prevYear = year - 1;
+    const lastDay = lastDt.split('-')[2];
+    const prevYearLastDt = `${prevYear}-${String(month).padStart(2, '0')}-${lastDay}`;
+    const cyStartDt = range === 'ytd' ? `${year}-01-01` : `${year}-${String(month).padStart(2, '0')}-01`;
+    const pyStartDt = range === 'ytd' ? `${prevYear}-01-01` : `${prevYear}-${String(month).padStart(2, '0')}-01`;
+    const brandFilter = brandCode ? `AND s.brd_cd = '${brandCode}'` : '';
+
+    const sql = `
+      WITH valid_shops AS (
+        SELECT DISTINCT
+          d.shop_id,
+          d.brd_nm
+        FROM CHN.dw_shop_wh_detail d
+        JOIN FNF.CHN.MST_SHOP_ALL m ON d.shop_id = m.shop_id
+        WHERE m.anlys_onoff_cls_nm IN ('Offline', 'Online')
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY d.shop_id ORDER BY d.open_dt DESC NULLS LAST) = 1
+      ),
+      brand_map AS (
+        SELECT 'M' AS brand_code, 'MLB' AS shop_brand
+        UNION ALL SELECT 'I', 'MLB KIDS'
+        UNION ALL SELECT 'X', 'DISCOVERY'
+      ),
+      sale_agg AS (
+        SELECT
+          s.shop_id,
+          s.brd_cd,
+          SUM(CASE WHEN s.sale_dt BETWEEN ?::DATE AND ?::DATE THEN s.sale_amt ELSE 0 END) AS cy_amt,
+          SUM(CASE WHEN s.sale_dt BETWEEN ?::DATE AND ?::DATE THEN s.sale_amt ELSE 0 END) AS py_amt
+        FROM CHN.dw_sale s
+        WHERE s.brd_cd IN ('M', 'I', 'X')
+          ${brandFilter}
+          AND (
+                s.sale_dt BETWEEN ?::DATE AND ?::DATE
+             OR s.sale_dt BETWEEN ?::DATE AND ?::DATE
+          )
+        GROUP BY s.shop_id, s.brd_cd
+      )
+      SELECT
+        sa.shop_id AS SHOP_ID,
+        m.shop_nm_en AS SHOP_NAME,
+        sa.brd_cd AS BRD_CD,
+        vs.brd_nm AS SHOP_BRD_NM,
+        m.anlys_onoff_cls_nm AS ONOFF_CLS,
+        CASE
+          WHEN m.shop_id IS NULL THEN 'NOT_IN_MASTER'
+          WHEN vs.shop_id IS NULL THEN 'ONOFF_CLS_OTHER'
+          ELSE 'BRAND_MISMATCH'
+        END AS REASON,
+        sa.cy_amt AS CY_SALES_AMT,
+        sa.py_amt AS PY_SALES_AMT
+      FROM sale_agg sa
+      LEFT JOIN FNF.CHN.MST_SHOP_ALL m ON sa.shop_id = m.shop_id
+      LEFT JOIN valid_shops vs ON sa.shop_id = vs.shop_id
+      LEFT JOIN brand_map bm ON bm.brand_code = sa.brd_cd
+      WHERE
+        m.shop_id IS NULL
+        OR vs.shop_id IS NULL
+        OR vs.brd_nm <> bm.shop_brand
+      ORDER BY sa.cy_amt DESC, sa.py_amt DESC
+    `;
+
+    const rows = await executeQuery<{
+      SHOP_ID: string;
+      SHOP_NAME: string | null;
+      BRD_CD: 'M' | 'I' | 'X';
+      SHOP_BRD_NM: string | null;
+      ONOFF_CLS: string | null;
+      REASON: 'NOT_IN_MASTER' | 'ONOFF_CLS_OTHER' | 'BRAND_MISMATCH';
+      CY_SALES_AMT: number;
+      PY_SALES_AMT: number;
+    }>(connection, sql, [cyStartDt, lastDt, pyStartDt, prevYearLastDt, cyStartDt, lastDt, pyStartDt, prevYearLastDt]);
+
+    return rows.map((row) => ({
+      shopId: String(row.SHOP_ID),
+      shopName: row.SHOP_NAME,
+      brdCd: row.BRD_CD,
+      shopBrdNm: row.SHOP_BRD_NM,
+      onOffCls: row.ONOFF_CLS,
+      reason: row.REASON,
       cySalesAmt: Number(row.CY_SALES_AMT) || 0,
       pySalesAmt: Number(row.PY_SALES_AMT) || 0,
     }));

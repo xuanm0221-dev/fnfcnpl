@@ -8,10 +8,12 @@ import { getCachedData, setCachedData, deleteDailyCache } from '@/lib/redis/cach
 import {
   getAllRetailSalesLastDt,
   getBrandRetailChannelSummary,
+  getBrandRetailRawTotal,
   type BrandRetailChannelSummaryRow,
+  type BrandRetailRawRow,
 } from '@/lib/plforecast/snowflake';
 
-const CACHE_KEY = 'retail_brand_summary_v2';
+const CACHE_KEY = 'retail_brand_summary_v3';
 
 function getRetailMonthEndDate(ym: string): string {
   const currentYm = getKstCurrentYm();
@@ -43,6 +45,7 @@ export interface RetailBrandSummaryResponse {
   direct: Record<BrandCode, BrandRetailPeriodSummary>;
   onlineDealer: Record<BrandCode, BrandRetailPeriodSummary>;
   onlineDirect: Record<BrandCode, BrandRetailPeriodSummary>;
+  unassigned: Record<BrandCode, BrandRetailPeriodSummary>;
 }
 
 function createMetric(cySalesAmt = 0, pySalesAmt = 0): BrandRetailMetric {
@@ -80,12 +83,42 @@ function applyRows(
   });
 }
 
+function fillUnassignedFromRaw(
+  target: RetailBrandSummaryResponse,
+  rawRows: BrandRetailRawRow[],
+  period: 'monthly' | 'ytd'
+) {
+  const rawMap: Record<string, BrandRetailRawRow> = {};
+  rawRows.forEach((r) => {
+    rawMap[r.brandCode] = r;
+  });
+  const buckets: Array<Record<BrandCode, BrandRetailPeriodSummary>> = [
+    target.dealer,
+    target.direct,
+    target.onlineDealer,
+    target.onlineDirect,
+  ];
+  (['M', 'I', 'X'] as BrandCode[]).forEach((brand) => {
+    let cySum = 0;
+    let pySum = 0;
+    for (const b of buckets) {
+      cySum += b[brand][period].cySalesAmt;
+      pySum += b[brand][period].pySalesAmt;
+    }
+    const raw = rawMap[brand];
+    const cyDiff = Math.max((raw?.cySalesAmt ?? 0) - cySum, 0);
+    const pyDiff = Math.max((raw?.pySalesAmt ?? 0) - pySum, 0);
+    target.unassigned[brand][period] = createMetric(cyDiff, pyDiff);
+  });
+}
+
 function fillTotalFromBuckets(target: RetailBrandSummaryResponse) {
   const buckets: Array<Record<BrandCode, BrandRetailPeriodSummary>> = [
     target.dealer,
     target.direct,
     target.onlineDealer,
     target.onlineDirect,
+    target.unassigned,
   ];
   (['M', 'I', 'X'] as BrandCode[]).forEach((brand) => {
     (['monthly', 'ytd'] as const).forEach((period) => {
@@ -133,11 +166,15 @@ export async function GET(request: NextRequest) {
       ytdOffline,
       monthlyOnline,
       ytdOnline,
+      monthlyRaw,
+      ytdRaw,
     ] = await Promise.all([
       getBrandRetailChannelSummary(ym, retailLastDt, 'monthly', 'Offline'),
       getBrandRetailChannelSummary(ym, retailLastDt, 'ytd', 'Offline'),
       getBrandRetailChannelSummary(ym, retailLastDt, 'monthly', 'Online'),
       getBrandRetailChannelSummary(ym, retailLastDt, 'ytd', 'Online'),
+      getBrandRetailRawTotal(ym, retailLastDt, 'monthly'),
+      getBrandRetailRawTotal(ym, retailLastDt, 'ytd'),
     ]);
 
     const response: RetailBrandSummaryResponse = {
@@ -149,12 +186,15 @@ export async function GET(request: NextRequest) {
       direct: createChannelSummary(),
       onlineDealer: createChannelSummary(),
       onlineDirect: createChannelSummary(),
+      unassigned: createChannelSummary(),
     };
 
     applyRows(response, monthlyOffline, 'monthly', 'offline');
     applyRows(response, ytdOffline, 'ytd', 'offline');
     applyRows(response, monthlyOnline, 'monthly', 'online');
     applyRows(response, ytdOnline, 'ytd', 'online');
+    fillUnassignedFromRaw(response, monthlyRaw, 'monthly');
+    fillUnassignedFromRaw(response, ytdRaw, 'ytd');
     fillTotalFromBuckets(response);
 
     try {
