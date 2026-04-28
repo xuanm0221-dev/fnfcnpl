@@ -201,7 +201,13 @@ async function calcBrandData(
 // 계산된 값들을 저장하는 컨텍스트 (영업이익 계산용)
 interface CalcContext {
   vatExcForecast: number; // 실판(V-) 월말예상
-  actSaleVatIncForecast: number; // 실판(V+) 월말예상
+  actSaleVatIncForecast: number; // 실판(V+) 월말예상 (브랜드 합계)
+  actSaleVatIncForecastByChannel: {
+    onlineDirect: number;
+    onlineDealer: number;
+    offlineDirect: number;
+    offlineDealer: number;
+  }; // 채널별 실판(V+) 월말예상 (변동비 계산용 — V+/1.13 = V-)
   cogsSumForecast: number; // 매출원가 합계 월말예상
   grossProfitForecast: number; // 매출총이익 월말예상
   directCostSumForecast: number; // 직접비 합계 월말예상
@@ -619,8 +625,8 @@ function buildPlLine(
             // 월말: 누적 = 확정값
             forecast = accum;
           } else if (channel === 'onlineDealer' || channel === 'offlineDealer') {
-            // 대리상: 목표 그대로
-            forecast = target;
+            // 대리상: 목표가 기본값, 누적 실적이 목표 초과 시 실적을 월말예상으로 사용
+            forecast = (target !== null && accum !== null && accum > target) ? accum : target;
           } else {
             // 직영: 전년 진척률 기반
             if (prevYearProgressRate !== null && prevYearProgressRate !== 0 && accum !== null) {
@@ -629,6 +635,9 @@ function buildPlLine(
               forecast = null;
             }
           }
+
+          // 채널별 V+ 월말예상을 context에 저장 (변동비 계산에서 V+/1.13으로 V- 도출)
+          context.actSaleVatIncForecastByChannel[channel] = forecast ?? 0;
         }
       }
       break;
@@ -664,8 +673,8 @@ function buildPlLine(
             // 월말: 누적 = 확정값
             forecast = accum;
           } else if (channel === 'onlineDealer' || channel === 'offlineDealer') {
-            // 대리상: 목표 그대로
-            forecast = target;
+            // 대리상: 목표가 기본값, 누적 실적이 목표 초과 시 실적을 월말예상으로 사용
+            forecast = (target !== null && accum !== null && accum > target) ? accum : target;
           } else {
             // 직영: 전년 진척률 기반
             if (prevYearProgressRate !== null && prevYearProgressRate !== 0 && accum !== null) {
@@ -1156,17 +1165,17 @@ function buildPlLine(
             forecast = target;
           } else if (calcInfo.type === 'variable' && calcInfo.channel && channelData) {
             // 변동비: 목표 비용 ÷ 목표 실판(V-) × 월말예상 실판(V-)
+            // 월말예상 실판(V-)은 V+ 월말예상 / 1.13으로 도출 (V+ 대리상 overflow 룰 반영)
             const channel = calcInfo.channel;
-            const targetVatExc = channel === 'total' 
+            const targetVatExc = channel === 'total'
               ? (channelData.targetChannelVatExc?.total || null)
               : (channelData.targetChannelVatExc?.[channel] || null);
-            const accumVatExc = channel === 'total'
-              ? (channelData.accumChannelVatExc?.total || null)
-              : (channelData.accumChannelVatExc?.[channel] || null);
-            
-            // 월말예상 실판(V-) = 누적 / 누적일수 × 월일수
-            const forecastVatExc = calculateForecast(accumVatExc, data.accumDays, data.monthDays);
-            
+
+            const forecastVatInc = channel === 'total'
+              ? context.actSaleVatIncForecast
+              : context.actSaleVatIncForecastByChannel[channel];
+            const forecastVatExc = forecastVatInc > 0 ? forecastVatInc / 1.13 : null;
+
             if (target !== null && targetVatExc !== null && targetVatExc !== 0 && forecastVatExc !== null) {
               forecast = (target / targetVatExc) * forecastVatExc;
             } else if (target !== null && targetVatExc === 0 && forecastVatExc !== null) {
@@ -2366,6 +2375,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
           const bContext: CalcContext = {
             vatExcForecast: 0,
             actSaleVatIncForecast: 0,
+            actSaleVatIncForecastByChannel: { onlineDirect: 0, onlineDealer: 0, offlineDirect: 0, offlineDealer: 0 },
             cogsSumForecast: 0,
             grossProfitForecast: 0,
             directCostSumForecast: 0,
@@ -2402,6 +2412,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
           const bContext: CalcContext = {
             vatExcForecast: 0,
             actSaleVatIncForecast: 0,
+            actSaleVatIncForecastByChannel: { onlineDirect: 0, onlineDealer: 0, offlineDirect: 0, offlineDealer: 0 },
             cogsSumForecast: 0,
             grossProfitForecast: 0,
             directCostSumForecast: 0,
@@ -2512,6 +2523,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<ApiRespons
     const context: CalcContext = {
       vatExcForecast: 0,
       actSaleVatIncForecast: 0,
+      actSaleVatIncForecastByChannel: { onlineDirect: 0, onlineDealer: 0, offlineDirect: 0, offlineDealer: 0 },
       cogsSumForecast: 0,
       grossProfitForecast: 0,
       directCostSumForecast: 0,
