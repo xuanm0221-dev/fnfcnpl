@@ -39,7 +39,7 @@ const ACTUALS_DIR = 'D:\\로컬파일\\월중손익\\실적';
 const PROJECT_ROOT = process.cwd();
 const OUTPUT_TARGETS_FILE = path.join(PROJECT_ROOT, 'src', 'data', 'plforecast', 'targets.ts');
 const OUTPUT_RETAIL_PLAN_FILE = path.join(PROJECT_ROOT, 'src', 'data', 'plforecast', 'retailPlan.ts');
-const OUTPUT_ACTUALS_FILE = path.join(PROJECT_ROOT, 'src', 'data', 'plforecast', 'actuals.ts');
+const OUTPUT_ACTUALS_DIR = path.join(PROJECT_ROOT, 'src', 'data', 'plforecast', 'actuals');
 
 /**
  * YY.MM 형식을 YYYY-MM 형식으로 변환
@@ -322,7 +322,7 @@ ${legend}
 }
 
 /**
- * 실적 CSV 파일들을 읽어서 actuals.ts 생성
+ * 실적 CSV 파일들을 읽어서 src/data/plforecast/actuals/ 하위에 월별 파일과 index.ts 생성
  * @returns 업데이트된 월 목록 (YYYY-MM 형식)
  */
 function generateActualsFile(): string[] {
@@ -381,71 +381,66 @@ function generateActualsFile(): string[] {
     return [];
   }
 
-  // TypeScript 파일 생성
-  const constants = csvMap.map(
-    ({ variableName, content }) => `const ${variableName} = \`${content}\`;`
-  ).join('\n\n');
+  // 출력 디렉토리 준비
+  if (!fs.existsSync(OUTPUT_ACTUALS_DIR)) {
+    fs.mkdirSync(OUTPUT_ACTUALS_DIR, { recursive: true });
+  }
 
-  // 월별 -> 날짜별 매핑 (같은 월에 여러 날짜가 있을 수 있지만, 최신 하나만 저장)
-  const mapEntries: string[] = [];
-  const dateMap = new Map<string, string>(); // fullYmd -> variableName
+  // 월별 파일 생성 (각 ym에 해당하는 단일 const export)
   for (const item of csvMap) {
-    dateMap.set(item.fullYmd, item.variableName);
+    const monthFile = path.join(OUTPUT_ACTUALS_DIR, `${item.fullYm}.ts`);
+    const monthTs = `// 자동 생성 — 수정하지 마세요. npm run update-csv 로 재생성됩니다.\nexport const ${item.variableName} = \`${item.content}\`;\n`;
+    fs.writeFileSync(monthFile, monthTs, 'utf-8');
+    console.log(`[실적] ${item.fullYm}.ts 생성 (${item.fullYmd})`);
   }
 
-  // 날짜별 매핑 (YYYY-MM-DD -> variable)
-  for (const [fullYmd, variableName] of Array.from(dateMap.entries()).sort()) {
-    mapEntries.push(`  '${fullYmd}': ${variableName},`);
+  // 현재 월별 파일 목록 (이번 실행에 포함되지 않은 옛 월 파일은 그대로 유지)
+  // 다만 generateActualsFile은 ACTUALS_DIR 폴더를 모두 스캔하므로 csvMap이 곧 전체임
+  // → index.ts는 csvMap 기준으로 작성
+
+  const dateMap = new Map<string, { ym: string; varName: string }>();
+  for (const item of csvMap) {
+    dateMap.set(item.fullYmd, { ym: item.fullYm, varName: item.variableName });
   }
+  const sortedDates = Array.from(dateMap.entries()).sort();
 
-  // 범례 생성
-  const legend = `/*
- * ========================================
- * 범례 (Legend)
- * ========================================
- * CSV 파일 경로: ${ACTUALS_DIR}
- * 생성 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
- * 포함된 파일: ${csvMap.map(({ fullYm, fullYmd }) => `${fullYm}/${fullYmd}.csv`).join(', ')}
- * 총 파일 수: ${csvMap.length}개
- * 
- * 폴더명 형식: YYYY-MM (예: 2025-12, 2026-01)
- * 파일명 형식: YYYY-MM-DD.csv (예: 2026-01-04.csv)
- * 폴더 구조: [YYYY-MM]\\YYYY-MM-DD.csv (예: 2026-01\\2026-01-04.csv)
- * 업데이트 방법: CSV 파일 추가 후 npm run update-csv 실행
- * 참고: 같은 월 폴더에 여러 파일이 있으면 가장 최근 날짜 파일만 사용
- * ========================================
- */`;
+  const loaderEntries = sortedDates.map(
+    ([ymd, { ym }]) => `  '${ymd}': () => import('./${ym}'),`
+  ).join('\n');
+  const varNameEntries = sortedDates.map(
+    ([ymd, { varName }]) => `  '${ymd}': '${varName}',`
+  ).join('\n');
 
-  const tsContent = `// 이 파일은 자동 생성됩니다. 수정하지 마세요.
-// CSV 파일을 업데이트한 후 npm run update-csv 를 실행하세요.
+  const indexTs = `// 자동 생성 — 수정하지 마세요. npm run update-csv 로 재생성됩니다.
+// 생성 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+// CSV 경로: ${ACTUALS_DIR}
+// 총 ${csvMap.length}개월: ${csvMap.map(({ fullYm }) => fullYm).join(', ')}
 
-// 실적 CSV 데이터 (당월 누적)
+// 날짜별 동적 import 로더 (월별 파일을 lazy load)
+const loaders: Record<string, () => Promise<Record<string, string>>> = {
+${loaderEntries}
+};
 
-${constants}
-
-// 날짜별 실적 CSV 매핑 (YYYY-MM-DD -> CSV 데이터)
-const actualsCsvMap: Record<string, string> = {
-${mapEntries.join('\n')}
+const varNames: Record<string, string> = {
+${varNameEntries}
 };
 
 /**
- * 기준월과 날짜로 실적 CSV 반환
+ * 기준월과 날짜로 실적 CSV 반환 (lazy load)
  * @param ym 기준월 (YYYY-MM)
  * @param date 기준일 (YYYY-MM-DD)
  */
-export function getActualsCsv(ym: string, date: string): string | null {
-  // date가 해당 월에 속하는지 확인
-  if (date.startsWith(ym)) {
-    return actualsCsvMap[date] || null;
-  }
-  return null;
+export async function getActualsCsv(ym: string, date: string): Promise<string | null> {
+  if (!date.startsWith(ym)) return null;
+  const loader = loaders[date];
+  if (!loader) return null;
+  const mod = await loader();
+  return mod[varNames[date]] ?? null;
 }
-
-${legend}
 `;
 
-  fs.writeFileSync(OUTPUT_ACTUALS_FILE, tsContent, 'utf-8');
-  console.log(`[실적] ✅ 생성 완료: ${OUTPUT_ACTUALS_FILE}`);
+  fs.writeFileSync(path.join(OUTPUT_ACTUALS_DIR, 'index.ts'), indexTs, 'utf-8');
+  console.log(`[실적] ✅ index.ts 생성 완료 (${csvMap.length}개월)`);
 
   return [...new Set(csvMap.map((item) => item.fullYm))].sort();
 }

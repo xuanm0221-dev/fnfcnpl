@@ -71,12 +71,12 @@ export async function getLastDates(
 ): Promise<Record<BrandCode, string>> {
   // CSV 파일에서 날짜 추출
   const { getActualsCsv } = await import('@/data/plforecast/actuals');
-  
+
   // 해당 월의 모든 CSV 파일 날짜 중 가장 최신 날짜 찾기
   const dates: string[] = [];
   for (let day = 1; day <= 31; day++) {
     const dateStr = `${ym}-${String(day).padStart(2, '0')}`;
-    const csv = getActualsCsv(ym, dateStr);
+    const csv = await getActualsCsv(ym, dateStr);
     if (csv) {
       dates.push(dateStr);
     }
@@ -203,8 +203,8 @@ export async function getAccumActuals(
   // CSV 파일에서 데이터 읽기
   const { getActualsCsv } = await import('@/data/plforecast/actuals');
   const { parseAccumActualsCsv } = await import('./parseActualsCsv');
-  
-  const csvContent = getActualsCsv(ym, lastDt);
+
+  const csvContent = await getActualsCsv(ym, lastDt);
   if (!csvContent) {
     // CSV 파일이 없으면 빈 데이터 반환하되, accumDays는 lastDt에서 계산
     return {
@@ -2654,7 +2654,7 @@ export async function getChannelActuals(
   const { getActualsCsv } = await import('@/data/plforecast/actuals');
   const { parseChannelActualsCsv } = await import('./parseActualsCsv');
 
-  const csvContent = getActualsCsv(ym, lastDt);
+  const csvContent = await getActualsCsv(ym, lastDt);
   if (!csvContent) {
     const emptyRow: ChannelRowData = { onlineDirect: null, onlineDealer: null, offlineDirect: null, offlineDealer: null, total: null };
     return {
