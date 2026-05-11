@@ -4288,7 +4288,7 @@ export default function BrandPlForecastPage() {
                   </span>
                 )}
                 <div className="text-xl text-gray-600 ml-6">
-                  💡 월 변경 후 데이터가 해당월로 조회되지 않으면 새로고침(<span className="font-bold text-red-600">F5</span>)을 눌러주세요
+                  💡 월 변경 후 데이터가 해당월로 조회되지 않으면 새로고침(<span className="font-bold text-red-600">ctrl+shift+R</span>)을 눌러주세요
                 </div>
               </div>
               <p className="text-sm text-gray-500 mt-1">
