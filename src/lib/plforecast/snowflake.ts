@@ -3599,7 +3599,6 @@ export async function getClothingItemDetails(
           AND prdt.parent_prdt_kind_cd = 'L'
           AND s.sale_dt <= DATE '${lastDt}'
         GROUP BY s.prdt_cd
-        HAVING SUM(s.qty) > 0
       ) sd
       LEFT JOIN (
         SELECT 
