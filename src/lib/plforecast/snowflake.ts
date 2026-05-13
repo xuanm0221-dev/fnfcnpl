@@ -1276,7 +1276,6 @@ export async function getBrandRetailChannelSummary(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd IN ('M', 'I', 'X')
         GROUP BY sale.brd_cd, vs.brd_nm, vs.channel
-        HAVING SUM(sale.sale_amt) > 0
       ),
       py_shop_sales AS (
         SELECT
@@ -1289,7 +1288,6 @@ export async function getBrandRetailChannelSummary(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd IN ('M', 'I', 'X')
         GROUP BY sale.brd_cd, vs.brd_nm, vs.channel
-        HAVING SUM(sale.sale_amt) > 0
       ),
       base_rows AS (
         SELECT bm.brand_code, bm.shop_brand, ch.channel
