@@ -1623,7 +1623,6 @@ export async function getTierSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       -- 티어별 도시 정보 (매장수 기준 상위 4개)
       tier_cities AS (
@@ -1672,7 +1671,6 @@ export async function getTierSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_tier AS (
         SELECT
@@ -1697,7 +1695,6 @@ export async function getTierSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_tier AS (
         SELECT
@@ -1880,7 +1877,6 @@ export async function getRegionSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       -- 지역별 도시 정보 (매장수 기준 상위 4개)
       region_cities AS (
@@ -1929,7 +1925,6 @@ export async function getRegionSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_region AS (
         SELECT
@@ -1954,7 +1949,6 @@ export async function getRegionSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_region AS (
         SELECT
@@ -2154,7 +2148,6 @@ export async function getTradeZoneSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       cy_trade_zone AS (
         SELECT
@@ -2179,7 +2172,6 @@ export async function getTradeZoneSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_trade_zone AS (
         SELECT
@@ -2204,7 +2196,6 @@ export async function getTradeZoneSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_trade_zone AS (
         SELECT
@@ -2363,7 +2354,6 @@ export async function getShopLevelSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       cy_shop_level AS (
         SELECT
@@ -2388,7 +2378,6 @@ export async function getShopLevelSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_shop_level AS (
         SELECT
@@ -2413,7 +2402,6 @@ export async function getShopLevelSalesData(
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
           AND sale.brd_cd = ?
         GROUP BY sale.shop_id, vs.brd_nm, DATE_TRUNC('MONTH', sale.sale_dt)
-        HAVING SUM(sale.sale_amt) > 0
       ),
       ly_full_shop_level AS (
         SELECT
@@ -3316,7 +3304,6 @@ export async function getCategoryProductSales(
           OR (s.sale_dt >= DATE '${pyStartDt}' AND s.sale_dt <= DATE '${pyEndDt}')
         )
       GROUP BY s.prdt_scs_cd, p.prdt_nm_kr
-      HAVING SUM(CASE WHEN s.sale_dt >= DATE '${cyStartDt}' AND s.sale_dt <= DATE '${cyEndDt}' THEN s.sale_amt ELSE 0 END) > 0
       ORDER BY CY_SALES_AMT DESC
       LIMIT 100
     `;
