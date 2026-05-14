@@ -106,6 +106,28 @@ export default function PlForecastPage() {
   // ── AI 분석 모달 상태 ──
   const [showAiModal, setShowAiModal] = useState(false);
 
+  // ── 캐시 재생성 상태 ──
+  const [cacheRefreshing, setCacheRefreshing] = useState(false);
+
+  // 캐시 재생성: Redis의 ym 캐시 삭제 후 페이지 강제 새로고침
+  const handleRefreshCache = async () => {
+    if (cacheRefreshing) return;
+    setCacheRefreshing(true);
+    try {
+      await Promise.all([
+        fetch(`/api/pl-forecast?ym=${ym}`, { method: 'DELETE' }).catch(() => null),
+        fetch(`/api/retail-brand-summary?ym=${ym}`, { method: 'DELETE' }).catch(() => null),
+      ]);
+      // CDN/브라우저 캐시 우회: 페이지 URL에 cache buster 추가하여 새로고침
+      const url = new URL(window.location.href);
+      url.searchParams.set('_r', String(Date.now()));
+      window.location.href = url.toString();
+    } catch (err) {
+      console.error('[캐시 재생성] 실패:', err);
+      setCacheRefreshing(false);
+    }
+  };
+
   // URL 쿼리 파라미터에서 ym 읽기 (마운트 시, 클라이언트에서만)
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -427,8 +449,30 @@ export default function PlForecastPage() {
               </p>
             </div>
             
-            {/* 월 선택 */}
+            {/* 캐시 재생성 + 월 선택 */}
             <div className="flex items-center gap-3">
+              {/* 캐시 재생성 버튼 */}
+              <button
+                onClick={handleRefreshCache}
+                disabled={cacheRefreshing}
+                title="Redis 캐시를 삭제하고 Snowflake에서 최신 데이터를 다시 받아 캐싱합니다"
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-white transition-colors ${
+                  cacheRefreshing
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                <svg
+                  className={`h-3.5 w-3.5 ${cacheRefreshing ? 'animate-spin' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {cacheRefreshing ? '재생성 중...' : '캐시 재생성'}
+              </button>
+
               {/* 월 선택 */}
               <div className="flex items-center gap-2">
                 <label className="text-sm text-gray-500">기준월</label>
