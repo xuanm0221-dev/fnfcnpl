@@ -13,7 +13,7 @@ import {
   type BrandRetailRawRow,
 } from '@/lib/plforecast/snowflake';
 
-const CACHE_KEY = 'retail_brand_summary_v3';
+const CACHE_KEY = 'retail_brand_summary_v4';
 
 function getRetailMonthEndDate(ym: string): string {
   const currentYm = getKstCurrentYm();
@@ -28,7 +28,10 @@ type BrandCode = 'M' | 'I' | 'X';
 interface BrandRetailMetric {
   cySalesAmt: number;
   pySalesAmt: number;
-  yoy: number | null;
+  yoy: number | null;          // sale_amt 기준 YoY
+  cyTagAmt: number;
+  pyTagAmt: number;
+  tagYoy: number | null;       // tag_amt 기준 YoY
 }
 
 interface BrandRetailPeriodSummary {
@@ -48,11 +51,19 @@ export interface RetailBrandSummaryResponse {
   unassigned: Record<BrandCode, BrandRetailPeriodSummary>;
 }
 
-function createMetric(cySalesAmt = 0, pySalesAmt = 0): BrandRetailMetric {
+function createMetric(
+  cySalesAmt = 0,
+  pySalesAmt = 0,
+  cyTagAmt = 0,
+  pyTagAmt = 0,
+): BrandRetailMetric {
   return {
     cySalesAmt,
     pySalesAmt,
-    yoy: pySalesAmt > 0 ? cySalesAmt / pySalesAmt : null,
+    yoy: pySalesAmt !== 0 ? cySalesAmt / pySalesAmt : null,
+    cyTagAmt,
+    pyTagAmt,
+    tagYoy: pyTagAmt !== 0 ? cyTagAmt / pyTagAmt : null,
   };
 }
 
@@ -79,7 +90,12 @@ function applyRows(
         : row.channel === 'dealer'
           ? target.onlineDealer
           : target.onlineDirect;
-    channelBucket[row.brandCode][period] = createMetric(row.cySalesAmt, row.pySalesAmt);
+    channelBucket[row.brandCode][period] = createMetric(
+      row.cySalesAmt,
+      row.pySalesAmt,
+      row.cyTagAmt,
+      row.pyTagAmt,
+    );
   });
 }
 
@@ -99,16 +115,22 @@ function fillUnassignedFromRaw(
     target.onlineDirect,
   ];
   (['M', 'I', 'X'] as BrandCode[]).forEach((brand) => {
-    let cySum = 0;
-    let pySum = 0;
+    let cySaleSum = 0;
+    let pySaleSum = 0;
+    let cyTagSum = 0;
+    let pyTagSum = 0;
     for (const b of buckets) {
-      cySum += b[brand][period].cySalesAmt;
-      pySum += b[brand][period].pySalesAmt;
+      cySaleSum += b[brand][period].cySalesAmt;
+      pySaleSum += b[brand][period].pySalesAmt;
+      cyTagSum += b[brand][period].cyTagAmt;
+      pyTagSum += b[brand][period].pyTagAmt;
     }
     const raw = rawMap[brand];
-    const cyDiff = Math.max((raw?.cySalesAmt ?? 0) - cySum, 0);
-    const pyDiff = Math.max((raw?.pySalesAmt ?? 0) - pySum, 0);
-    target.unassigned[brand][period] = createMetric(cyDiff, pyDiff);
+    const cySaleDiff = Math.max((raw?.cySalesAmt ?? 0) - cySaleSum, 0);
+    const pySaleDiff = Math.max((raw?.pySalesAmt ?? 0) - pySaleSum, 0);
+    const cyTagDiff = Math.max((raw?.cyTagAmt ?? 0) - cyTagSum, 0);
+    const pyTagDiff = Math.max((raw?.pyTagAmt ?? 0) - pyTagSum, 0);
+    target.unassigned[brand][period] = createMetric(cySaleDiff, pySaleDiff, cyTagDiff, pyTagDiff);
   });
 }
 
@@ -122,13 +144,14 @@ function fillTotalFromBuckets(target: RetailBrandSummaryResponse) {
   ];
   (['M', 'I', 'X'] as BrandCode[]).forEach((brand) => {
     (['monthly', 'ytd'] as const).forEach((period) => {
-      let cy = 0;
-      let py = 0;
+      let cySale = 0, pySale = 0, cyTag = 0, pyTag = 0;
       for (const b of buckets) {
-        cy += b[brand][period].cySalesAmt;
-        py += b[brand][period].pySalesAmt;
+        cySale += b[brand][period].cySalesAmt;
+        pySale += b[brand][period].pySalesAmt;
+        cyTag += b[brand][period].cyTagAmt;
+        pyTag += b[brand][period].pyTagAmt;
       }
-      target.total[brand][period] = createMetric(cy, py);
+      target.total[brand][period] = createMetric(cySale, pySale, cyTag, pyTag);
     });
   });
 }

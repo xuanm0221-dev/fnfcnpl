@@ -73,6 +73,47 @@ function escapeCsvContent(content: string): string {
 }
 
 /**
+ * 실적 CSV 정규화 (다운로드 원본을 그대로 쓰기 위한 전처리)
+ * - 중복 헤더(상품, 유통채널 등)에 _2, _3 접미사 부여 → 첫 번째 컬럼명은 원래대로 유지
+ *   (파서가 동일 키를 마지막 값으로 덮어쓰는 문제 방지 + 코드는 첫 번째 컬럼 그대로 참조)
+ * - 최상단 합계 행(고객 컬럼이 비어 있는 경우) 제외
+ */
+function normalizeActualsCsv(content: string): string {
+  let raw = content;
+  if (raw.charCodeAt(0) === 0xFEFF) {
+    raw = raw.slice(1);
+  }
+
+  const lines = raw.split(/\r?\n/);
+  if (lines.length < 2) return raw;
+
+  // 헤더 중복 정리
+  const rawHeaders = lines[0].split(',');
+  const seen = new Map<string, number>();
+  const newHeaders = rawHeaders.map(h => {
+    const key = h.trim();
+    const count = (seen.get(key) || 0) + 1;
+    seen.set(key, count);
+    return count === 1 ? h : `${key}_${count}`;
+  });
+
+  // 최상단 합계 행 감지 (고객 컬럼이 비어 있으면 합계 행으로 간주)
+  const customerColIdx = rawHeaders.findIndex(h => h.trim() === '고객');
+  const dataLines = lines.slice(1);
+  let filteredData = dataLines;
+  if (customerColIdx >= 0 && dataLines.length > 0) {
+    const firstRowCols = dataLines[0].split(',');
+    const customerVal = (firstRowCols[customerColIdx] || '').trim();
+    if (!customerVal) {
+      filteredData = dataLines.slice(1);
+      console.log(`[실적 정규화] 최상단 합계 행 제외 (고객 컬럼 비어 있음)`);
+    }
+  }
+
+  return [newHeaders.join(','), ...filteredData].join('\n');
+}
+
+/**
  * 예상손익 CSV 파일들을 읽어서 targets.ts 생성
  */
 function generateTargetsFile(): void {
@@ -323,11 +364,14 @@ ${legend}
 
 /**
  * 실적 CSV 파일들을 읽어서 src/data/plforecast/actuals/ 하위에 월별 파일과 index.ts 생성
- * @returns 업데이트된 월 목록 (YYYY-MM 형식)
+ * 기본: 최신 2개월만 재생성. --all 옵션 시 전체 재생성.
+ * @returns 실제로 재생성된 월 목록 (YYYY-MM 형식, 캐시 삭제 트리거용)
  */
 function generateActualsFile(): string[] {
+  const allMonths = process.argv.includes('--all');
+
   console.log(`[실적] 폴더 확인: ${ACTUALS_DIR}`);
-  
+
   if (!fs.existsSync(ACTUALS_DIR)) {
     console.error(`[실적] 폴더가 존재하지 않습니다: ${ACTUALS_DIR}`);
     return [];
@@ -346,52 +390,93 @@ function generateActualsFile(): string[] {
 
   console.log(`[실적] 발견된 월별 폴더: ${monthFolders.length}개`);
 
-  const csvMap: Array<{ fullYm: string; fullYmd: string; variableName: string; content: string }> = [];
-
-  for (const monthFolder of monthFolders) {
-    const folderPath = path.join(ACTUALS_DIR, monthFolder);
-    const files = fs.readdirSync(folderPath);
-    // 파일명은 YYYY-MM-DD.csv 형식
-    const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{4}-\d{2}-\d{2}\.csv$/.test(f));
-    
-    if (csvFiles.length === 0) {
-      console.warn(`[실적] ${monthFolder} 폴더에 CSV 파일이 없습니다`);
-      continue;
-    }
-
-    // 가장 최근 파일 선택 (파일명 기준 정렬)
-    const latestFile = csvFiles.sort().reverse()[0];
-    const fullYmd = latestFile.replace('.csv', ''); // 2026-01-04
-    const fullYm = monthFolder; // 2026-01 (이미 YYYY-MM 형식)
-    const variableName = getVariableName(fullYmd, 'actuals'); // actuals_2026_01_04
-    const filePath = path.join(folderPath, latestFile);
-    
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const escapedContent = escapeCsvContent(content);
-      csvMap.push({ fullYm, fullYmd, variableName, content: escapedContent });
-      console.log(`[실적] 읽음: ${monthFolder}/${latestFile} -> ${fullYmd}`);
-    } catch (error) {
-      console.error(`[실적] 파일 읽기 실패: ${monthFolder}/${latestFile}`, error);
-    }
-  }
-
-  if (csvMap.length === 0) {
-    console.warn(`[실적] 읽을 수 있는 CSV 파일이 없습니다`);
-    return [];
-  }
-
   // 출력 디렉토리 준비
   if (!fs.existsSync(OUTPUT_ACTUALS_DIR)) {
     fs.mkdirSync(OUTPUT_ACTUALS_DIR, { recursive: true });
   }
 
-  // 월별 파일 생성 (각 ym에 해당하는 단일 const export)
-  for (const item of csvMap) {
-    const monthFile = path.join(OUTPUT_ACTUALS_DIR, `${item.fullYm}.ts`);
-    const monthTs = `// 자동 생성 — 수정하지 마세요. npm run update-csv 로 재생성됩니다.\nexport const ${item.variableName} = \`${item.content}\`;\n`;
-    fs.writeFileSync(monthFile, monthTs, 'utf-8');
-    console.log(`[실적] ${item.fullYm}.ts 생성 (${item.fullYmd})`);
+  // 재생성 대상 월 결정 (기본: 최신 2개월, --all: 전체)
+  const targetMonths = new Set<string>(allMonths ? monthFolders : monthFolders.slice(-2));
+  if (!allMonths) {
+    console.log(`[실적] 최신 2개월만 재생성: ${Array.from(targetMonths).join(', ')} (전체 재생성: --all)`);
+  } else {
+    console.log(`[실적] --all 옵션: 전체 ${monthFolders.length}개월 재생성`);
+  }
+
+  // 기존 .ts 파일에서 옛 월의 ymd/varName 파싱 (스킵 대상 월용)
+  const existingMonths = new Map<string, { ymd: string; varName: string }>();
+  if (!allMonths) {
+    const tsFiles = fs.readdirSync(OUTPUT_ACTUALS_DIR).filter(f => /^\d{4}-\d{2}\.ts$/.test(f));
+    for (const tsFile of tsFiles) {
+      const ym = tsFile.replace('.ts', '');
+      try {
+        // 상단 200바이트면 export 선언 잡힘
+        const head = fs.readFileSync(path.join(OUTPUT_ACTUALS_DIR, tsFile), { encoding: 'utf-8' }).slice(0, 200);
+        const m = head.match(/export const (actuals_(\d{4})_(\d{2})_(\d{2}))/);
+        if (m) {
+          existingMonths.set(ym, {
+            ymd: `${m[2]}-${m[3]}-${m[4]}`,
+            varName: m[1],
+          });
+        }
+      } catch {
+        // 파싱 실패하면 그 월은 재생성 강제
+      }
+    }
+  }
+
+  // 각 월별로 처리
+  type CsvEntry = { fullYm: string; fullYmd: string; variableName: string };
+  const csvMap: CsvEntry[] = [];           // index.ts 생성에 사용 (전체 월)
+  const writtenMonths: string[] = [];      // 실제로 .ts 파일 쓴 월 (캐시 삭제 트리거)
+
+  for (const monthFolder of monthFolders) {
+    const folderPath = path.join(ACTUALS_DIR, monthFolder);
+    const files = fs.readdirSync(folderPath);
+    const csvFiles = files.filter(f => f.endsWith('.csv') && /^\d{4}-\d{2}-\d{2}\.csv$/.test(f));
+
+    if (csvFiles.length === 0) {
+      console.warn(`[실적] ${monthFolder} 폴더에 CSV 파일이 없습니다`);
+      continue;
+    }
+
+    // 가장 최근 파일
+    const latestFile = csvFiles.sort().reverse()[0];
+    const fullYmd = latestFile.replace('.csv', '');
+    const variableName = getVariableName(fullYmd, 'actuals');
+
+    const isTarget = targetMonths.has(monthFolder);
+    const existing = existingMonths.get(monthFolder);
+    // 기존 .ts 없음 → 강제 재생성
+    const mustRegenerate = !existing;
+
+    if (isTarget || mustRegenerate) {
+      // CSV 읽고 .ts 파일 쓰기
+      const filePath = path.join(folderPath, latestFile);
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const normalized = normalizeActualsCsv(content);
+        const escapedContent = escapeCsvContent(normalized);
+        const monthFile = path.join(OUTPUT_ACTUALS_DIR, `${monthFolder}.ts`);
+        const monthTs = `// 자동 생성 — 수정하지 마세요. npm run update-csv 로 재생성됩니다.\nexport const ${variableName} = \`${escapedContent}\`;\n`;
+        fs.writeFileSync(monthFile, monthTs, 'utf-8');
+        csvMap.push({ fullYm: monthFolder, fullYmd, variableName });
+        writtenMonths.push(monthFolder);
+        const reason = mustRegenerate && !isTarget ? '신규' : '재생성';
+        console.log(`[실적] ${reason}: ${monthFolder}.ts (${fullYmd})`);
+      } catch (error) {
+        console.error(`[실적] 파일 읽기 실패: ${monthFolder}/${latestFile}`, error);
+      }
+    } else {
+      // 스킵 — 기존 .ts의 ymd/varName을 그대로 사용
+      csvMap.push({ fullYm: monthFolder, fullYmd: existing.ymd, variableName: existing.varName });
+      console.log(`[실적] 유지: ${monthFolder}.ts (기존 ${existing.ymd})`);
+    }
+  }
+
+  if (csvMap.length === 0) {
+    console.warn(`[실적] 처리된 월이 없습니다`);
+    return [];
   }
 
   // 현재 월별 파일 목록 (이번 실행에 포함되지 않은 옛 월 파일은 그대로 유지)
@@ -439,10 +524,29 @@ export async function getActualsCsv(ym: string, date: string): Promise<string | 
 }
 `;
 
-  fs.writeFileSync(path.join(OUTPUT_ACTUALS_DIR, 'index.ts'), indexTs, 'utf-8');
-  console.log(`[실적] ✅ index.ts 생성 완료 (${csvMap.length}개월)`);
+  // index.ts 변경 감지: 타임스탬프 줄 제외하고 비교 후 다를 때만 쓰기
+  const indexPath = path.join(OUTPUT_ACTUALS_DIR, 'index.ts');
+  const stripTimestamp = (s: string) => s.replace(/^\/\/ 생성 시간:.*\n/m, '');
+  let shouldWriteIndex = true;
+  if (fs.existsSync(indexPath)) {
+    try {
+      const oldIndex = fs.readFileSync(indexPath, 'utf-8');
+      if (stripTimestamp(oldIndex) === stripTimestamp(indexTs)) {
+        shouldWriteIndex = false;
+      }
+    } catch {
+      // 비교 실패 시 그냥 쓰기
+    }
+  }
+  if (shouldWriteIndex) {
+    fs.writeFileSync(indexPath, indexTs, 'utf-8');
+    console.log(`[실적] ✅ index.ts 생성 완료 (${csvMap.length}개월)`);
+  } else {
+    console.log(`[실적] index.ts 변경 없음 — 스킵`);
+  }
 
-  return [...new Set(csvMap.map((item) => item.fullYm))].sort();
+  // 캐시 삭제 트리거는 실제로 .ts 파일을 새로 쓴 월에 한정
+  return writtenMonths.sort();
 }
 
 // pl-forecast seasonCacheKey 계산 (route.ts와 동일 로직)

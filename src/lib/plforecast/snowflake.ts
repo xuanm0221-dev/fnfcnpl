@@ -1102,12 +1102,16 @@ export interface BrandRetailChannelSummaryRow {
   channel: 'dealer' | 'direct';
   cySalesAmt: number;
   pySalesAmt: number;
+  cyTagAmt: number;
+  pyTagAmt: number;
 }
 
 export interface BrandRetailRawRow {
   brandCode: 'M' | 'I' | 'X';
   cySalesAmt: number;
   pySalesAmt: number;
+  cyTagAmt: number;
+  pyTagAmt: number;
 }
 
 export interface BrandRetailUnassignedShopRow {
@@ -1270,7 +1274,8 @@ export async function getBrandRetailChannelSummary(
           sale.brd_cd,
           vs.brd_nm,
           vs.channel,
-          SUM(sale.sale_amt) AS sales_amt
+          SUM(sale.sale_amt) AS sales_amt,
+          SUM(sale.tag_amt)  AS tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
@@ -1282,7 +1287,8 @@ export async function getBrandRetailChannelSummary(
           sale.brd_cd,
           vs.brd_nm,
           vs.channel,
-          SUM(sale.sale_amt) AS sales_amt
+          SUM(sale.sale_amt) AS sales_amt,
+          SUM(sale.tag_amt)  AS tag_amt
         FROM CHN.dw_sale sale
         INNER JOIN valid_shops vs ON sale.shop_id = vs.shop_id
         WHERE sale.sale_dt BETWEEN ?::DATE AND ?::DATE
@@ -1298,7 +1304,8 @@ export async function getBrandRetailChannelSummary(
         SELECT
           b.brand_code,
           b.channel,
-          COALESCE(SUM(css.sales_amt), 0) AS sales_amt
+          COALESCE(SUM(css.sales_amt), 0) AS sales_amt,
+          COALESCE(SUM(css.tag_amt),   0) AS tag_amt
         FROM base_rows b
         LEFT JOIN cy_shop_sales css
           ON css.brd_cd = b.brand_code
@@ -1310,7 +1317,8 @@ export async function getBrandRetailChannelSummary(
         SELECT
           b.brand_code,
           b.channel,
-          COALESCE(SUM(pss.sales_amt), 0) AS sales_amt
+          COALESCE(SUM(pss.sales_amt), 0) AS sales_amt,
+          COALESCE(SUM(pss.tag_amt),   0) AS tag_amt
         FROM base_rows b
         LEFT JOIN py_shop_sales pss
           ON pss.brd_cd = b.brand_code
@@ -1322,7 +1330,9 @@ export async function getBrandRetailChannelSummary(
         cy.brand_code AS BRAND_CODE,
         cy.channel AS CHANNEL,
         cy.sales_amt AS CY_SALES_AMT,
-        py.sales_amt AS PY_SALES_AMT
+        py.sales_amt AS PY_SALES_AMT,
+        cy.tag_amt   AS CY_TAG_AMT,
+        py.tag_amt   AS PY_TAG_AMT
       FROM cy_summary cy
       INNER JOIN py_summary py
         ON py.brand_code = cy.brand_code
@@ -1335,6 +1345,8 @@ export async function getBrandRetailChannelSummary(
       CHANNEL: 'dealer' | 'direct';
       CY_SALES_AMT: number;
       PY_SALES_AMT: number;
+      CY_TAG_AMT: number;
+      PY_TAG_AMT: number;
     }>(connection, sql, [onOffCls, cyStartDt, lastDt, pyStartDt, prevYearLastDt]);
 
     return rows.map((row) => ({
@@ -1342,6 +1354,8 @@ export async function getBrandRetailChannelSummary(
       channel: row.CHANNEL,
       cySalesAmt: Number(row.CY_SALES_AMT) || 0,
       pySalesAmt: Number(row.PY_SALES_AMT) || 0,
+      cyTagAmt: Number(row.CY_TAG_AMT) || 0,
+      pyTagAmt: Number(row.PY_TAG_AMT) || 0,
     }));
   } finally {
     await destroyConnection(connection);
@@ -1369,7 +1383,9 @@ export async function getBrandRetailRawTotal(
       SELECT
         brd_cd AS BRAND_CODE,
         SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN sale_amt ELSE 0 END) AS CY_SALES_AMT,
-        SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN sale_amt ELSE 0 END) AS PY_SALES_AMT
+        SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN sale_amt ELSE 0 END) AS PY_SALES_AMT,
+        SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN tag_amt  ELSE 0 END) AS CY_TAG_AMT,
+        SUM(CASE WHEN sale_dt BETWEEN ?::DATE AND ?::DATE THEN tag_amt  ELSE 0 END) AS PY_TAG_AMT
       FROM CHN.dw_sale
       WHERE brd_cd IN ('M', 'I', 'X')
         AND (
@@ -1383,12 +1399,20 @@ export async function getBrandRetailRawTotal(
       BRAND_CODE: 'M' | 'I' | 'X';
       CY_SALES_AMT: number;
       PY_SALES_AMT: number;
-    }>(connection, sql, [cyStartDt, lastDt, pyStartDt, prevYearLastDt, cyStartDt, lastDt, pyStartDt, prevYearLastDt]);
+      CY_TAG_AMT: number;
+      PY_TAG_AMT: number;
+    }>(connection, sql, [
+      cyStartDt, lastDt, pyStartDt, prevYearLastDt,   // sale CY/PY
+      cyStartDt, lastDt, pyStartDt, prevYearLastDt,   // tag CY/PY
+      cyStartDt, lastDt, pyStartDt, prevYearLastDt,   // WHERE OR
+    ]);
 
     return rows.map((row) => ({
       brandCode: row.BRAND_CODE,
       cySalesAmt: Number(row.CY_SALES_AMT) || 0,
       pySalesAmt: Number(row.PY_SALES_AMT) || 0,
+      cyTagAmt: Number(row.CY_TAG_AMT) || 0,
+      pyTagAmt: Number(row.PY_TAG_AMT) || 0,
     }));
   } finally {
     await destroyConnection(connection);

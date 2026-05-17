@@ -168,6 +168,7 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
   const [data, setData] = useState<RetailBrandSummaryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modalState, setModalState] = useState<UnassignedModalState | null>(null);
+  const [valueMode, setValueMode] = useState<'sale' | 'tag'>('sale');
 
   useEffect(() => {
     if (!ym) return;
@@ -211,11 +212,36 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-md shadow-gray-200/70 overflow-hidden transition-shadow hover:shadow-lg">
       <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-br from-slate-50 via-cyan-50/70 to-white">
-        <div className="flex items-center gap-3">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-cyan-600" />
-          <h3 className="text-base font-semibold tracking-tight text-slate-900">
-            브랜드별 리테일(POP,WHS포함)
-          </h3>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-cyan-600" />
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">
+              브랜드별 리테일(POP,WHS포함)
+            </h3>
+          </div>
+          {/* Tag / 실판 토글 */}
+          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-xs font-semibold">
+            <button
+              onClick={() => setValueMode('tag')}
+              className={`px-2.5 py-1 rounded-md transition-colors ${
+                valueMode === 'tag'
+                  ? 'bg-cyan-600 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              Tag
+            </button>
+            <button
+              onClick={() => setValueMode('sale')}
+              className={`px-2.5 py-1 rounded-md transition-colors ${
+                valueMode === 'sale'
+                  ? 'bg-cyan-600 text-white'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              실판
+            </button>
+          </div>
         </div>
         <div className="mt-2 text-xs text-slate-500">
           {currentData ? (
@@ -223,6 +249,8 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
               <span>당월MTD {formatPeriodDisplay(currentData.monthlyPeriodStart, currentData.periodEnd)}</span>
               <span className="mx-2 text-slate-300">|</span>
               <span>연간YTD {formatPeriodDisplay(currentData.ytdPeriodStart, currentData.periodEnd)}</span>
+              <span className="mx-2 text-slate-300">|</span>
+              <span>기준: <strong>{valueMode === 'tag' ? 'Tag매출' : '실판매출(V+)'}</strong></span>
             </>
           ) : (
             <span>기간 확인 중</span>
@@ -254,6 +282,12 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                     const tm = totalBucket.monthly;
                     const ty = totalBucket.ytd;
 
+                    // Tag / 실판 모드별 값 헬퍼
+                    const pickCy = (m: { cySalesAmt: number; cyTagAmt: number }) =>
+                      valueMode === 'tag' ? m.cyTagAmt : m.cySalesAmt;
+                    const pickYoy = (m: { yoy: number | null; tagYoy: number | null }) =>
+                      valueMode === 'tag' ? m.tagYoy : m.yoy;
+
                     const totalRow = (
                       <tr key={`${brand}-total`} className="border-b border-slate-200/80 bg-slate-100">
                         <td
@@ -266,16 +300,16 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                           합계
                         </td>
                         <td className="px-3 py-3 text-right bg-slate-100">
-                          <div className="font-semibold text-slate-900">{formatK(tm.cySalesAmt)}K</div>
+                          <div className="font-semibold text-slate-900">{formatK(pickCy(tm))}K</div>
                         </td>
-                        <td className={`px-3 py-3 text-right font-semibold bg-slate-100 ${yoyClass(tm.yoy)}`}>
-                          {formatYoy(tm.yoy)}
+                        <td className={`px-3 py-3 text-right font-semibold bg-slate-100 ${yoyClass(pickYoy(tm))}`}>
+                          {formatYoy(pickYoy(tm))}
                         </td>
                         <td className="px-4 py-3 text-right bg-slate-100">
-                          <div className="font-semibold text-slate-900">{formatK(ty.cySalesAmt)}K</div>
+                          <div className="font-semibold text-slate-900">{formatK(pickCy(ty))}K</div>
                         </td>
-                        <td className={`px-4 py-3 text-right font-semibold bg-slate-100 ${yoyClass(ty.yoy)}`}>
-                          {formatYoy(ty.yoy)}
+                        <td className={`px-4 py-3 text-right font-semibold bg-slate-100 ${yoyClass(pickYoy(ty))}`}>
+                          {formatYoy(pickYoy(ty))}
                         </td>
                       </tr>
                     );
@@ -283,15 +317,17 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                     const channelRows = CHANNEL_ROWS.map((ch, chIndex) => {
                       const bucketGroup = currentData[ch.dataKey];
                       const bucket = bucketGroup?.[brand];
-                      const emptyMetric = { cySalesAmt: 0, pySalesAmt: 0, yoy: null };
+                      const emptyMetric = { cySalesAmt: 0, pySalesAmt: 0, yoy: null, cyTagAmt: 0, pyTagAmt: 0, tagYoy: null };
                       const monthly = bucket?.monthly ?? emptyMetric;
                       const ytd = bucket?.ytd ?? emptyMetric;
+                      const monthlyCy = pickCy(monthly);
+                      const ytdCy = pickCy(ytd);
                       const isLastChannel = chIndex === CHANNEL_ROWS.length - 1;
                       const rowSep =
                         isLastChannel && !isLastBrand ? 'border-b-2 border-slate-200' : 'border-b border-slate-100';
                       const isUnassigned = ch.dataKey === 'unassigned';
-                      const monthlyClickable = isUnassigned && monthly.cySalesAmt > 0;
-                      const ytdClickable = isUnassigned && ytd.cySalesAmt > 0;
+                      const monthlyClickable = isUnassigned && monthlyCy > 0;
+                      const ytdClickable = isUnassigned && ytdCy > 0;
 
                       return (
                         <tr key={`${brand}-${ch.dataKey}`} className={`bg-white ${rowSep}`}>
@@ -303,14 +339,14 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                                 className="font-semibold text-amber-700 hover:underline"
                                 title="미지정 매장 보기"
                               >
-                                {formatK(monthly.cySalesAmt)}K
+                                {formatK(monthlyCy)}K
                               </button>
                             ) : (
-                              <div className="font-semibold text-slate-900">{formatK(monthly.cySalesAmt)}K</div>
+                              <div className="font-semibold text-slate-900">{formatK(monthlyCy)}K</div>
                             )}
                           </td>
-                          <td className={`px-3 py-3 text-right font-semibold ${isUnassigned ? 'text-slate-400' : yoyClass(monthly.yoy)}`}>
-                            {isUnassigned ? '-' : formatYoy(monthly.yoy)}
+                          <td className={`px-3 py-3 text-right font-semibold ${isUnassigned ? 'text-slate-400' : yoyClass(pickYoy(monthly))}`}>
+                            {isUnassigned ? '-' : formatYoy(pickYoy(monthly))}
                           </td>
                           <td className="px-4 py-3 text-right">
                             {ytdClickable ? (
@@ -319,14 +355,14 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
                                 className="font-semibold text-amber-700 hover:underline"
                                 title="미지정 매장 보기"
                               >
-                                {formatK(ytd.cySalesAmt)}K
+                                {formatK(ytdCy)}K
                               </button>
                             ) : (
-                              <div className="font-semibold text-slate-900">{formatK(ytd.cySalesAmt)}K</div>
+                              <div className="font-semibold text-slate-900">{formatK(ytdCy)}K</div>
                             )}
                           </td>
-                          <td className={`px-4 py-3 text-right font-semibold ${isUnassigned ? 'text-slate-400' : yoyClass(ytd.yoy)}`}>
-                            {isUnassigned ? '-' : formatYoy(ytd.yoy)}
+                          <td className={`px-4 py-3 text-right font-semibold ${isUnassigned ? 'text-slate-400' : yoyClass(pickYoy(ytd))}`}>
+                            {isUnassigned ? '-' : formatYoy(pickYoy(ytd))}
                           </td>
                         </tr>
                       );
