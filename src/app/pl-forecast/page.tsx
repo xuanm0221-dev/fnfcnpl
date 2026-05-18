@@ -145,7 +145,13 @@ export default function PlForecastPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/pl-forecast?ym=${ym}&brand=all`);
+        // 페이지 URL에 _r= 있으면(캐시 재생성 직후) API에도 전달 → CDN 우회
+        const pageSearch = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const cacheBuster = pageSearch?.get('_r');
+        const apiUrl = cacheBuster
+          ? `/api/pl-forecast?ym=${ym}&brand=all&_r=${cacheBuster}`
+          : `/api/pl-forecast?ym=${ym}&brand=all`;
+        const res = await fetch(apiUrl, cacheBuster ? { cache: 'no-store' } : {});
         const json: ApiResponse = await res.json();
         if (json.error) {
           setError(json.error);

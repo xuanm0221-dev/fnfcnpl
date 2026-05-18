@@ -174,7 +174,14 @@ export default function RetailBrandSummaryCard({ ym }: { ym: string }) {
     if (!ym) return;
     let cancelled = false;
 
-    fetch(`/api/retail-brand-summary?ym=${ym}`)
+    // 페이지 URL에 _r=가 있으면(캐시 재생성 직후) API에도 cache buster 전달 → CDN 우회
+    const pageSearch = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const cacheBuster = pageSearch?.get('_r');
+    const apiUrl = cacheBuster
+      ? `/api/retail-brand-summary?ym=${ym}&_r=${cacheBuster}`
+      : `/api/retail-brand-summary?ym=${ym}`;
+
+    fetch(apiUrl, cacheBuster ? { cache: 'no-store' } : {})
       .then((res) => res.json())
       .then((json) => {
         if (cancelled) return;
