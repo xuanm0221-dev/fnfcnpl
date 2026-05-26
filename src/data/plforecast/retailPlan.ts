@@ -5588,7 +5588,6 @@ MLB,OFFLINE,FR,CN5930,ML 长沙 德思勤,680000,FP,2022,12
 MLB KIDS,OFFLINE,FR,CN5696,MK 长沙 IFS,349600,FP,2022,12
 MLB,OFFLINE,FR,CN5131,ML 长沙 九龙仓IFS-3F,1300000,FP,2021,4
 MLB,OFFLINE,FR,CN5560,ML 长沙 砂之船奥莱一期 FO,1190000,FO,2022,3
-MLB,OFFLINE,FR,CN6250,ML 长沙 砂之船奥莱二期 FO,0,FO,2023,12
 MLB,OFFLINE,FR,CN6390,ML 长沙 万象城,720000,FP,2024,12
 MLB KIDS,OFFLINE,OR,CN1068,MK 长沙 百联奥莱 FO,96000,FO,2023,9
 MLB,OFFLINE,FR,CN6364,ML 长沙 永旺,360000,FP,2024,9
@@ -6391,7 +6390,7 @@ export function isRetailSalesBrand(brandCode: string): boolean {
  * 범례 (Legend)
  * ========================================
  * CSV 파일 경로: D:\로컬파일\월중손익\목표retail
- * 생성 시간: 2026. 5. 26. AM 8:19:57
+ * 생성 시간: 2026. 5. 26. PM 2:00:13
  * 포함된 월: 2025-12.csv, 2026-01.csv, 2026-02.csv, 2026-03.csv, 2026-04.csv, 2026-05.csv
  * 총 파일 수: 6개
  * 
