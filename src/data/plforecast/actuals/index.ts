@@ -1,7 +1,7 @@
 // 자동 생성 — 수정하지 마세요. npm run update-csv 로 재생성됩니다.
-// 생성 시간: 2026. 6. 1. AM 8:16:33
+// 생성 시간: 2026. 6. 8. AM 8:49:05
 // CSV 경로: D:\로컬파일\월중손익\실적
-// 총 6개월: 2025-12, 2026-01, 2026-02, 2026-03, 2026-04, 2026-05
+// 총 7개월: 2025-12, 2026-01, 2026-02, 2026-03, 2026-04, 2026-05, 2026-06
 
 // 날짜별 동적 import 로더 (월별 파일을 lazy load)
 const loaders: Record<string, () => Promise<Record<string, string>>> = {
@@ -11,6 +11,7 @@ const loaders: Record<string, () => Promise<Record<string, string>>> = {
   '2026-03-31': () => import('./2026-03'),
   '2026-04-30': () => import('./2026-04'),
   '2026-05-31': () => import('./2026-05'),
+  '2026-06-07': () => import('./2026-06'),
 };
 
 const varNames: Record<string, string> = {
@@ -20,6 +21,7 @@ const varNames: Record<string, string> = {
   '2026-03-31': 'actuals_2026_03_31',
   '2026-04-30': 'actuals_2026_04_30',
   '2026-05-31': 'actuals_2026_05_31',
+  '2026-06-07': 'actuals_2026_06_07',
 };
 
 /**

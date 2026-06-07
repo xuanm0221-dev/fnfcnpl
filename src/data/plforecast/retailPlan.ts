@@ -6297,6 +6297,10 @@ MLB,OFFLINE,FR,CN6511,ML 济南 槐荫万象里,500000,FP,2026,5
 MLB,OFFLINE,FR,CN6512,ML 徐州 邳州中钰,292325,FP,2026,5
 `;
 
+const retailPlan_2026_06 = `brand,onoff,fr_or_cls,oa_shop_id,oa_shop_nm,sale_amt,FP/FO,오픈연도,오픈월
+MLB,OFFLINE,FR,CN5271,ML 淮北 金鹰,339343,FP,2021,7
+`;
+
 // 월별 목표 CSV 매핑
 const retailPlanCsvMap: Record<string, string> = {
   '2025-12': retailPlan_2025_12,
@@ -6305,6 +6309,7 @@ const retailPlanCsvMap: Record<string, string> = {
   '2026-03': retailPlan_2026_03,
   '2026-04': retailPlan_2026_04,
   '2026-05': retailPlan_2026_05,
+  '2026-06': retailPlan_2026_06,
 };
 
 // 브랜드별 계획 데이터
@@ -6390,9 +6395,9 @@ export function isRetailSalesBrand(brandCode: string): boolean {
  * 범례 (Legend)
  * ========================================
  * CSV 파일 경로: D:\로컬파일\월중손익\목표retail
- * 생성 시간: 2026. 6. 1. AM 8:16:30
- * 포함된 월: 2025-12.csv, 2026-01.csv, 2026-02.csv, 2026-03.csv, 2026-04.csv, 2026-05.csv
- * 총 파일 수: 6개
+ * 생성 시간: 2026. 6. 8. AM 8:49:04
+ * 포함된 월: 2025-12.csv, 2026-01.csv, 2026-02.csv, 2026-03.csv, 2026-04.csv, 2026-05.csv, 2026-06.csv
+ * 총 파일 수: 7개
  * 
  * 파일명 형식: YYYY-MM.csv (예: 2025-12.csv, 2026-01.csv)
  * 업데이트 방법: CSV 파일 추가 후 npm run update-csv 실행
