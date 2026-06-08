@@ -82,11 +82,11 @@ function getWaterfallColor(type: string): string {
 
 export default function PlForecastPage() {
   const router = useRouter();
-  // 초기값은 2026-05 (기본 조회월)
+  // 초기값은 2026-06 (기본 조회월)
   const [ym, setYm] = useState(() => {
-    if (typeof window === 'undefined') return '2026-05';
+    if (typeof window === 'undefined') return '2026-06';
     const p = new URLSearchParams(window.location.search);
-    return p.get('ym') || '2026-05';
+    return p.get('ym') || '2026-06';
   });
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
