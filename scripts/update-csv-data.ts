@@ -290,19 +290,29 @@ const brandCodeToName: Record<string, string> = {
   'X': 'DISCOVERY',
 };
 
+// CSV brand 컬럼 값 정규화: 새 포맷(KIDS, DX)과 옛 포맷(MLB KIDS, DISCOVERY) 모두 대응
+function normalizeBrandName(raw: string): string {
+  const v = raw.trim();
+  if (v === 'KIDS') return 'MLB KIDS';
+  if (v === 'DX') return 'DISCOVERY';
+  return v; // MLB, MLB KIDS, DISCOVERY는 그대로
+}
+
 /**
  * 기준월과 브랜드 코드로 계획 데이터 조회
+ * 필터: OFFLINE + fr_or_cls in (FR, FRS) + FP/FO in (FP, FO) + 해당 브랜드
+ * 집계: sale_amt > 0인 행만 (매출 합산·매장수 카운팅 모두)
  */
 export function getRetailPlan(ym: string, brandCode: string): RetailPlanData | null {
   const csv = retailPlanCsvMap[ym];
   if (!csv) return null;
-  
+
   const brandName = brandCodeToName[brandCode];
   if (!brandName) return null;
-  
+
   const lines = csv.trim().split('\\n');
   if (lines.length < 2) return null;
-  
+
   // 헤더 파싱
   const headers = lines[0].split(',').map(h => h.trim());
   const brandIndex = headers.indexOf('brand');
@@ -310,38 +320,42 @@ export function getRetailPlan(ym: string, brandCode: string): RetailPlanData | n
   const frOrClsIndex = headers.indexOf('fr_or_cls');
   const shopIdIndex = headers.indexOf('oa_shop_id');
   const saleAmtIndex = headers.indexOf('sale_amt');
-  
-  if (brandIndex === -1 || onoffIndex === -1 || frOrClsIndex === -1 || 
+  const fpFoIndex = headers.indexOf('FP/FO');
+
+  if (brandIndex === -1 || onoffIndex === -1 || frOrClsIndex === -1 ||
       shopIdIndex === -1 || saleAmtIndex === -1) {
     return null;
   }
-  
+
   // 브랜드별 집계
   let totalSalesAmt = 0;
   const uniqueShopIds = new Set<string>();
-  
+
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim());
-    const brand = cols[brandIndex];
+    const brand = normalizeBrandName(cols[brandIndex]);
     const onoff = cols[onoffIndex];
     const frOrCls = cols[frOrClsIndex];
     const shopId = cols[shopIdIndex];
     const saleAmtStr = cols[saleAmtIndex];
-    
-    // 필터링 조건: 해당 브랜드, OFFLINE, FR
-    if (brand === brandName && onoff === 'OFFLINE' && frOrCls === 'FR') {
-      // 판매매출 합산
+    const fpFo = fpFoIndex !== -1 ? cols[fpFoIndex] : '';
+
+    // 필터: 브랜드 매칭, OFFLINE, fr_or_cls in (FR, FRS), FP/FO 컬럼 있으면 FP/FO 만
+    const brandMatch = brand === brandName;
+    const onoffMatch = onoff === 'OFFLINE';
+    const frMatch = frOrCls === 'FR' || frOrCls === 'FRS';
+    const fpFoMatch = fpFoIndex === -1 || fpFo === 'FP' || fpFo === 'FO';
+
+    if (brandMatch && onoffMatch && frMatch && fpFoMatch) {
       const saleAmt = saleAmtStr ? parseFloat(saleAmtStr.replace(/,/g, '')) : 0;
-      if (!isNaN(saleAmt)) {
+      // sale_amt > 0인 행만: 매출 합산 + 매장수 카운팅
+      if (!isNaN(saleAmt) && saleAmt > 0) {
         totalSalesAmt += saleAmt;
-      }
-      // 고유 매장수 집계
-      if (shopId) {
-        uniqueShopIds.add(shopId);
+        if (shopId) uniqueShopIds.add(shopId);
       }
     }
   }
-  
+
   return {
     salesAmt: totalSalesAmt > 0 ? totalSalesAmt : null,
     shopCnt: uniqueShopIds.size > 0 ? uniqueShopIds.size : null
